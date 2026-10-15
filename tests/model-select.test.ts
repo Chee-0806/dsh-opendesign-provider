@@ -11,6 +11,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  allowlistedModels,
   buildModelSelectOptions,
   catalogIsReady,
   groupModelSelectOptions,
@@ -196,4 +197,33 @@ test('an empty selection is never stale', () => {
   // The state that made the old cleanup dangerous: nothing selected must not
   // read as "everything is stale".
   assert.deepEqual(staleModelIds([], { catalogIds: [], catalogFailed: false }), [])
+})
+
+// The visible-models allowlist as other pickers read it
+
+test('show-all offers the whole catalog in catalog order', () => {
+  assert.deepEqual(
+    allowlistedModels(CATALOG, [], true).map((model) => model.id),
+    CATALOG.map((model) => model.id),
+  )
+})
+
+test('a whitelist narrows the rows to the allowlisted ids, keeping catalog order', () => {
+  const allowlist = ['some-future-model', 'deepseek/deepseek-v4-pro']
+  assert.deepEqual(
+    allowlistedModels(CATALOG, allowlist, false).map((model) => model.id),
+    // Catalog order, NOT allowlist order — the dropdown reads like the picker.
+    ['deepseek/deepseek-v4-pro', 'some-future-model'],
+  )
+})
+
+test('a whitelist entry the catalog lacks adds no row on its own', () => {
+  // Stale allowlist ids are kept by the filter row for its own editor; this
+  // dropdown can only offer catalog models, so a stale-only whitelist means
+  // "no new override can be added" rather than a phantom option.
+  assert.deepEqual(allowlistedModels(CATALOG, ['retired/model'], false), [])
+  assert.deepEqual(
+    allowlistedModels(CATALOG, ['retired/model', 'tencent/hy4-preview'], false).map((model) => model.id),
+    ['tencent/hy4-preview'],
+  )
 })

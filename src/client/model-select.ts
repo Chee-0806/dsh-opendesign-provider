@@ -154,6 +154,24 @@ export function toggleModelSelection(
     : [...selected, modelId]
 }
 
+/**
+ * The catalog rows a picker may offer under the visible-models allowlist, in
+ * catalog order: the whole catalog while "show all" is active (the empty
+ * allowlist means exactly that), otherwise only the allowlisted ids. The
+ * per-model context override editor uses this so its dropdown agrees with the
+ * whitelist on the same card stack — a staged whitelist edit narrows it
+ * immediately, since both read the projected page state.
+ */
+export function allowlistedModels<T extends SelectableModel>(
+  catalog: readonly T[],
+  allowlist: readonly string[],
+  showAll: boolean,
+): T[] {
+  if (showAll) return [...catalog]
+  const keep = new Set(allowlist)
+  return catalog.filter((model) => keep.has(model.id))
+}
+
 /** The catalog facts the visible-models card reads (mirrors `SettingsPageState`). */
 export interface CatalogReadiness {
   /** Catalog model ids the Host reported (`[]` before the first fetch lands). */

@@ -25,6 +25,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { IDENTITY_ENCODING_HEADER } from './response-encoding.ts'
 import { MAX_TIMEOUT_SECONDS } from './timeout-limits.ts'
 import { modelIsVisible } from './model-visibility.ts'
+import { effectiveContextWindow } from './context-window.ts'
 import { bilingual, MAX_TRUSTED_RESET_MS, parseProviderError, generateHttpError, parseRetryAfterMs, classifyAccountRejection, isUpgradeRequiredError, isMessagesPermissionRejection, type AccountRotationReason } from './provider-errors.ts'
 export type { AccountRotationReason } from './provider-errors.ts'
 import { ownedResponseStream, settleStreamResponse, responseIdentifiers, failureWithRequestId, type CommandCodeProtocol, type ResponseMetadata } from './stream-response.ts'
@@ -78,7 +79,7 @@ import {
   type CommandCodeBillingAccess,
 } from './capabilities.ts'
 
-import { GatewayFacts, modelOutputTokenLimit, learnedOutputLimit, outputCeilingRefusal, type CommandCodeModel } from './gateway-facts.ts'
+import { GatewayFacts, catalogModelMaxTokens, modelOutputTokenLimit, learnedOutputLimit, outputCeilingRefusal, type CommandCodeModel } from './gateway-facts.ts'
 export { DEFAULT_MAX_OUTPUT_TOKENS, MODEL_CATALOG_TTL_MS } from './gateway-facts.ts'
 
 // ---------------------------------------------------------------------------
@@ -1421,6 +1422,18 @@ export interface CommandCodeConnectionOptions {
    */
   modelVisibility?: Readonly<Record<string, boolean>> | undefined
   /**
+   * 自定义上下文长度（全局值，issue #86）：对没有 {@link contextWindowOverrides}
+   * 条目的目录模型，宣告给宿主的上下文窗口改用此值而非目录的
+   * `context_length`；选择器标注、`defaultMaxTokens` 预算同样跟随。
+   * 留空表示完全跟随目录。
+   */
+  contextWindow?: number | undefined
+  /**
+   * 按模型的自定义上下文长度，键为目录模型 id；优先于 {@link contextWindow}。
+   * 非法条目在 `resolveAdapterOptions` 已被清洗，这里只读已判定的值。
+   */
+  contextWindowOverrides?: Readonly<Record<string, number>> | undefined
+  /**
    * Optional protocol hint. `'auto'` (default) uses billing/cache plus
    * Provider API fallback; `'cli'` forces `/alpha/generate`; `'openai'`
    * prefers `/provider/v1/chat/completions` but still falls back to the CLI
@@ -2460,8 +2473,9 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
         id: model.id,
         name: `${model.name} (CC)`,
         // The picker renders `description` under the model name: plan tier,
-        // active deal, Image marker for Vision models, and context window.
-        description: capabilityDescription(model.id, model.contextWindow),
+        // active deal, Image marker for Vision models, and context window —
+        // the CUSTOM one when a context-length override applies (issue #86).
+        description: capabilityDescription(model.id, effectiveContextWindow(model.contextWindow, model.id, connection)),
         inputModalities: vision ? (['text', 'image'] as const) : (['text'] as const),
       }
     }
@@ -2539,11 +2553,17 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
 
     const efforts = KNOWN_EFFORTS[model]
     const vision = KNOWN_IMAGE_MODELS.has(model)
+    // 自定义上下文长度（issue #86）：目录条目存在时，宣告给宿主的窗口按
+    // 「按模型覆盖 → 全局值 → 目录公布值」解析；未知模型没有条目，保持
+    // 既有的「无上下文宣告」形状。
+    const contextWindow = entry === undefined
+      ? undefined
+      : effectiveContextWindow(entry.contextWindow, model, connection)
     return {
       provider,
       id: model,
       name: entry ? `${entry.name} (CC)` : model,
-      description: capabilityDescription(model, entry?.contextWindow),
+      description: capabilityDescription(model, contextWindow),
       inputModalities: vision ? (['text', 'image'] as const) : (['text'] as const),
       // Both Command Code transports send the complete active tool declaration
       // list on every request. They do not need a provider-native deferred
@@ -2554,10 +2574,11 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
       // series when a plugin enables a tool mid-session; removals are handled
       // by omission from that active list, not by a removal event.
       toolUpdate: 'addition-only' as const,
-      ...(entry
+      ...(entry !== undefined && contextWindow !== undefined
         ? {
-            context: { contextWindow: entry.contextWindow },
-            defaultMaxTokens: Math.min(entry.maxTokens, DEFAULT_GENERATE_MAX_TOKENS),
+            context: { contextWindow },
+            // 用有效窗口重新计算，调大时解除旧目录窗口限制；模型输出上限与网关总上限仍有效。
+            defaultMaxTokens: Math.min(catalogModelMaxTokens(connection.apiBase, entry, contextWindow), DEFAULT_GENERATE_MAX_TOKENS),
           }
         : {}),
       // Omit `reasoning` entirely for models without known effort support:
@@ -3060,7 +3081,11 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     const catalog = await facts.catalog
     options.signal?.throwIfAborted()
     const modelEntry = catalog.find(row => row.id === options.model)
-    const initialMax = Math.min(options.maxTokens ?? Infinity, modelEntry?.maxTokens ?? facts.fallbackLimit, DEFAULT_GENERATE_MAX_TOKENS)
+    // 与 resolveModel 的默认预算共用推导，显式 maxTokens 和直接调用也不能沿用旧窗口。
+    const modelMax = modelEntry === undefined ? facts.fallbackLimit : catalogModelMaxTokens(
+      connection.apiBase, modelEntry, effectiveContextWindow(modelEntry.contextWindow, options.model, connection),
+    )
+    const initialMax = Math.min(options.maxTokens ?? Infinity, modelMax, DEFAULT_GENERATE_MAX_TOKENS)
     const budget = { max: initialMax, sent: initialMax }
     for (let attempt = 0; ; attempt++) {
       let delivered = false

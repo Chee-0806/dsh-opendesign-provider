@@ -877,6 +877,78 @@ async function checkStreamSettlement(staged, engineModules) {
   if (verified) process.stdout.write('真实宿主已验证三协议唯一终态、截断、取消、尾部失败、失败工具快照与用量（22 个场景）\n')
 }
 
+/** 经真实宿主验证整数窗口及其默认预算，避免只有适配器元数据断言通过。 */
+async function checkContextWindowBudget(staged, engineModules) {
+  if (staged === undefined) return
+  const require = createRequire(join(dirname(engineModules), 'context-window-probe.cjs'))
+  const load = async name => import(pathToFileURL(require.resolve(name)).href)
+  const [{ Context }, llm, plugin] = await Promise.all([
+    load(`${SCOPE}/cordis`), load(`${SCOPE}/dsh-llm`), import(pathToFileURL(join(staged, 'lib', 'index.js')).href),
+  ])
+  let verified = true
+  try {
+    assert.throws(() => plugin.Config({ contextWindow: 32768.5 }))
+    assert.throws(() => plugin.Config({ contextWindowOverrides: { model: 32768.5 } }))
+  } catch (error) { verified = false; fail(`上下文整数配置校验：${error.message}`) }
+  for (const protocol of ['cli', 'openai', 'messages']) {
+    const scenarios = [
+      { catalog: 8192, custom: 131072, expected: 131072 },
+      { catalog: 1000000, custom: 32768, expected: 32768 },
+      { catalog: 8192, custom: 131072, published: 16384, expected: 16384 },
+      // 绕过配置校验的程序化小数也不能形成宿主拒绝的模型元数据。
+      { catalog: 8192, custom: 32768.5, expected: 8192 },
+    ]
+    for (const [index, scenario] of scenarios.entries()) {
+      const ctx = new Context(), sent = []
+      try {
+        const model = 'deepseek/deepseek-v4-flash'
+        const runtime = new llm.LlmRuntime(ctx)
+        const sse = event => `data: ${JSON.stringify(event)}\n\n`
+        const response = protocol === 'cli'
+          ? sse({ type: 'text-delta', text: 'ok' }) + sse({ type: 'finish', finishReason: 'stop' })
+          : protocol === 'openai'
+            ? sse({ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }) + 'data: [DONE]\n\n'
+            : sse({ type: 'message_start', message: { usage: { input_tokens: 1, output_tokens: 0 } } })
+              + sse({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
+              + sse({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } })
+              + sse({ type: 'content_block_stop', index: 0 })
+              + sse({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } })
+              + sse({ type: 'message_stop' })
+        const adapter = new plugin.CommandCodeAdapter({
+          options: () => ({ apiBase: `https://engine-context-${protocol}-${index}.invalid`, workingDir: '/tmp', modelsCachePath: '',
+            protocol, requestTimeoutMs: 1000, streamIdleTimeoutMs: 1000, contextWindow: scenario.custom }),
+          resolveApiKey: async () => 'synthetic-context-key',
+          fetchImpl: async (url, init) => {
+            if (String(url).endsWith('/provider/v1/models')) return Response.json({ object: 'list', data: [{
+              id: model, name: '合成上下文模型', context_length: scenario.catalog,
+              supported_endpoints: [protocol === 'messages' ? '/messages' : '/chat/completions'],
+              ...scenario.published === undefined ? {} : { max_output_tokens: scenario.published },
+            }] })
+            const body = JSON.parse(String(init?.body))
+            sent.push(protocol === 'cli' ? body.params.max_tokens : body.max_tokens)
+            return new Response(response)
+          },
+        })
+        runtime.registerAdapter(['commandcode'], adapter)
+        const info = await runtime.resolveModelInfo('commandcode', model)
+        assert.equal(info.context.contextWindow, Number.isInteger(scenario.custom) ? scenario.custom : scenario.catalog)
+        assert.equal(info.defaultMaxTokens, scenario.expected)
+        for (const maxTokens of [undefined, 65536]) {
+          const assembly = new llm.BlockAssembler()
+          for await (const chunk of runtime.stream({ provider: 'commandcode', model,
+            messages: [llm.createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '合成请求' }] })],
+            ...maxTokens === undefined ? {} : { maxTokens },
+          })) assembly.push(chunk)
+          assert.equal(assembly.finish.kind, 'stop')
+        }
+        assert.deepEqual(sent, [scenario.expected, Math.min(65536, scenario.expected)])
+      } catch (error) { verified = false; fail(`${protocol} 上下文预算场景 ${index + 1}：${error.stack ?? error.message}`) }
+      finally { await ctx.fiber.dispose() }
+    }
+  }
+  if (verified) process.stdout.write('真实宿主已验证整数窗口、调大调小、公布上限及三协议默认/显式预算（12 个场景）\n')
+}
+
 /** 使用真实插件入口、易变引用与账号池验证接线，网络及凭据仍为合成依赖。 */
 async function checkGatewayRequestFacts(staged, engineModules) {
   if (staged === undefined) return
@@ -1030,6 +1102,7 @@ async function verify(options) {
     await checkEnrollmentStream(staged, engine.modules)
     await checkAnalyticsHistory(staged, engine.modules)
     await checkStreamSettlement(staged, engine.modules)
+    await checkContextWindowBudget(staged, engine.modules)
     await checkGatewayRequestFacts(staged, engine.modules)
     const policy = await checkImagePolicy(engine.modules)
     process.stdout.write(`request-image offload contract on this engine: ${policy}\n`)

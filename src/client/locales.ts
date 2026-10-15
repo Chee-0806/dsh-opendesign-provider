@@ -60,6 +60,19 @@ export type SettingsCommandCodeKey =
   | 'visibleModelsShowAll'
   | 'visibleModelsStaleHint'
   | 'visibleModelsCleanStale'
+  | 'contextTitle'
+  | 'contextWindow'
+  | 'contextWindowHint'
+  | 'contextOverridesTitle'
+  | 'contextOverridesHint'
+  | 'contextOverrideAdd'
+  | 'contextOverrideRemove'
+  | 'contextOverrideModel'
+  | 'contextOverrideValue'
+  | 'contextOverrideNoCatalog'
+  | 'contextWindowTooSmall'
+  | 'contextWindowTooLarge'
+  | 'contextWindowInvalid'
   | 'overridden'
   | 'reset'
   | 'invalidNumber'
@@ -243,6 +256,21 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   visibleModelsShowAll: '显示全部',
   visibleModelsStaleHint: '有 {count} 个已选模型在目录中找不到了（可能已下架），不影响其他模型；可清理或保留。',
   visibleModelsCleanStale: '清理失效（{count}）',
+  contextTitle: '上下文长度',
+  contextWindow: '自定义上下文长度',
+  contextWindowHint:
+    '覆盖模型目录公布的上下文窗口（token）：上下文计量、自动压缩时机与模型选择器的上下文标注都按此值计算，'
+    + '对未单独设置的模型生效。留空则跟随目录；支持 32K、1M 这样的简写（二进制换算：32K = 32 768，1M = 1 048 576）。',
+  contextOverridesTitle: '按模型覆盖',
+  contextOverridesHint: '为单个模型单独设置上下文长度，优先于上面的全局值；模型下拉只列出模型白名单中的可见模型（显示全部时即整个目录）。',
+  contextOverrideAdd: '添加模型',
+  contextOverrideRemove: '移除该模型的上下文覆盖',
+  contextOverrideModel: '模型',
+  contextOverrideValue: '上下文长度',
+  contextOverrideNoCatalog: '模型目录尚未加载，暂时无法添加按模型覆盖。',
+  contextWindowTooSmall: '上下文长度不能小于 1',
+  contextWindowTooLarge: '上下文长度不能大于 10,000,000',
+  contextWindowInvalid: '请输入有效的整数 token 数',
   overridden: '已覆盖',
   reset: '重置',
   invalidNumber: '无效数字',
@@ -431,6 +459,25 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   visibleModelsStaleHint: '{count} selected model(s) are no longer in the catalog (possibly retired);'
     + ' other models are unaffected. Clean them up or keep them.',
   visibleModelsCleanStale: 'Clean stale ({count})',
+  contextTitle: 'Context length',
+  contextWindow: 'Custom context length',
+  contextWindowHint:
+    'Overrides the context window published by the model catalog (in tokens): the context meter, '
+    + 'auto-compaction timing and the model-picker annotation all follow it, for every model without a '
+    + 'per-model override below. Empty follows the catalog; shorthand like 32K or 1M is accepted '
+    + '(binary units: 32K is 32,768, 1M is 1,048,576).',
+  contextOverridesTitle: 'Per-model overrides',
+  contextOverridesHint:
+    'Set a context length for one model; it wins over the global value above. The picker lists only the '
+    + 'models kept by the visible-models allowlist (the whole catalog while showing all).',
+  contextOverrideAdd: 'Add model',
+  contextOverrideRemove: 'Remove this model’s context override',
+  contextOverrideModel: 'Model',
+  contextOverrideValue: 'Context length',
+  contextOverrideNoCatalog: 'The model catalog has not loaded yet; per-model overrides cannot be added right now.',
+  contextWindowTooSmall: 'Context length must be at least 1',
+  contextWindowTooLarge: 'Context length must not exceed 10,000,000',
+  contextWindowInvalid: 'Enter a valid whole-token count',
   overridden: 'Overridden',
   reset: 'Reset',
   invalidNumber: 'Invalid number',

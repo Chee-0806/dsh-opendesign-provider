@@ -3,6 +3,7 @@
 
 import { MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../timeout-limits.ts'
 import { modelIsVisible, readVisibility } from '../model-visibility.ts'
+import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, isValidContextWindow, readContextWindowOverrides } from '../context-window.ts'
 import type { SettingsMutationResult, SettingsPathOp } from './settings-scope.ts'
 import { SettingsWriter, DEFAULT_API_KEY_REF, accountModelMap, writeCompleted, type StoredRule, type SettingsWriteIntent, type SettingsWriteResult } from './settings-write.ts'
 export { DEFAULT_API_KEY_REF, accountModelMap } from './settings-write.ts'
@@ -75,6 +76,22 @@ export interface StagedField {
 
 /** Why a staged draft fails validation (drives the per-field error copy). */
 export type InvalidReason = 'format' | 'tooSmall' | 'tooLarge'
+
+/**
+ * One per-model context-length override row (issue #86): the model's id with
+ * the staged token text its input shows. Blank text means "no override once
+ * saved" (the row drops out); an unparseable draft blocks save.
+ */
+export interface ContextOverrideRow {
+  /** Catalog model id; one override per model. */
+  model: string
+  /** Live draft text the input shows. */
+  text: string
+  /** Whether the staged draft fails to parse (blocks save). */
+  invalid: boolean
+  /** `format`, `tooSmall`/`tooLarge`; undefined when valid. */
+  invalidReason: InvalidReason | undefined
+}
 
 /**
  * One extra account row. Account management commits immediately (no page
@@ -184,6 +201,10 @@ export interface SettingsPageState {
   visibleModels: string[]
   /** 区分不受限制与终端显式隐藏全部；不能用空数组推断显示全部。 */
   visibleModelsAll: boolean
+  /** Global custom context-length draft; `''` = follow the catalog (issue #86). */
+  contextWindow: StagedField
+  /** Per-model context-length rows: staged draft or stored values, one per model. */
+  contextWindowOverrides: ContextOverrideRow[]
   /** The catalog the model editors offer (Host-side, empty until loaded). */
   catalogModels: CatalogModelOption[]
   /** Whether the catalog fetch failed (editors fall back to typing). */
@@ -254,6 +275,43 @@ function numberField(field: string, bounds?: { min?: number; max?: number }): Fi
       if (bounds?.min !== undefined && parsed < bounds.min) return { kind: 'invalid', reason: 'tooSmall' }
       if (bounds?.max !== undefined && parsed > bounds.max) return { kind: 'invalid', reason: 'tooLarge' }
       return { kind: 'set', value: parsed }
+    },
+  }
+}
+
+/**
+ * The compact token-count shorthand (`32K`, `1M`) in BINARY units, the way
+ * context windows are quoted: 32K → 32 768 (32 × 1024), 128K → 131 072,
+ * 1M → 1 048 576 (1024 × 1024), so the common power-of-two windows land on
+ * their exact values instead of 1000-based rounding.
+ *
+ * Plain text uses the {@link numberField} parse plus an integer check;
+ * shorthand converts to whole tokens first. Empty-clears and bounds
+ * errors stay identical, and the converted value is bounds-checked against the same
+ * 1 – 10,000,000 range (the Host schema would reject an overshoot at save
+ * time with only a generic failure; naming `tooLarge` here says which).
+ * `Math.round` keeps fractional shorthand like `1.5K` on whole tokens.
+ */
+const COMPACT_TOKENS = /^(\d+(?:\.\d+)?)\s*([kKmM])$/
+
+function contextWindowField(field: string, bounds: { min: number; max: number }): FieldSpec {
+  const plain = numberField(field, bounds)
+  return {
+    field,
+    format: plain.format,
+    parse: (text) => {
+      const compact = COMPACT_TOKENS.exec(text.trim())
+      if (compact === null) {
+        const parsed = plain.parse(text)
+        // 时长字段允许小数，词元计数则必须是整数；不能直接沿用通用数字字段的放行结果。
+        return parsed.kind === 'set' && !isValidContextWindow(parsed.value)
+          ? { kind: 'invalid', reason: 'format' }
+          : parsed
+      }
+      const value = Math.round(Number(compact[1]) * (compact[2]!.toLowerCase() === 'k' ? 1024 : 1024 * 1024))
+      if (value < bounds.min) return { kind: 'invalid', reason: 'tooSmall' }
+      if (value > bounds.max) return { kind: 'invalid', reason: 'tooLarge' }
+      return { kind: 'set', value }
     },
   }
 }
@@ -331,6 +389,10 @@ const SECTION_FIELDS: FieldSpec[] = [
   // module — `tests/transport-retry.test.ts` pins the schema's bound against
   // the constant so this mirrored literal cannot drift unnoticed.
   numberField('transportMaxRetries', { min: 0, max: 50 }),
+  // 自定义上下文长度（issue #86）：直接复用 Host schema 的同一对边界常量
+  // （context-window.ts 是纯模块，客户端可打包导入），不像 transportMaxRetries
+  // 那样需要镜像字面量加测试钉住。输入侧额外接受 256K/1M 简写，落盘仍是数字。
+  contextWindowField('contextWindow', { min: CONTEXT_WINDOW_MIN, max: CONTEXT_WINDOW_MAX }),
   booleanField('offloadSeenImagesForCache'),
   booleanField('filterModelsByPlan'),
   booleanField('webSearch'),
@@ -360,6 +422,8 @@ export class CommandCodeSettingsController {
   private accountResult: SettingsWriteResult | undefined
   /** Staged visible-model allowlist (undefined = no draft). */
   private visibleModelsDraft: string[] | undefined = undefined
+  /** Staged per-model context-length overrides as raw text (undefined = no draft, issue #86). */
+  private contextWindowOverridesDraft: Record<string, string> | undefined = undefined
   private catalogModels: CatalogModelOption[] = []
   private catalogFailed = false
   private saving = false
@@ -392,6 +456,7 @@ export class CommandCodeSettingsController {
     this.writer.dispose()
     this.staged.clear()
     this.visibleModelsDraft = undefined
+    this.contextWindowOverridesDraft = undefined
     for (const dispose of this.disposers) dispose()
     this.disposers.length = 0
     this.listeners.clear()
@@ -458,10 +523,13 @@ export class CommandCodeSettingsController {
       accountEnrollmentRefs: this.enrollmentRefs(false),
       visibleModels: this.effectiveVisibleModels(),
       visibleModelsAll: this.visibleModelsDraft === undefined ? this.storedShowsAll() : this.visibleModelsDraft.length === 0,
+      contextWindow: this.field('contextWindow'),
+      contextWindowOverrides: this.effectiveContextWindowOverrides(),
       catalogModels: this.catalogModels,
       catalogFailed: this.catalogFailed,
-      dirty: plan.length > 0 || this.visibleModelsDirty(),
-      invalid: plan.some((item) => item.change === undefined),
+      dirty: plan.length > 0 || this.visibleModelsDirty() || this.contextWindowOverridesDirty(),
+      invalid: plan.some((item) => item.change === undefined)
+        || this.effectiveContextWindowOverrides().some((row) => row.invalid),
       saving: this.saving,
       failed: this.failed,
       savedCount: this.savedCount,
@@ -509,9 +577,11 @@ export class CommandCodeSettingsController {
 
   /** Discard every staged edit. */
   discard(): void {
-    if (this.staged.size === 0 && this.visibleModelsDraft === undefined && !this.failed) return
+    if (this.staged.size === 0 && this.visibleModelsDraft === undefined
+      && this.contextWindowOverridesDraft === undefined && !this.failed) return
     this.staged.clear()
     this.visibleModelsDraft = undefined
+    this.contextWindowOverridesDraft = undefined
     this.failed = false
     this.saveResult = undefined
     this.publish()
@@ -534,9 +604,15 @@ export class CommandCodeSettingsController {
     if (this.disposed || this.saving) return
     const submitted = new Map(this.staged)
     const submittedVisible = this.visibleModelsDraft
+    const submittedContextOverrides = this.contextWindowOverridesDraft
     const plan = this.plan()
     const visibleDirty = this.visibleModelsDirty()
-    if ((plan.length === 0 && !visibleDirty) || plan.some(item => item.change === undefined)) return
+    const contextOverrides = this.parsedContextWindowOverrides()
+    const contextOverridesDirty = this.contextWindowOverridesDirty()
+    // 一个无法解析的按模型覆盖行与越界的普通字段一样整体阻止本次保存，
+    // 而不是把其余字段写下去、留下这行草稿。
+    if ((plan.length === 0 && !visibleDirty && !contextOverridesDirty)
+      || plan.some(item => item.change === undefined) || contextOverrides.invalid) return
     const ops = plan.flatMap(item => typeof item.change === 'object' ? [item.change] : [])
     const key = plan.find(item => item.field === 'apiKey')?.change
     this.saving = true
@@ -545,6 +621,7 @@ export class CommandCodeSettingsController {
     // 入队先于通知订阅者，避免通知回调发起的后续操作插队。
     const completion = this.writer.submit({ kind: 'save', ops,
       ...(visibleDirty ? { visibleModels: submittedVisible ?? [] } : {}),
+      ...(contextOverridesDirty ? { contextWindowOverrides: contextOverrides.values } : {}),
       ...(typeof key === 'string' ? { key } : {}),
     })
     this.publish()
@@ -561,6 +638,7 @@ export class CommandCodeSettingsController {
       if (confirmed && this.staged.get(field) === draft) this.staged.delete(field)
     }
     if ((outcome.config === 'confirmed' || writeCompleted(outcome)) && this.visibleModelsDraft === submittedVisible) this.visibleModelsDraft = undefined
+    if ((outcome.config === 'confirmed' || writeCompleted(outcome)) && this.contextWindowOverridesDraft === submittedContextOverrides) this.contextWindowOverridesDraft = undefined
     this.publish()
     return outcome
   }
@@ -579,6 +657,70 @@ export class CommandCodeSettingsController {
     this.failed = false
     this.saveResult = undefined
     this.publish()
+  }
+
+  /**
+   * Stage the whole per-model context-length map (issue #86): one entry per
+   * row, the value the row's input shows verbatim (blank = drop the override
+   * on save). The component rebuilds the map from its projected rows, so a
+   * model reselect moves the value to its new key in the same edit.
+   */
+  editContextWindowOverrides(next: Record<string, string>): void {
+    this.contextWindowOverridesDraft = { ...next }
+    this.failed = false
+    this.saveResult = undefined
+    this.publish()
+  }
+
+  /** The stored per-model overrides, already cleaned by the shared validity rule. */
+  private storedContextWindowOverrides(): Record<string, number> {
+    return { ...readContextWindowOverrides(this.sectionValue('contextWindowOverrides')) }
+  }
+
+  /** Effective rows: the staged draft verbatim, or the stored values formatted. */
+  private effectiveContextWindowOverrides(): ContextOverrideRow[] {
+    const draft = this.contextWindowOverridesDraft
+    const source: Record<string, string> = draft !== undefined
+      ? draft
+      : Object.fromEntries(Object.entries(this.storedContextWindowOverrides()).map(([model, value]) => [model, String(value)]))
+    return Object.entries(source)
+      .filter(([model]) => model !== '')
+      .map(([model, text]) => {
+        const parsed = this.spec('contextWindow').parse(text)
+        return {
+          model,
+          text,
+          invalid: parsed.kind === 'invalid',
+          invalidReason: parsed.kind === 'invalid' ? parsed.reason : undefined,
+        }
+      })
+  }
+
+  /**
+   * The draft parsed for the write: blank rows and unparseable rows drop out
+   * (an invalid row blocks save on its own), everything else is the value the
+   * writer puts at `contextWindowOverrides`.
+   */
+  private parsedContextWindowOverrides(): { values: Record<string, number>; invalid: boolean } {
+    const values: Record<string, number> = {}
+    let invalid = false
+    for (const row of this.effectiveContextWindowOverrides()) {
+      if (row.invalid) {
+        invalid = true
+        continue
+      }
+      const parsed = this.spec('contextWindow').parse(row.text)
+      if (parsed.kind === 'set' && typeof parsed.value === 'number') values[row.model] = parsed.value
+    }
+    return { values, invalid }
+  }
+
+  private contextWindowOverridesDirty(): boolean {
+    if (this.contextWindowOverridesDraft === undefined) return false
+    const values = this.parsedContextWindowOverrides().values
+    const stored = this.storedContextWindowOverrides()
+    const keys = new Set([...Object.keys(values), ...Object.keys(stored)])
+    return [...keys].some((model) => values[model] !== stored[model])
   }
 
   // --- Immediate account management ---

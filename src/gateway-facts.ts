@@ -34,6 +34,14 @@ export function modelOutputTokenLimit(apiBase: string, model: string): number {
   return Math.min(published.get(apiBase)?.get(model) ?? fallbackLimit(model), learnedOutputLimit(apiBase, model))
 }
 
+/**
+ * 从本次目录记录的独立输出上限重新推导预算，不能复用已经被旧窗口压低的 maxTokens。
+ * 公布值固定在该记录，不读取并发刷新后的共享目录；只继续采纳同网关更低的学习上限。
+ */
+export function catalogModelMaxTokens(apiBase: string, model: CommandCodeModel, contextWindow = model.contextWindow): number {
+  return Math.min(contextWindow, model.publishedMaxTokens ?? fallbackLimit(model.id), learnedOutputLimit(apiBase, model.id))
+}
+
 /** 是否更新共享事实与是否值得重试是两个问题；以本次实发预算判断拒绝。 */
 export function outputCeilingRefusal(apiBase: string, model: string, sent: number, error: unknown): number | undefined {
   if (!(error instanceof LlmError) || !OUTPUT_LIMIT_REJECTION.test(error.message)) return undefined

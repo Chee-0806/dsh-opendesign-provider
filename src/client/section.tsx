@@ -8,7 +8,8 @@
  *
  * Layout, top to bottom: Accounts (one card per account, status, quota,
  * actions and dedicated models — every operation commits immediately), Models
- * (plan filter + visible-model allowlist), Privacy & security (ZDR),
+ * (plan filter + visible-model allowlist), Context length (the global custom
+ * window and per-model overrides, issue #86), Privacy & security (ZDR),
  * Integrations & display (web search, sidebar quota card), and a collapsed
  * Advanced card (API base + network limits). Everything below Accounts is a
  * flat group of rows (title/description left, control right) inside the staged
@@ -29,7 +30,7 @@ import type { CatalogModelOption, SettingsPageState, StagedField } from './setti
 import type { AccountEnrollmentController, EnrollmentPageState } from './enrollment.ts'
 import type { LoginPageState } from './login.ts'
 import { loginHint, loginStateForTarget } from './login.ts'
-import { buildModelSelectOptions, catalogIsReady, groupModelSelectOptions, staleModelIds, tierHeadingFor, toggleModelSelection } from './model-select.ts'
+import { allowlistedModels, buildModelSelectOptions, catalogIsReady, groupModelSelectOptions, staleModelIds, tierHeadingFor, toggleModelSelection } from './model-select.ts'
 import type { UsagePageState } from './usage.ts'
 import { usageCardState } from './usage.ts'
 import { formatMoney, formatMoneyExact, formatResetAt, formatSuccessRate, formatTokensCompact, windowRatio, formatUsageBillingPeriod } from '../display-format.ts'
@@ -61,6 +62,8 @@ export interface CommandCodeSettingsProps {
   setAccountModels(target: string, ids: string[]): Promise<boolean>
   editVisibleModels(ids: string[]): void
   clearVisibleModels(): void
+  /** Stage the whole per-model context-length map (one entry per row, issue #86). */
+  editContextWindowOverrides(next: Record<string, string>): void
 }
 
 /** The section fields folded into the collapsible Advanced card. */
@@ -137,6 +140,7 @@ function Field({
   disabled,
   numeric,
   decimal,
+  context,
   wide,
   placeholder,
   onEdit,
@@ -150,6 +154,8 @@ function Field({
   disabled: boolean
   numeric?: boolean
   decimal?: boolean
+  /** Renders the context-length bounds copy instead of the generic number one. */
+  context?: boolean
   wide?: boolean
   placeholder?: string | undefined
   onEdit(text: string): void
@@ -162,7 +168,9 @@ function Field({
       titleFor={id}
       tag={<OverrideTag state={state} t={t} />}
       description={hint}
-      error={state.invalid ? invalidCopy(state.invalidReason, t, decimal) : undefined}
+      error={state.invalid
+        ? invalidCopy(state.invalidReason, t, context === true ? 'context' : decimal === true ? 'duration' : 'number')
+        : undefined}
       control={
         <>
           <FieldOverride label={label} state={state} disabled={disabled} t={t} onReset={onReset} />
@@ -184,11 +192,19 @@ function Field({
 }
 
 /** The per-field error copy for a staged draft's failure reason. */
-function invalidCopy(reason: StagedField['invalidReason'], t: Translate<SettingsCommandCodeKey>, duration = false): string {
-  if (duration) {
+function invalidCopy(reason: StagedField['invalidReason'], t: Translate<SettingsCommandCodeKey>, mode: 'number' | 'duration' | 'context' = 'number'): string {
+  if (mode === 'duration') {
     if (reason === 'tooSmall') return t('durationTooSmall')
     if (reason === 'tooLarge') return t('durationTooLarge')
     return t('durationInvalid')
+  }
+  if (mode === 'context') {
+    // The shared generic copy names the retry bounds ("Retries must be at
+    // least 0"), which would be wrong here — context lengths have their own
+    // 1 – 10,000,000 token bounds (CONTEXT_WINDOW_MIN/MAX).
+    if (reason === 'tooSmall') return t('contextWindowTooSmall')
+    if (reason === 'tooLarge') return t('contextWindowTooLarge')
+    return t('contextWindowInvalid')
   }
   if (reason === 'tooSmall') return t('numberTooSmall')
   if (reason === 'tooLarge') return t('numberTooLarge')
@@ -659,6 +675,137 @@ function ModelsCard({ state, disabled, t, onEdit, onReset, onSelect, onClear }: 
         t={t}
       />
       <VisibleModelsRow t={t} state={state} disabled={disabled} onSelect={onSelect} onClear={onClear} />
+    </SettingsGroup>
+  )
+}
+
+/**
+ * Context length (issue #86): the global custom window plus one row per model
+ * override, both staged into the same save as the other form fields. The
+ * advertised window is what the harness meters context against and when it
+ * compacts, so a lowered value compacts earlier and a raised one follows the
+ * model's real capacity when the catalog under-reports it. Precedence: a
+ * per-model row, then the global value, then the catalog.
+ *
+ * The rows live as raw text drafts: blank drops the override on save, an
+ * unparseable one blocks the save with its own bounds copy, and the value
+ * accepts the compact shorthand the picker prints (`256K`, `1M`). The model
+ * select offers only allowlisted models the list does not already carry —
+ * one override per model, matching what the Models card lets through — and
+ * keeps a stored id the catalog no longer carries (or the whitelist just
+ * dropped) as itself so an existing override never silently disappears.
+ */
+function ContextCard({ state, disabled, t, onEdit, onReset, onOverrides }: FormCardProps & {
+  onOverrides(next: Record<string, string>): void
+}) {
+  const rows = state.contextWindowOverrides
+  const used = new Set(rows.map((row) => row.model))
+  const available = allowlistedModels(state.catalogModels, state.visibleModels, state.visibleModelsAll)
+    .filter((model) => !used.has(model.id))
+  const asMap = (): Record<string, string> => Object.fromEntries(rows.map((row) => [row.model, row.text]))
+  const setText = (model: string, text: string) => onOverrides({ ...asMap(), [model]: text })
+  const setModel = (from: string, to: string) => {
+    if (to === '' || to === from || used.has(to)) return
+    const next: Record<string, string> = {}
+    for (const row of rows) next[row.model === from ? to : row.model] = row.text
+    onOverrides(next)
+  }
+  const removeRow = (model: string) => {
+    const next = asMap()
+    delete next[model]
+    onOverrides(next)
+  }
+  const addRow = () => {
+    const model = available[0]
+    if (model === undefined) return
+    onOverrides({ ...asMap(), [model.id]: '' })
+  }
+  const labelOf = (model: string): string => {
+    const entry = state.catalogModels.find((candidate) => candidate.id === model)
+    // An override the catalog no longer carries stays in the list (a retired
+    // id must not silently lose its setting) and is named as such.
+    return entry === undefined ? `${model} · ${t('modelStale')}` : `${entry.name} (${model})`
+  }
+  return (
+    <SettingsGroup title={t('contextTitle')} divided>
+      <Field
+        id="cc-context-window"
+        label={t('contextWindow')}
+        hint={t('contextWindowHint')}
+        state={state.contextWindow}
+        disabled={disabled}
+        context
+        onEdit={(text) => onEdit('contextWindow', text)}
+        onReset={() => onReset('contextWindow')}
+        t={t}
+      />
+      <SettingRow
+        title={t('contextOverridesTitle')}
+        description={<p>{t('contextOverridesHint')}</p>}
+        control={
+          <button
+            type="button"
+            className="cc-linkButton"
+            disabled={disabled || available.length === 0}
+            onClick={addRow}
+          >
+            {t('contextOverrideAdd')}
+          </button>
+        }
+      />
+      {/* Only a real fetch failure explains the disabled add button; the
+          catalog still loading does not (it may yet land). */}
+      {state.catalogFailed ? <p className="cc-groupDesc">{t('contextOverrideNoCatalog')}</p> : null}
+      {rows.length > 0 ? (
+        // Column heads for the row trio below; the third cell is the remove
+        // button's width, so the value label stays optically over its input.
+        <div className="cc-contextHead">
+          <span className="cc-contextHeadModel">{t('contextOverrideModel')}</span>
+          <span className="cc-contextHeadValue">{t('contextOverrideValue')}</span>
+          <span className="cc-contextHeadGap" aria-hidden="true" />
+        </div>
+      ) : null}
+      {rows.map((row) => (
+        <div className="cc-contextItem" key={row.model}>
+          <span className="cc-contextSelect">
+            <select
+              className="cc-input cc-contextModel"
+              value={row.model}
+              aria-label={t('contextOverrideModel')}
+              disabled={disabled}
+              onChange={(event) => setModel(row.model, event.target.value)}
+            >
+              <option value={row.model}>{labelOf(row.model)}</option>
+              {available.map((model) => (
+                <option key={model.id} value={model.id}>{labelOf(model.id)}</option>
+              ))}
+            </select>
+            {/* The plugin's own caret instead of the platform arrow: the
+                native one renders in whatever style the OS chooses, which is
+                exactly the inconsistency this card should not carry. */}
+            <span className="cc-contextCaret" aria-hidden="true" />
+          </span>
+          <input
+            className={`cc-input cc-contextValue${row.invalid ? ' cc-inputInvalid' : ''}`}
+            type="text"
+            aria-label={t('contextOverrideValue')}
+            aria-invalid={row.invalid || undefined}
+            value={row.text}
+            disabled={disabled}
+            onChange={(event) => setText(row.model, event.target.value)}
+          />
+          <button
+            type="button"
+            className="cc-iconButton"
+            aria-label={t('contextOverrideRemove')}
+            disabled={disabled}
+            onClick={() => removeRow(row.model)}
+          >
+            ×
+          </button>
+          {row.invalid ? <p className="cc-rowError cc-contextError">{invalidCopy(row.invalidReason, t, 'context')}</p> : null}
+        </div>
+      ))}
     </SettingsGroup>
   )
 }
@@ -1663,6 +1810,7 @@ export function CommandCodeSettingsPage(props: CommandCodeSettingsProps) {
         createEnrollment={props.createEnrollment}
       />
       <ModelsCard {...form} onSelect={props.editVisibleModels} onClear={props.clearVisibleModels} />
+      <ContextCard {...form} onOverrides={props.editContextWindowOverrides} />
       <PrivacyCard {...form} />
       <IntegrationsCard {...form} />
       <AdvancedSection {...form} />

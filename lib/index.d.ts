@@ -185,6 +185,18 @@ interface CommandCodeConnectionOptions {
    */
   modelVisibility?: Readonly<Record<string, boolean>> | undefined;
   /**
+   * 自定义上下文长度（全局值，issue #86）：对没有 {@link contextWindowOverrides}
+   * 条目的目录模型，宣告给宿主的上下文窗口改用此值而非目录的
+   * `context_length`；选择器标注、`defaultMaxTokens` 预算同样跟随。
+   * 留空表示完全跟随目录。
+   */
+  contextWindow?: number | undefined;
+  /**
+   * 按模型的自定义上下文长度，键为目录模型 id；优先于 {@link contextWindow}。
+   * 非法条目在 `resolveAdapterOptions` 已被清洗，这里只读已判定的值。
+   */
+  contextWindowOverrides?: Readonly<Record<string, number>> | undefined;
+  /**
    * Optional protocol hint. `'auto'` (default) uses billing/cache plus
    * Provider API fallback; `'cli'` forces `/alpha/generate`; `'openai'`
    * prefers `/provider/v1/chat/completions` but still falls back to the CLI
@@ -2192,6 +2204,20 @@ interface Config {
    * path per model — a map.
    */
   modelVisibility?: Record<string, boolean>;
+  /**
+   * 自定义上下文长度（全局值，issue #86）：宣告给宿主的上下文窗口不再取
+   * 模型目录的 `context_length`，而用这个值——上下文计量、自动压缩时机与
+   * 选择器上的上下文标注都跟随它。对没有 {@link contextWindowOverrides}
+   * 条目的每个目录模型生效；留空（默认）跟随目录。只对目录中存在的模型
+   * 生效，未知模型保持既有的「无上下文宣告」。范围 1 – 10 000 000 个整数 token。
+   */
+  contextWindow?: number;
+  /**
+   * 按模型的自定义上下文长度，键为目录模型 id；优先于全局
+   * {@link contextWindow}。配置校验拒绝非整数及越界值；绕过校验的程序化
+   * 调用还会丢弃无效条目，按全局值、目录值的顺序回落。
+   */
+  contextWindowOverrides?: Record<string, number>;
   /**
    * Extra accounts for multi-account rotation. The top-level
    * `apiKey`/`apiKeyEnv` (plus the CLI auth file) always form the first

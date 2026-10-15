@@ -58,6 +58,10 @@ src/stream-trace.ts   The opt-in raw-stream trace (`DSH_COMMANDCODE_TRACE`),
 src/index.ts          Plugin entry: Config schema, credential resolution,
                       settings namespace, route + directory registration,
                       /commandcode command wiring, usage-Remote wiring.
+src/context-window.ts Shared context-window bounds + precedence: the global
+                      `contextWindow` / per-model `contextWindowOverrides`
+                      cleaning and effective-window resolution used by both
+                      the Host schema and the settings page (dependency-free).
 src/enrollment.ts    Host-owned account enrollment, durable recovery journal,
                       naming and cancellation compensation.
 src/enrollment-wire.ts Shared strict enrollment Remotes and page watch stream.

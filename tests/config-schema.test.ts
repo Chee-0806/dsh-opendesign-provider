@@ -68,3 +68,18 @@ test('cache-aware image offload is explicitly opt-in and resolves per config rea
   assert.equal(resolveAdapterOptions(unwrapVolatileConfig(Config({}))).offloadSeenImagesForCache, false)
   assert.equal(resolveAdapterOptions(unwrapVolatileConfig(Config({ offloadSeenImagesForCache: true }))).offloadSeenImagesForCache, true)
 })
+
+test('上下文配置只接受边界内整数，程序化调用另行清洗非法值', () => {
+  for (const value of [1, 32_768, 10_000_000]) {
+    const config = unwrapVolatileConfig(Config({ contextWindow: value, contextWindowOverrides: { model: value } }))
+    assert.equal(config.contextWindow, value)
+    assert.deepEqual(config.contextWindowOverrides, { model: value })
+  }
+  for (const value of [0, 10_000_001, 32_768.5]) {
+    assert.throws(() => Config({ contextWindow: value }))
+    assert.throws(() => Config({ contextWindowOverrides: { model: value } }))
+  }
+  const resolved = resolveAdapterOptions({ contextWindow: 32_768.5, contextWindowOverrides: { invalid: 64_000.5, valid: 32_768 } })
+  assert.equal(resolved.contextWindow, undefined)
+  assert.deepEqual(resolved.contextWindowOverrides, { valid: 32_768 })
+})

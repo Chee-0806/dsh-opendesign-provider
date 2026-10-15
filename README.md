@@ -25,6 +25,7 @@ Unofficial [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harnes
 - **Multi-account rotation** — when one account hits its usage limit, requests switch to the next account automatically. See [Account rotation](#account-rotation).
 - **Flexible API key setup** — via the settings page, an environment variable, or the official CLI login file.
 - **Model-picker annotations** — minimum plan, active deal or `FREE` badge, peak/off-peak state, image support, and context window; free models listed first.
+- **Custom context length** — override the context window the harness meters and compacts against: one global value plus per-model overrides, edited on the settings page or in config (issue #86); unset follows the catalog.
 - **Plan-aware picker** — models above your subscription tier are hidden by default (toggleable); an optional **Model allowlist** keeps only your favorites in the picker.
 - **Reasoning-effort support** — models with selectable reasoning effort levels expose them in the picker.
 - **Image input** — Vision-capable models accept images.
@@ -202,7 +203,7 @@ llm-commandcode:
 
 ## Configure
 
-**Settings → Command Code** is organized as **Accounts** (keys, sign-in, live quota, pinning, dedicated models), **Models** (hide out-of-plan models, visible models), **Privacy & security** (zero data retention, off by default, see below), **Integrations & display** (serve web search with Command Code, show the quota card in the sidebar, off by default), and a collapsed **Advanced** section (API base URL, request/stream timeouts, transport retries, cache-aware image offload). The working directory is no longer on the page; `workingDir` in config still works.
+**Settings → Command Code** is organized as **Accounts** (keys, sign-in, live quota, pinning, dedicated models), **Models** (hide out-of-plan models, visible models), **Context length** (a custom context window, global and per model, see below), **Privacy & security** (zero data retention, off by default, see below), **Integrations & display** (serve web search with Command Code, show the quota card in the sidebar, off by default), and a collapsed **Advanced** section (API base URL, request/stream timeouts, transport retries, cache-aware image offload). The working directory is no longer on the page; `workingDir` in config still works.
 
 The same options live in `$DSH_HOME/settings.yaml` (changes apply immediately, no restart):
 
@@ -217,7 +218,19 @@ llm-commandcode:
   # offloadSeenImagesForCache: true # opt in to CLI cache mitigation; later requests omit old pixels
   showSidebarQuota: true           # optional: show the plans & quota card in the sidebar (default off)
   zdr: true                        # optional: route requests only through zero-data-retention upstreams (default off)
+  # contextWindow: 131072          # optional: custom context length (tokens) for every model; unset follows the catalog
+  # contextWindowOverrides:        # optional: per-model custom context lengths; wins over contextWindow
+  #   deepseek/deepseek-v4-pro: 65536
 ```
+
+### Custom context length
+
+The context window the harness meters against — and when it compacts — normally comes from the model catalog's `context_length`. The opt-in **Context length** group on **Settings → Command Code** (or the two config fields above, issue #86) replaces it per your own numbers: `contextWindow` is the global custom value applied to every model without its own row, and `contextWindowOverrides` sets one model by catalog id, winning over the global value. Unset follows the catalog; nothing changes by default.
+
+- **When it helps**: a catalog window that over-reports turns into `context_length_exceeded` failures once a session grows past the model's real capacity — advertise the lower real number and the harness compacts before the gateway refuses. An under-reported window makes long sessions compact earlier than they need to; raise it to match the model's true capacity.
+- The model-picker context annotation, `defaultMaxTokens` default and actual requests follow the same resolution. Raising the window removes the old catalog-window output cap while retaining the model's independent output ceiling, runtime-learned ceiling and gateway-wide cap; explicit output counts obey those caps too. Session-cost tier pricing keeps using each request's actual token counts.
+- Values must be whole token counts in 1 – 10,000,000. The page blocks invalid input; config-file non-numbers, fractions and out-of-range values fail schema validation rather than silently falling back. Only programmatic calls that bypass the schema discard invalid values and fall through valid per-model override → valid global value → catalog. A model the catalog does not list keeps its "no context advertised" shape.
+- The inputs accept compact shorthand in binary units: `32K` = 32,768 and `1M` = 1,048,576 (so `128K`/`256K` write the exact power-of-two windows 131,072/262,144); the stored value is always a plain number. The per-model override's model dropdown lists only the models kept by the **visible-models allowlist** (the whole catalog while showing all), and the rows carry "Model / Context length" column heads.
 
 ### Repeated image cache misses
 

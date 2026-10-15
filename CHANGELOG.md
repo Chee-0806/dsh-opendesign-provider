@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- 支持**自定义上下文长度**（#86）：新增全局 `contextWindow` 与按模型 `contextWindowOverrides`，解析顺序为按模型 → 全局 → 目录；网页设置页与配置文件均可设置，终端设置页尚未接入。接受 1～10,000,000 的整数，输入支持二进制 `32K`/`1M` 简写。按模型行只列白名单可见模型，已有覆盖保留；清空整表写 `{}` 遮蔽基础层。选择器、宿主计量与默认输出预算跟随有效窗口。
+
+### Fixed
+
+- 自定义上下文普通小数在网页及配置结构中均被拒绝，避免宿主报无效模型上下文；程序化绕过校验时仍清洗无效值。
+- 调大窗口时解除旧目录窗口对输出预算的限制；三协议默认及显式请求仍遵守有效窗口、模型公布或快照输出上限、运行时学习上限和网关总上限。
+
 ## [0.13.3] - 2026-10-15
 
 ### Changed

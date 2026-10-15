@@ -410,6 +410,7 @@ function applyClientSurfaces(
     setAccountModels: (target: string, ids: string[]) => controller.setAccountModels(target, ids),
     editVisibleModels: (ids: string[]) => controller.editVisibleModels(ids),
     clearVisibleModels: () => controller.clearVisibleModels(),
+    editContextWindowOverrides: (next: Record<string, string>) => controller.editContextWindowOverrides(next),
   })
 
   ctx.slots.inject('settings.section', () => ctx.slots.register({

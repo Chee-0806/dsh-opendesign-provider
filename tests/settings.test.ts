@@ -1106,6 +1106,230 @@ test('discard clears a staged visible-model selection', () => {
   assert.equal(controller.state().dirty, false)
 })
 
+// --- Custom context length (issue #86) ---
+
+test('the custom context-length field starts from the stored value and stays clean', () => {
+  const scope = makeScope({
+    value: { contextWindow: 131_072 },
+    user: { contextWindow: 131_072 },
+  })
+  const { controller } = makeController({ scope })
+  assert.equal(controller.state().contextWindow.text, '131072')
+  assert.equal(controller.state().contextWindow.overridden, true)
+  assert.equal(controller.state().dirty, false)
+})
+
+test('staging a custom context window persists it as a number through the scope', async () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  controller.edit('contextWindow', '65536')
+  assert.equal(controller.state().contextWindow.text, '65536')
+  assert.equal(controller.state().contextWindow.overridden, true)
+  assert.equal(controller.state().dirty, true)
+  await controller.save()
+  assert.equal(scope.state.value.contextWindow, 65_536)
+  assert.equal(controller.state().dirty, false)
+  // The write landed in the USER layer, so the field now reads as overridden.
+  assert.equal(controller.state().contextWindow.overridden, true)
+})
+
+test('resetting the custom context window stages a clear that unsets the user layer', async () => {
+  const scope = makeScope({
+    value: { contextWindow: 131_072 },
+    user: { contextWindow: 131_072 },
+  })
+  const { controller } = makeController({ scope })
+  controller.resetField('contextWindow')
+  assert.equal(controller.state().contextWindow.clear, true)
+  assert.equal(controller.state().dirty, true)
+  await controller.save()
+  assert.equal(scope.state.value.contextWindow, undefined)
+})
+
+test('an out-of-range custom context window blocks the save instead of writing it', async () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  controller.edit('contextWindow', '0')
+  const field = controller.state().contextWindow
+  assert.equal(field.invalid, true)
+  assert.equal(field.invalidReason, 'tooSmall')
+  assert.equal(controller.state().invalid, true)
+  await controller.save()
+  // The whole save is refused: neither the invalid field nor anything staged
+  // alongside it reaches the document.
+  assert.equal(scope.state.value.contextWindow, undefined)
+})
+
+test('per-model context overrides stage, save and clear as one map', async () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  controller.editContextWindowOverrides({ 'deepseek/deepseek-v4-pro': '64000' })
+  assert.deepEqual(
+    controller.state().contextWindowOverrides.map((row) => [row.model, row.text, row.invalid]),
+    [['deepseek/deepseek-v4-pro', '64000', false]],
+  )
+  assert.equal(controller.state().dirty, true)
+  await controller.save()
+  assert.deepEqual(scope.state.value.contextWindowOverrides, { 'deepseek/deepseek-v4-pro': 64_000 })
+  assert.equal(controller.state().dirty, false)
+  // The confirmed draft is dropped, so the rows now project the stored values.
+  assert.deepEqual(
+    controller.state().contextWindowOverrides.map((row) => row.text),
+    ['64000'],
+  )
+
+  // Clearing every row writes an explicit empty map (the user layer shadows a
+  // composition base instead of unsetting back into it).
+  controller.editContextWindowOverrides({})
+  assert.equal(controller.state().dirty, true)
+  await controller.save()
+  assert.deepEqual(scope.state.value.contextWindowOverrides, {})
+  assert.deepEqual(controller.state().contextWindowOverrides, [])
+})
+
+test('a blank override row renders but neither blocks nor dirties the save', async () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  controller.editContextWindowOverrides({ 'deepseek/deepseek-v4-flash': '' })
+  const row = controller.state().contextWindowOverrides[0]!
+  assert.equal(row.text, '')
+  assert.equal(row.invalid, false)
+  assert.equal(controller.state().invalid, false)
+  assert.equal(controller.state().dirty, false)
+  await controller.save()
+  assert.equal(scope.state.value.contextWindowOverrides, undefined)
+})
+
+test('an unparseable override row blocks the whole save', async () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  controller.editContextWindowOverrides({ 'deepseek/deepseek-v4-flash': 'abc' })
+  const row = controller.state().contextWindowOverrides[0]!
+  assert.equal(row.invalid, true)
+  assert.equal(row.invalidReason, 'format')
+  assert.equal(controller.state().invalid, true)
+  // A valid ordinary field staged alongside it does not sneak through.
+  controller.edit('apiBase', 'https://proxy.example.invalid')
+  await controller.save()
+  assert.equal(scope.state.value.contextWindowOverrides, undefined)
+  assert.equal(scope.state.value.apiBase, undefined)
+})
+
+test('stored context overrides render as clean rows, invalid stored entries dropped', () => {
+  const scope = makeScope({
+    value: { contextWindowOverrides: { m: 64_000, zero: 0, notANumber: '42' } },
+    user: { contextWindowOverrides: { m: 64_000, zero: 0, notANumber: '42' } },
+  })
+  const { controller } = makeController({ scope })
+  assert.deepEqual(
+    controller.state().contextWindowOverrides.map((row) => [row.model, row.text]),
+    [['m', '64000']],
+  )
+  assert.equal(controller.state().dirty, false)
+})
+
+test('staging the stored override values back is not dirty', () => {
+  const scope = makeScope({
+    value: { contextWindowOverrides: { m: 64_000 } },
+    user: { contextWindowOverrides: { m: 64_000 } },
+  })
+  const { controller } = makeController({ scope })
+  controller.editContextWindowOverrides({ m: '64000' })
+  assert.equal(controller.state().dirty, false)
+})
+
+test('discard clears a staged context override', () => {
+  const scope = makeScope({
+    value: { contextWindowOverrides: { m: 64_000 } },
+    user: { contextWindowOverrides: { m: 64_000 } },
+  })
+  const { controller } = makeController({ scope })
+  controller.editContextWindowOverrides({})
+  assert.equal(controller.state().dirty, true)
+  controller.discard()
+  assert.deepEqual(controller.state().contextWindowOverrides.map((row) => row.model), ['m'])
+  assert.equal(controller.state().dirty, false)
+})
+
+test('the context fields accept the compact shorthand in binary units', async () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  // The spec's own examples: K = ×1024, M = ×1024×1024, so power-of-two
+  // windows land exactly — and the page never hands the Host a suffixed
+  // string, the schema still only sees numbers.
+  const examples = [
+    ['32K', 32_768],
+    ['128K', 131_072],
+    ['384K', 393_216],
+    ['1M', 1_048_576],
+    ['1.5K', 1536],
+  ] as const
+  for (const [text, tokens] of examples) {
+    controller.edit('contextWindow', text)
+    assert.equal(controller.state().contextWindow.invalid, false, `expected ${text} to parse`)
+    await controller.save()
+    assert.equal(scope.state.value.contextWindow, tokens, text)
+  }
+
+  // The override rows share the same spec.
+  controller.editContextWindowOverrides({ 'poolside/laguna-s-2.1-free': '128K' })
+  const row = controller.state().contextWindowOverrides[0]!
+  assert.equal(row.invalid, false)
+  await controller.save()
+  assert.deepEqual(scope.state.value.contextWindowOverrides, { 'poolside/laguna-s-2.1-free': 131_072 })
+})
+
+test('上下文普通小数阻止整批保存，按模型覆盖使用相同整数约束', async () => {
+  const { controller, scope } = makeController()
+  controller.edit('contextWindow', '32768.5')
+  controller.edit('apiBase', 'https://context-whole.invalid')
+  assert.equal(controller.state().contextWindow.invalidReason, 'format')
+  await controller.save()
+  assert.equal(scope.state.value.contextWindow, undefined)
+  assert.equal(scope.state.value.apiBase, undefined)
+
+  controller.discard()
+  controller.editContextWindowOverrides({ model: '32768.5' })
+  controller.edit('contextWindow', '65536')
+  assert.equal(controller.state().contextWindowOverrides[0]?.invalidReason, 'format')
+  await controller.save()
+  assert.equal(scope.state.value.contextWindowOverrides, undefined)
+  assert.equal(scope.state.value.contextWindow, undefined)
+})
+
+test('compact shorthand is case-insensitive and still bounds-checked', async () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  controller.edit('contextWindow', ' 256k ')
+  assert.equal(controller.state().contextWindow.invalid, false)
+  assert.equal(controller.state().dirty, true)
+  await controller.save()
+  assert.equal(scope.state.value.contextWindow, 262_144)
+
+  // 20M overshoots the shared 1 – 10,000,000 range (20 × 1024² = 20,971,520),
+  // so the suffix path must name the same tooLarge copy as a plain number
+  // instead of reaching the Host schema, which would only report a generic
+  // save failure.
+  controller.edit('contextWindow', '20M')
+  const field = controller.state().contextWindow
+  assert.equal(field.invalid, true)
+  assert.equal(field.invalidReason, 'tooLarge')
+  await controller.save()
+  // The refused save leaves the previous value standing.
+  assert.equal(scope.state.value.contextWindow, 262_144)
+})
+
+test('a bare or unknown suffix stays a format error', () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  for (const text of ['M', 'K5', '256KK', '12Q', '1.2.3M']) {
+    controller.edit('contextWindow', text)
+    const field = controller.state().contextWindow
+    assert.equal(field.invalid, true, `expected ${text} to be rejected`)
+    assert.equal(field.invalidReason, 'format', `expected ${text} to fail as format`)
+  }
+})
+
 test('the request-timeout hint says when the Provider API route needs a bigger budget', () => {
   // The knob has always been in the Advanced card, so the gap was never the
   // field — it was that the hint only named the default. A user hitting issue

@@ -140,6 +140,25 @@ export const PAGE_CSS = `
 .cc-iconButton{flex-shrink:0;align-items:center;justify-content:center;display:inline-flex;width:28px;height:28px;padding:0;background:0 0;border:0;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer}
 .cc-iconButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .cc-iconButton:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
+/* Per-model context-length override rows (issue #86): the error wraps onto
+   its own line beneath the select/input/remove trio. The three cells form a
+   fixed column contract — flexible model, 112px value, 28px remove — and the
+   cc-contextHead labels repeat the first two (plus the remove cell's width
+   as a spacer) so they sit exactly over their columns. */
+.cc-contextItem{align-items:center;gap:8px;display:flex;flex-wrap:wrap;padding:8px 0}
+.cc-contextHead{align-items:center;gap:8px;display:flex;flex-wrap:wrap;padding:4px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.cc-contextHeadModel{flex:1;min-width:200px}
+.cc-contextHeadValue{flex:none;width:112px}
+.cc-contextHeadGap{flex:none;width:28px}
+.cc-contextSelect{position:relative;display:block;flex:1;min-width:200px}
+/* appearance:none swaps the platform arrow for the cc-contextCaret, shaped
+   like cc-selectorCaret so every dropdown in the plugin opens with the same
+   hand-drawn chevron. */
+.cc-contextModel{box-sizing:border-box;appearance:none;-webkit-appearance:none;width:100%;padding-inline-end:26px;text-overflow:ellipsis;cursor:pointer}
+.cc-contextCaret{position:absolute;inset-inline-end:12px;top:50%;width:6px;height:6px;border-right:1.5px solid var(--dsw-alias-label-tertiary);border-bottom:1.5px solid var(--dsw-alias-label-tertiary);transform:translateY(-50%) rotate(45deg);pointer-events:none}
+.cc-contextSelect:has(.cc-contextModel:disabled) .cc-contextCaret{opacity:.6}
+.cc-contextValue{flex:none;width:112px}
+.cc-contextError{flex-basis:100%}
 /* Three dots from one element: the dot plus two box-shadow copies. */
 .cc-kebab{width:3px;height:3px;border-radius:50%;corner-shape:round;background:currentColor;box-shadow:0 -5px 0 currentColor,0 5px 0 currentColor}
 .cc-tabDot{flex-shrink:0;width:8px;height:8px;border-radius:50%;corner-shape:round}

@@ -33,7 +33,7 @@ export interface SettingsWriteResult {
 }
 
 export type SettingsWriteIntent =
-  | { kind: 'save'; ops: readonly SettingsPathOp[]; visibleModels?: readonly string[]; key?: string }
+  | { kind: 'save'; ops: readonly SettingsPathOp[]; visibleModels?: readonly string[]; contextWindowOverrides?: Record<string, number>; key?: string }
   | { kind: 'rename'; ref: string; label: string }
   | { kind: 'remove' | 'cleanup'; ref: string }
   | { kind: 'key'; target: string; value?: string }
@@ -107,6 +107,11 @@ export class SettingsWriter {
       }
       ops.push({ op: 'set', path: ['visibleModels'], value: list },
         { op: 'set', path: ['modelVisibility'], value: Object.fromEntries([...keys].map(id => [id, list.length === 0 || list.includes(id)])) })
+    }
+    // 自定义上下文长度（issue #86）：整表一次写入（含清空后的空表，写在
+    // 用户层以遮蔽基础层，而不是 unset 让基础层重新露出）。
+    if (owned.kind === 'save' && owned.contextWindowOverrides !== undefined) {
+      ops.push({ op: 'set', path: ['contextWindowOverrides'], value: owned.contextWindowOverrides })
     }
     const baseline = new Map(ops.map(op => [op.path[0]!, structuredClone(fieldBaseline(snapshot, op.path[0]!))]))
     const defaultRef = (owned.kind === 'save' && owned.key !== undefined) || (owned.kind === 'key' && owned.target === 'default')
