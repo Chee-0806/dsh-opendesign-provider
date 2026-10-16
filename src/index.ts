@@ -77,7 +77,7 @@ import {
   OMIT_OUTPUT_TOKENS,
   isValidMaxOutputTokens,
 } from './output-budget.ts'
-
+import { readableErrorText } from './readable-error.ts'
 
 export {
   COMMAND_CODE_CLI_VERSION,
@@ -736,7 +736,7 @@ export function apply(ctx: Context, config: Config): void {
         try {
           report = await adapter.getUsage(account.key, connection)
         } catch (error: unknown) {
-          report = { failures: [error instanceof Error ? error.message : String(error)] }
+          report = { failures: [readableErrorText(error)] }
         }
       }
       const state = account?.state

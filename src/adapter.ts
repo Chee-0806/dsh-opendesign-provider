@@ -27,7 +27,7 @@ import { MAX_TIMEOUT_SECONDS } from './timeout-limits.ts'
 import { modelIsVisible } from './model-visibility.ts'
 import { effectiveContextWindow } from './context-window.ts'
 import { applyMaxOutputTokens, omitOutputTokens, MAX_OUTPUT_TOKEN_LIMIT } from './output-budget.ts'
-
+import { readableErrorText } from './readable-error.ts'
 import { bilingual, MAX_TRUSTED_RESET_MS, parseProviderError, generateHttpError, parseRetryAfterMs, classifyAccountRejection, isUpgradeRequiredError, isMessagesPermissionRejection, type AccountRotationReason } from './provider-errors.ts'
 export type { AccountRotationReason } from './provider-errors.ts'
 import { ownedResponseStream, settleStreamResponse, responseIdentifiers, failureWithRequestId, type CommandCodeProtocol, type ResponseMetadata } from './stream-response.ts'
@@ -2925,7 +2925,7 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
         }
         return record
       } catch (error: unknown) {
-        failures.push(`${path}: ${error instanceof Error ? error.message : String(error)}`)
+        failures.push(`${path}: ${readableErrorText(error)}`)
         failed.push({ kind: 'transport' })
         return undefined
       }

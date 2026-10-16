@@ -11,7 +11,7 @@
  */
 
 import type { CommandCodePriceTable } from '../usage-wire.ts'
-import { readableErrorText } from './error-text.ts'
+import { readableErrorText } from '../readable-error.ts'
 
 /** The narrow slice of the mounted Remote this controller calls. */
 export interface PricesRemote {

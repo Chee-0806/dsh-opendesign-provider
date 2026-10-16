@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { readableErrorText } from '../src/client/error-text.ts'
+import { readableErrorText } from '../src/readable-error.ts'
 
 test('reads message off a real Error', () => {
   assert.equal(readableErrorText(new Error('boom')), 'boom')

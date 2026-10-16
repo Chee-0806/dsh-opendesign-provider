@@ -1,10 +1,12 @@
 /**
- * Turn a caught value into readable text for the settings page's error UI.
+ * Readable error text for the settings page AND the Host-side failure paths.
  *
- * @module dsh-commandcode-provider/client/error-text
+ * @module dsh-commandcode-provider/readable-error
  */
 
 /**
+ * Turn a caught value into readable text.
+ *
  * `error instanceof Error ? error.message : String(error)` degrades to the
  * literal string `[object Object]` for a plain object with no `Error`
  * prototype — which is exactly what a Remote call across the webview/host
@@ -14,6 +16,11 @@
  * off the plain object first recovers the original text in that case; only a
  * value with neither an `Error` prototype nor a usable `message` field falls
  * through to a JSON dump.
+ *
+ * Shared by both halves on purpose. The browser client needs it for rejections
+ * that crossed the RPC boundary, and the Host needs it for values that reached
+ * it from a transport, a JSON body, or a user-thrown non-Error — the same
+ * degradation, one owner.
  */
 export function readableErrorText(error: unknown): string {
   if (error instanceof Error) return error.message

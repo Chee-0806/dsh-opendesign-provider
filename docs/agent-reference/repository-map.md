@@ -69,10 +69,10 @@ src/output-budget.ts  Shared per-turn output-budget rules (issue #74): the
                       `omitOutputTokens` guards (Messages requires the field; an
                       explicit host budget outranks the setting). Pure, so the
                       browser settings page inlines the same constants.
-
-
-
-
+src/readable-error.ts Shared `readableErrorText()` for caught values: reads
+                      `message` off a prototype-less object instead of
+                      degrading to `[object Object]`. Used by the Host failure
+                      paths and imported directly by the browser client.
 src/enrollment.ts    Host-owned account enrollment, durable recovery journal,
                       naming and cancellation compensation.
 src/enrollment-wire.ts Shared strict enrollment Remotes and page watch stream.

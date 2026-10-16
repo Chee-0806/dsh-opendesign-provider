@@ -11,7 +11,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 - **冷生成预算**：内存目录未预热时合并一次同网关、版本 3 的磁盘目录读取；不额外联网，缺失或来源不符时保持未知窗口行为。文件读取不覆盖并发联网刷新得到的全局输出上限；切换地址或文件会换缓存状态。
 - **自定义窗口预算**：宿主默认值与三协议实际请求都按有效窗口、单次目录记录的独立输出上限、同网关学习上限和网关总上限计算；调大窗口不再沿用旧目录派生的 `maxTokens`。不按提示词长度动态扣减。自定义窗口必须为整数，配置校验拒绝非法值，程序化绕过时按有效全局值、目录值回落。
 - **输出预算上限与省略（问题 #74）**：`Config.maxOutputTokens` 未设置＝沿用推导；正整数＝与推导值取最小（只收紧，不放大）；`0`＝**不发送** `max_tokens`，把单轮规模交回平台。规则由纯模块 `src/output-budget.ts` 单点持有（`applyMaxOutputTokens` / `omitOutputTokens`，常量 `MAX_OUTPUT_TOKEN_LIMIT` 同时是设置页上界，`DEFAULT_GENERATE_MAX_TOKENS` 只是它的历史别名）。**省略受两条守卫约束**：(1) Messages 端点必填该字段，缺失会被上游以 `Invalid input: expected number, received undefined at max_tokens` 拒绝，因此 `omitOutputTokens` 对 `messages` 恒为 false——Claude 链路仍按推导值发送；(2) 宿主显式给定的每次调用预算（`GenerateOptions.maxTokens`，如会话标题的 64 词元）是指令而非默认值，同样使省略为 false，否则会解除 #88 所依赖的那道边界。实现在 `streamRequest()` 计算 `initialMax` 时套用一次，并在**每个协议**构建正文时按目标重新判定一次（协议回退会换传输，而只有 Messages 必填）；正文构建后的两次 `max_tokens` 重写（学习上限收紧、413 降档）同样先问 `omitOutputTokens`，否则会把已省略的字段重新写回去。省略时 `maxTokens` 仍是真实数值，供 trace 记录、降档恢复与 `OUTPUT_TOKEN_LIMIT` 诊断使用（不会报成 `max_tokens=0`）。
-
+- **可读错误兜底（问题 #74）**：`src/readable-error.ts` 的 `readableErrorText()` 先读对象上的 `message` 字段，读不到才退化为 JSON 序列化或类型标签，避免非 `Error` 抛出退化成 `[object Object]`。Host 侧六处（用量查询、`/commandcode` 命令、账号卡片用量、登录流程、终端设置页注册、网页搜索请求与凭据解析）与浏览器侧五个调用点共用同一实现、直接导入同一模块，两侧不会再各自演化。
 - **网关事实所有权**：`src/gateway-facts.ts` 持有目录校验、来源状态、共享发布权及输出上限；同网关最新发起的刷新接管发布权，旧结果仍可供原等待者使用，但失败、无效目录和迟到旧响应不能改写较新共享事实。磁盘只补充可信来源，不能倒灌联网上限；有效新目录移除字段则完整替换旧公布值。
 - **单次调用快照**：入口捕获连接与账号定义，取得原来源目录后固定模型路由及公布能力；内部轮换、协议回退、唯一降档不读取其他来源目录或等待后新配置。每次连接发出前只采纳更低学习上限。降档资格比较实际发送值，不依赖是否更新共享学习，仍要求未交付任何块且最多一次。见[《决策记录》第三章](../决策记录.md#三网关状态隔离)。
 

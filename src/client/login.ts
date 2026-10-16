@@ -14,7 +14,7 @@
  */
 
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import { readableErrorText } from './error-text.ts'
+import { readableErrorText } from '../readable-error.ts'
 import { openLoginPage } from './login-page.ts'
 import type { CommandCodeLoginFailureReason, CommandCodeLoginStatus } from '../login-wire.ts'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'

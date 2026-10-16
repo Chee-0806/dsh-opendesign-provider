@@ -17,7 +17,7 @@
 
 import type { SettingsScope, SettingsScopeSnapshot } from './settings.ts'
 import { createSnapshotStore, type SnapshotStore } from './snapshot-store.ts'
-import { readableErrorText } from './error-text.ts'
+import { readableErrorText } from '../readable-error.ts'
 
 /** Result envelope of one current Typert Remote call. */
 type Envelope<T> = { ok: true; value: T } | { ok: false; error?: { message?: string } | undefined }

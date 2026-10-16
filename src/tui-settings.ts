@@ -35,6 +35,7 @@ import {
   isFreeModel,
 } from './capabilities.ts'
 import { PLAN_LABELS, PLAN_TIER_ORDER } from './plan-tiers.ts'
+import { readableErrorText } from './readable-error.ts'
 
 /** Provider-owned translations for one title, label, or hint. */
 export interface TuiLocalizedText {
@@ -503,9 +504,7 @@ export function applyCommandCodeTuiSettings(
       // change) must not take the plugin down: the terminal simply keeps no
       // Command Code page, and the web settings page stays the fallback.
       ctx.logger?.warn(
-        `llm-commandcode: could not register the dsh-TUI settings section: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        `llm-commandcode: could not register the dsh-TUI settings section: ${readableErrorText(error)}`,
       )
     }
   }
