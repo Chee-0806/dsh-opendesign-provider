@@ -252,7 +252,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   白名单之后，与其它行同属该分组，无独立标题与分隔线——中间版本曾用 `SettingsSubGroup` 给出次级标题与
   细分隔线，已在用户实机查看后删除该组件与 locale 键 `contextTitle`；不再是独立顶级分组，也不再是子节）：
   全局值是 staged 字段，spec 为
-  `contextWindowField`——在 `numberField` 之上只加简写后缀一层：`32K`/`1M` 按**二进制**换算
+  `tokenCountField`——在 `numberField` 之上只加简写后缀一层：`32K`/`1M` 按**二进制**换算
   （×1024 / ×1024²，32K = 32 768、1M = 1 048 576），换算后仍走同一对
   `CONTEXT_WINDOW_MIN/MAX` 边界（直接复用 `src/context-window.ts` 纯模块，客户端可打包导入，
   无需镜像字面量），空值清除沿用 `numberField`，额外校验普通数字必须是整数；
@@ -269,6 +269,19 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   （`.cc-contextHead`，宽度与行内三列逐一对齐），`<select>` 用 `appearance:none` + 自绘
   `.cc-contextCaret`（同 `.cc-selectorCaret` 形状）替换平台箭头。宿主侧应用（选择器标注与
   `defaultMaxTokens` 预算）见[模型目录](model-catalog.md)。
+- **单轮输出上限（issue #74）**：`Config.maxOutputTokens` 与同分组内紧随上下文长度之后的
+  `Field`（spec 为 `maxOutputTokensField`）。字段有**三种**语义，靠同一个数值字段表达，因此
+  与上下文长度字段有本质差别：留空＝沿用推导（默认，行为不变）、正整数＝与推导值取最小、
+  `0`＝请求中**不发送** `max_tokens`。两个 token 计数字段共用 `tokenCountField`（简写文法
+  `COMPACT_TOKENS` 加同一套边界检查），差异只在边界与整数值判定：上下文长度下界为 1，
+  输出预算下界就是省略哨兵 0，各自传入自己的 `isValid`；上界取**网关总上限**
+  `MAX_OUTPUT_TOKEN_LIMIT`（131 072，`src/output-budget.ts` 纯模块，设置页可直接打包导入
+  同一常量）而不是上下文窗口范围。`64K` 简写通用，`128K` 恰好落在输出上限上、`256K` 报
+  `tooLarge`；越界行与非法值**整体阻止本次保存**，`invalidCopy` 的 `'output'` 分支给出这组
+  专属文案。留空保存走 `plan()` 的 `unset`（清除配置），**不是**写入 `0`——这两者的区别是
+  本功能的核心。
+  适配器侧只收紧不放大，且省略行为受两条守卫约束（Messages 必填、宿主显式预算优先），
+  详见[适配器协议](adapter-protocol.md)。
 - **`catalogIsReady` gates the stale-model cleanup** (`src/client/model-select.ts`):
   an empty catalog — before the first fetch lands, or after a failure — makes
   every selected id look retired, so the one-click cleanup would empty the

@@ -72,6 +72,12 @@ import {
   isValidContextWindow,
   readContextWindowOverrides,
 } from './context-window.ts'
+import {
+  MAX_OUTPUT_TOKEN_LIMIT,
+  OMIT_OUTPUT_TOKENS,
+  isValidMaxOutputTokens,
+} from './output-budget.ts'
+
 
 export {
   COMMAND_CODE_CLI_VERSION,
@@ -188,7 +194,7 @@ export interface Config {
   workingDir?: string
   /** Model catalog cache path; defaults to `~/.commandcode/models-cache.json`. */
   modelsCachePath?: string
-  /** Milliseconds to wait for the generate response's first byte; defaults to 60s. */
+  /** Milliseconds to wait for the generate response's first byte; defaults to 300s. */
   requestTimeoutMs?: number
   /** Milliseconds a stream may stall before being treated as a dead connection; defaults to 300s. */
   streamIdleTimeoutMs?: number
@@ -242,6 +248,17 @@ export interface Config {
    * 调用还会丢弃无效条目，按全局值、目录值的顺序回落。
    */
   contextWindowOverrides?: Record<string, number>
+  /**
+   * 单轮输出预算上限（issue #74）。不填（默认）＝沿用既有推导：模型公布或
+   * 运行时学到的输出上限、以及网关总上限（131 072）三者取最小。填正整数＝
+   * 再与推导值取最小，永远不会突破三者；越界值由配置校验拒绝。
+   * 填 `0`＝**不发送** `max_tokens` 字段，把单轮输出规模交回平台自行限制——
+   * 这是报告者要的「不再被硬切」，但仅 CLI（`/alpha/generate`）与 OpenAI
+   * （`/provider/v1/chat/completions`）两条传输支持：Anthropic Messages 端点
+   * 必填该字段，缺失会被上游拒绝，因此 Claude 链路仍按推导值发送。
+   * 宿主显式传入的每次调用预算（如会话标题的 64）优先于此设置。
+   */
+  maxOutputTokens?: number
   /**
    * Extra accounts for multi-account rotation. The top-level
    * `apiKey`/`apiKeyEnv` (plus the CLI auth file) always form the first
@@ -347,6 +364,9 @@ export const Config: z<Config> = z.object(markVolatileFields({
   // 在 schema 层就被拒绝，页面输入用相同常量在输入时报错。
   contextWindow: z.number().min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX).step(1),
   contextWindowOverrides: z.dict(z.number().min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX).step(1)),
+  // 输出预算（issue #74）：0 是「不发送该字段」的省略哨兵，正数是最小值上限，
+  // 两者都不得超过网关总上限——用户填得更大也只会被网关拒绝。
+  maxOutputTokens: z.number().min(OMIT_OUTPUT_TOKENS).max(MAX_OUTPUT_TOKEN_LIMIT).step(1),
   webSearch: z.boolean().default(true),
   showSidebarQuota: z.boolean().default(false),
   accounts: z.array(z.object({
@@ -409,6 +429,9 @@ export function resolveAdapterOptions(config: Config): ResolvedCommandCodeOption
     // 判定一次，越界或非数值回落到目录公布值（见 context-window.ts）。
     contextWindow: isValidContextWindow(config.contextWindow) ? config.contextWindow : undefined,
     contextWindowOverrides: readContextWindowOverrides(config.contextWindowOverrides),
+    // 输出预算（issue #74）：程序化构造可能绕过 schemastery，这里重新判定一次，
+    // 越界或非整数回落到「未设置」，而不是让请求带上一个网关会拒绝的预算。
+    maxOutputTokens: isValidMaxOutputTokens(config.maxOutputTokens) ? config.maxOutputTokens : undefined,
     // The connection carries the switch; the adapter enforces it on every
     // chat request rather than depending on a client-side coverage snapshot.
     zdr: config.zdr === true,

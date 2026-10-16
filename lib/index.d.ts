@@ -65,31 +65,9 @@ declare const COMMAND_CODE_CLI_VERSION = "1.82.5";
 declare const DEFAULT_API_BASE = "https://api.commandcode.ai";
 /**
  * The output budget this bundle asks for, and the ceiling it will never exceed.
- *
- * 131 072, chosen against a measured provider limit rather than a round guess.
- * Probing `/alpha/generate` directly on 2026-09-28: 64 000 → 200, 131 072 → 200,
- * 196 608 → 200, **200 000 → 200, 200 704 → 400**, 1 000 000 → 400. The server
- * therefore caps `max_tokens` at 200 000, and it does so identically for a
- * 262 144-window model (`stealth/pixel-canary`, retired by Command Code on
- * 2026-10-01 and named here only as the probe's subject) and a 1 000 000-window
- * one (`stealth/space-bunny-alpha`) — the cap is global, not per model. 131 072
- * keeps a 35 % margin under it while covering the real output ceiling of the
- * models that have one (Claude 64 K, Gemini 64 K, several at 128 K).
- *
- * The old 64 000 was never a provider requirement: it cost nothing in latency
- * (a 64 000 request answered headers in 1.28 s against 1.57 s for 131 072) but
- * it did cap what a model could ever say in one turn.
- *
- * No client-side clamp is applied on top of this: an earlier version pre-shrank
- * `max_tokens` from an estimate of the prompt already sent (`requestContextBudget()`,
- * issue #67), but that estimate over-corrected on ordinary long conversations —
- * exactly the "output gets cut short as the conversation grows" symptom issue #74
- * reported — while a live A/B probe (2026-09-30, `stealth/space-bunny-alpha`,
- * ~19.6% over its 1,000,000-token window with no client-side shrink) showed the
- * endpoint answers a genuine overflow with an unambiguous `400 … exceeds the
- * model's context window`, which `isContextOverflowDetail()` below already
- * classifies as `CONTEXT_WINDOW_EXCEEDED` independently of this constant. See
- * [决策记录](../docs/决策记录.md).
+ * The figure and its probe evidence live in `./output-budget.ts` — the module
+ * the browser settings page also bounds its input by — and are re-exported here
+ * under the historical name so existing importers are unaffected.
  */
 declare const DEFAULT_GENERATE_MAX_TOKENS = 131072;
 /** How long the picker's plan-filter billing facts stay cached before refetching. */
@@ -196,6 +174,14 @@ interface CommandCodeConnectionOptions {
    * 非法条目在 `resolveAdapterOptions` 已被清洗，这里只读已判定的值。
    */
   contextWindowOverrides?: Readonly<Record<string, number>> | undefined;
+  /**
+   * 输出预算上限（issue #74）。未设置＝沿用既有推导（模型公布/学习上限、
+   * 网关总上限）。正整数＝用户上限，与推导值取较小者，永远不会超过网关总上限。
+   * `0`＝不发送 `max_tokens`，把单轮输出规模交回平台——仅 CLI 与 OpenAI 传输
+   * 支持；Messages 端点必填该字段，因此那条链路仍按推导值发送（见
+   * `omitOutputTokens()`）。
+   */
+  maxOutputTokens?: number | undefined;
   /**
    * Optional protocol hint. `'auto'` (default) uses billing/cache plus
    * Provider API fallback; `'cli'` forces `/alpha/generate`; `'openai'`
@@ -2185,7 +2171,7 @@ interface Config {
   workingDir?: string;
   /** Model catalog cache path; defaults to `~/.commandcode/models-cache.json`. */
   modelsCachePath?: string;
-  /** Milliseconds to wait for the generate response's first byte; defaults to 60s. */
+  /** Milliseconds to wait for the generate response's first byte; defaults to 300s. */
   requestTimeoutMs?: number;
   /** Milliseconds a stream may stall before being treated as a dead connection; defaults to 300s. */
   streamIdleTimeoutMs?: number;
@@ -2239,6 +2225,17 @@ interface Config {
    * 调用还会丢弃无效条目，按全局值、目录值的顺序回落。
    */
   contextWindowOverrides?: Record<string, number>;
+  /**
+   * 单轮输出预算上限（issue #74）。不填（默认）＝沿用既有推导：模型公布或
+   * 运行时学到的输出上限、以及网关总上限（131 072）三者取最小。填正整数＝
+   * 再与推导值取最小，永远不会突破三者；越界值由配置校验拒绝。
+   * 填 `0`＝**不发送** `max_tokens` 字段，把单轮输出规模交回平台自行限制——
+   * 这是报告者要的「不再被硬切」，但仅 CLI（`/alpha/generate`）与 OpenAI
+   * （`/provider/v1/chat/completions`）两条传输支持：Anthropic Messages 端点
+   * 必填该字段，缺失会被上游拒绝，因此 Claude 链路仍按推导值发送。
+   * 宿主显式传入的每次调用预算（如会话标题的 64）优先于此设置。
+   */
+  maxOutputTokens?: number;
   /**
    * Extra accounts for multi-account rotation. The top-level
    * `apiKey`/`apiKeyEnv` (plus the CLI auth file) always form the first

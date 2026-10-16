@@ -224,6 +224,7 @@ llm-commandcode:
   # contextWindow: 131072          # optional: custom context length (tokens) for every model; unset follows the catalog
   # contextWindowOverrides:        # optional: per-model custom context lengths; wins over contextWindow
   #   deepseek/deepseek-v4-pro: 65536
+  # maxOutputTokens: 65536         # optional: per-turn output limit; 0 sends no max_tokens, unset follows the model ceiling
 ```
 
 ### Custom context length
@@ -234,6 +235,18 @@ The context window the harness meters against — and when it compacts — norma
 - The model-picker context annotation, `defaultMaxTokens` default and actual requests follow the same resolution. Raising the window removes the old catalog-window output cap while retaining the model's independent output ceiling, runtime-learned ceiling and gateway-wide cap; explicit output counts obey those caps too. Session-cost tier pricing keeps using each request's actual token counts.
 - Values must be whole token counts in 1 – 10,000,000. The page blocks invalid input; config-file non-numbers, fractions and out-of-range values fail schema validation rather than silently falling back. Only programmatic calls that bypass the schema discard invalid values and fall through valid per-model override → valid global value → catalog. A model the catalog does not list keeps its "no context advertised" shape.
 - The inputs accept compact shorthand in binary units: `32K` = 32,768 and `1M` = 1,048,576 (so `128K`/`256K` write the exact power-of-two windows 131,072/262,144); the stored value is always a plain number. The per-model override's model dropdown lists only the models kept by the **visible-models allowlist** (the whole catalog while showing all), and the rows carry "Model / Context length" column heads.
+
+### Per-turn output limit
+
+Every request carries `max_tokens`, resolved as the smallest of the model's published output ceiling, the ceiling learned at runtime, and the gateway-wide cap of 131,072. That field is a **passive hard limit**: the platform cuts the answer when it is reached, and the model receives no "nearly out of room" signal. The **Output limit per turn** field (**Settings → Command Code → Models & context**, or the `maxOutputTokens` config key) offers three choices:
+
+- **Empty (default)**: exactly the derivation above, so nothing changes.
+- **A positive number**: taken as a cap alongside that derived value. It can only **tighten** — it never exceeds the model ceiling or the gateway's `131072`, and out-of-range input fails config validation. Shorthand like `64K` is accepted.
+- **`0`**: sends **no** `max_tokens` field at all, leaving the per-turn output size to the platform. This is the fix for answers being cut off mid-sentence, because while the field is present the cut happens at some point no matter how large the figure is.
+
+`0` only takes effect on the two transports that accept an absent field: the CLI (`/alpha/generate`) and OpenAI (`/provider/v1/chat/completions`). The Anthropic Messages endpoint Claude uses **requires** the field — omitting it is refused upstream with `Invalid input: expected number, received undefined at max_tokens` — so that route keeps sending its derived budget and `0` has no effect for Claude. Auxiliary calls whose budget the host fixes itself (the session title is pinned at 64 tokens) also outrank this setting and are not unbound by `0`.
+
+An empty field **clears** the setting back to the derived default; it is not the same as writing `0`.
 
 ### Repeated image cache misses
 
