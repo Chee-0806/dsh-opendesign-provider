@@ -183,7 +183,7 @@ export const PANEL_COPY_EN: Record<PanelKey, string> = {
   usage: 'Usage',
   completed: 'completed',
   usageBillingPeriod: 'Official billing-period usage',
-  usagePeriodUnknown: '官方用量汇总，统计周期未确认',
+  usagePeriodUnknown: 'Official usage summary; the billing period is unconfirmed',
   monthly: 'Monthly',
   monthlyLimit: 'Monthly limit',
   monthlyUsed: 'Monthly used',
