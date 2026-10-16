@@ -15,7 +15,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { createSnapshotStore } from './snapshot-store.ts'
-import { readableErrorText } from './error-text.ts'
+import { readableErrorText } from '../readable-error.ts'
 // Type-only: the client-service augmentations (`slots`/`remote`/`locale` on
 // Context) and the `settings.section` SlotMap entry.
 import type {} from '@deepseek-ai/dsh-api-remotes/client'

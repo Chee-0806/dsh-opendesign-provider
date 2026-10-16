@@ -33,6 +33,7 @@ import { createServer as createNetServer } from 'node:net'
 import { randomBytes } from 'node:crypto'
 import { DEFAULT_API_BASE } from './adapter.ts'
 import { IDENTITY_ENCODING_HEADER } from './response-encoding.ts'
+import { readableErrorText } from './readable-error.ts'
 import type { CommandCodeLoginFailureReason, CommandCodeLoginStatus } from './login-wire.ts'
 
 /** 登录总期限包含浏览器回调、密钥验证与存储，不能在收到回调后撤掉保护。 */
@@ -568,7 +569,7 @@ export class CommandCodeLoginFlow {
       this.setStatus({
         state: 'failed',
         reason: 'unavailable',
-        message: error instanceof Error ? error.message : String(error),
+        message: readableErrorText(error),
       })
       return
     }

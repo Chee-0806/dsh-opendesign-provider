@@ -18,6 +18,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // Type-only import that loads the module augmentation (`ctx.commands`).
 import type { CommandDefinition } from '@deepseek-ai/dsh-commands'
 import { CommandCodeAdapter } from './adapter.ts'
+import { readableErrorText } from './readable-error.ts'
 import type { CommandCodeConnectionOptions, CommandCodeUsageReport } from './adapter.ts'
 import type { CommandCodeAccountUsage, CommandCodeAccountsReport } from './usage-wire.ts'
 import { commandCopy, type LocaleId } from './command-locales.ts'
@@ -209,7 +210,7 @@ export function commandDefinition<C extends CommandCodeConnectionOptions>(
         const report = await adapter.getUsage()
         return { kind: 'success', text: renderReport(report, locale) }
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error)
+        const message = readableErrorText(error)
         return {
           kind: 'error',
           text: commandCopy(locale, 'errorText').replace('{message}', message),

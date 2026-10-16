@@ -141,6 +141,7 @@ function Field({
   numeric,
   decimal,
   context,
+  output,
   wide,
   placeholder,
   onEdit,
@@ -156,6 +157,8 @@ function Field({
   decimal?: boolean
   /** Renders the context-length bounds copy instead of the generic number one. */
   context?: boolean
+  /** Renders the output-budget bounds copy (0 = omit, capped by the gateway). */
+  output?: boolean
   wide?: boolean
   placeholder?: string | undefined
   onEdit(text: string): void
@@ -169,7 +172,7 @@ function Field({
       tag={<OverrideTag state={state} t={t} />}
       description={hint}
       error={state.invalid
-        ? invalidCopy(state.invalidReason, t, context === true ? 'context' : decimal === true ? 'duration' : 'number')
+        ? invalidCopy(state.invalidReason, t, output === true ? 'output' : context === true ? 'context' : decimal === true ? 'duration' : 'number')
         : undefined}
       control={
         <>
@@ -192,7 +195,7 @@ function Field({
 }
 
 /** The per-field error copy for a staged draft's failure reason. */
-function invalidCopy(reason: StagedField['invalidReason'], t: Translate<SettingsCommandCodeKey>, mode: 'number' | 'duration' | 'context' = 'number'): string {
+function invalidCopy(reason: StagedField['invalidReason'], t: Translate<SettingsCommandCodeKey>, mode: 'number' | 'duration' | 'context' | 'output' = 'number'): string {
   if (mode === 'duration') {
     if (reason === 'tooSmall') return t('durationTooSmall')
     if (reason === 'tooLarge') return t('durationTooLarge')
@@ -205,6 +208,14 @@ function invalidCopy(reason: StagedField['invalidReason'], t: Translate<Settings
     if (reason === 'tooSmall') return t('contextWindowTooSmall')
     if (reason === 'tooLarge') return t('contextWindowTooLarge')
     return t('contextWindowInvalid')
+  }
+  if (mode === 'output') {
+    // Same reason: this field's range includes 0 (the omit sentinel) and stops
+    // at the gateway's own cap, so neither the retry copy nor the context copy
+    // describes it.
+    if (reason === 'tooSmall') return t('maxOutputTokensTooSmall')
+    if (reason === 'tooLarge') return t('maxOutputTokensTooLarge')
+    return t('maxOutputTokensInvalid')
   }
   if (reason === 'tooSmall') return t('numberTooSmall')
   if (reason === 'tooLarge') return t('numberTooLarge')
@@ -760,6 +771,21 @@ function ContextCard({ state, disabled, t, onEdit, onReset, onOverrides }: FormC
         context
         onEdit={(text) => onEdit('contextWindow', text)}
         onReset={() => onReset('contextWindow')}
+        t={t}
+      />
+      {/* Output budget (issue #74): sits with the context field because both
+          bound one request's size, and both are per-plugin rather than
+          per-model. Placed after the window so the more common setting leads. */}
+      <Field
+        id="cc-max-output-tokens"
+        label={t('maxOutputTokens')}
+        hint={t('maxOutputTokensHint')}
+        state={state.maxOutputTokens}
+        disabled={disabled}
+        numeric
+        output
+        onEdit={(text) => onEdit('maxOutputTokens', text)}
+        onReset={() => onReset('maxOutputTokens')}
         t={t}
       />
       <SettingRow

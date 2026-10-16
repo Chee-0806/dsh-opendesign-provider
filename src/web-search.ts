@@ -17,6 +17,7 @@ import type { WebRuntime } from '@deepseek-ai/dsh-web'
 import { attributionHeaders, type HarnessError } from '@deepseek-ai/dsh-llm'
 import { COMMAND_CODE_CLI_VERSION } from './adapter.ts'
 import { IDENTITY_ENCODING_HEADER } from './response-encoding.ts'
+import { readableErrorText } from './readable-error.ts'
 
 /** Stable id this provider registers under in `ctx.web`. */
 export const COMMANDCODE_SEARCH_PROVIDER_ID = 'commandcode'
@@ -240,7 +241,7 @@ export class CommandCodeSearchProvider implements WebSearchProvider {
     } catch (error: unknown) {
       if (signal?.aborted === true || isAbortError(error)) throw searchAborted(signal, error)
       throw new WebError(
-        `Command Code web search request failed: ${error instanceof Error ? error.message : String(error)}`,
+        `Command Code web search request failed: ${readableErrorText(error)}`,
         'WEB_PROVIDER_ERROR',
         { cause: error },
       )
@@ -320,7 +321,7 @@ export class CommandCodeSearchProvider implements WebSearchProvider {
         }
       }
       throw new WebError(
-        `Command Code web search credential resolution failed: ${error instanceof Error ? error.message : String(error)}`,
+        `Command Code web search credential resolution failed: ${readableErrorText(error)}`,
         'WEB_PROVIDER_ERROR',
         { cause: error },
       )

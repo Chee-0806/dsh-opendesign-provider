@@ -72,6 +72,11 @@ export type SettingsCommandCodeKey =
   | 'contextWindowTooSmall'
   | 'contextWindowTooLarge'
   | 'contextWindowInvalid'
+  | 'maxOutputTokens'
+  | 'maxOutputTokensHint'
+  | 'maxOutputTokensTooSmall'
+  | 'maxOutputTokensTooLarge'
+  | 'maxOutputTokensInvalid'
   | 'overridden'
   | 'reset'
   | 'invalidNumber'
@@ -269,6 +274,17 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   contextWindowTooSmall: '上下文长度不能小于 1',
   contextWindowTooLarge: '上下文长度不能大于 10,000,000',
   contextWindowInvalid: '请输入有效的整数 token 数',
+  maxOutputTokens: '单轮输出上限',
+  maxOutputTokensHint:
+    '每次请求发送的输出预算（token）。留空＝按模型自身输出上限推导（默认，行为不变）；'
+    + '填正整数＝与推导值取较小者，永远不会超过模型上限或网关上限 131072。'
+    + '填 `0`＝请求中不发送该字段，把单轮输出规模交回平台自行限制——'
+    + '这是「长回答被硬切」的解法，但仅 CLI 与 OpenAI 两条传输支持；'
+    + 'Claude 走的 Messages 端点必填该字段，因此那里仍按推导值发送，填 0 对它无效。'
+    + '会话标题这类由宿主明确限定预算的辅助调用也不受此设置影响。支持 64K 这样的简写。',
+  maxOutputTokensTooSmall: '输出上限不能小于 0（0 表示不发送该字段）',
+  maxOutputTokensTooLarge: '输出上限不能大于 131072（网关上限）',
+  maxOutputTokensInvalid: '请输入 0 或有效的整数 token 数',
   overridden: '已覆盖',
   reset: '重置',
   invalidNumber: '无效数字',
@@ -475,6 +491,18 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   contextWindowTooSmall: 'Context length must be at least 1',
   contextWindowTooLarge: 'Context length must not exceed 10,000,000',
   contextWindowInvalid: 'Enter a valid whole-token count',
+  maxOutputTokens: 'Output limit per turn',
+  maxOutputTokensHint:
+    'The output budget sent with each request, in tokens. Empty derives it from the model’s own ceiling '
+    + '(the default; nothing changes). A positive number is taken as a cap alongside that derived value, so it can '
+    + 'never exceed the model ceiling or the gateway’s 131,072. `0` sends no such field at all and leaves the '
+    + 'per-turn output size to the platform — the fix for answers being cut short — but only the CLI and OpenAI '
+    + 'transports support it: the Messages endpoint Claude uses requires the field, so Claude keeps its derived '
+    + 'budget and `0` has no effect there. Auxiliary calls whose budget the host fixes itself, such as the session '
+    + 'title, are unaffected too. Shorthand like 64K is accepted.',
+  maxOutputTokensTooSmall: 'Output limit must be at least 0 (0 omits the field)',
+  maxOutputTokensTooLarge: 'Output limit must not exceed 131,072 (the gateway cap)',
+  maxOutputTokensInvalid: 'Enter 0 or a valid whole-token count',
   overridden: 'Overridden',
   reset: 'Reset',
   invalidNumber: 'Invalid number',

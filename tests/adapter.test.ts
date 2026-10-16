@@ -4687,6 +4687,188 @@ test('a model with no published ceiling still resolves through the fallback', as
   assert.deepEqual(sent(), [64_000])
 })
 
+// ---------------------------------------------------------------------------
+// Output budget (issue #74)
+//
+// The report's ask was a switch that stops the adapter from writing
+// `max_tokens` at all. These pin the wire behaviour per transport, the
+// precedence against a host-supplied budget, and the guards that keep the
+// Claude route working.
+// ---------------------------------------------------------------------------
+
+/** Post one OpenAI-route request and report the `max_tokens` field, if present. */
+function openAiBudgetAdapter(connection: Record<string, unknown>) {
+  const sent: Array<Record<string, unknown>> = []
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), ...connection }),
+    fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      sent.push(body)
+      const model = String(body.model)
+      return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: 'ok' } }] })}\n\n`
+        + `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], id: model })}\n\n`
+        + 'data: [DONE]\n\n')
+    }) as typeof fetch,
+  })
+  return { adapter, sent }
+}
+
+test('输出预算未设置时按推导值发送 max_tokens，行为与之前一致', async () => {
+  // The default path, and the one every existing profile takes: the field is
+  // present and carries the derived figure.
+  const { adapter, sent } = openAiBudgetAdapter({})
+  await collect(adapter.stream({ provider: 'commandcode', model: 'review/model', messages: [userMessage('hi')] }))
+  assert.equal(sent.length, 1)
+  assert.equal('max_tokens' in sent[0]!, true)
+  assert.equal(sent[0]!.max_tokens, 131_072)
+})
+
+test('正整数输出预算收紧实发 max_tokens，且不会抬高推导值', async () => {
+  const { adapter, sent } = openAiBudgetAdapter({ maxOutputTokens: 20_000 })
+  await collect(adapter.stream({ provider: 'commandcode', model: 'review/model', messages: [userMessage('hi')] }))
+  assert.equal(sent[0]!.max_tokens, 20_000)
+
+  // "Cannot raise" is only proven against a model whose own ceiling sits BELOW
+  // the figure the user typed: `gemini-3.5-flash` publishes 65 536, so asking
+  // for 131 072 must still send 65 536. Asserting 131 072 on a model with a
+  // 131 072 ceiling would pass for the wrong reason.
+  const capped = openAiBudgetAdapter({ maxOutputTokens: 131_072 })
+  await collect(capped.adapter.stream({
+    provider: 'commandcode', model: 'google/gemini-3.5-flash', messages: [userMessage('hi')],
+  }))
+  assert.equal(capped.sent[0]!.max_tokens, 65_536)
+})
+
+test('maxOutputTokens: 0 在 OpenAI 传输上完全不发送该字段', async () => {
+  const { adapter, sent } = openAiBudgetAdapter({ maxOutputTokens: 0 })
+  await collect(adapter.stream({ provider: 'commandcode', model: 'review/model', messages: [userMessage('hi')] }))
+  assert.equal(sent.length, 1)
+  // Not `max_tokens: 0`, which would ask for an empty answer — the field is
+  // absent so the platform decides the per-turn size.
+  assert.equal('max_tokens' in sent[0]!, false)
+})
+
+test('maxOutputTokens: 0 在 CLI 传输上同时清掉 params.max_tokens', async () => {
+  // The CLI route nests the budget under `params`, and the builder writes it
+  // there; the post-build re-statement must not put it back.
+  const sent: Array<{ params: Record<string, unknown> }> = []
+  const adapter = makeAdapter({
+    options: () => ({
+      apiBase: 'https://api.commandcode.ai',
+      workingDir: '/tmp/project',
+      modelsCachePath: '/tmp/cc-models-cache.json',
+      requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+      streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+      protocol: 'cli' as const,
+      maxOutputTokens: 0,
+    }),
+    fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body)) as { params: Record<string, unknown> })
+      return new Response(`data: ${JSON.stringify({ type: 'text-delta', text: 'ok' })}\n\n`
+        + `data: ${JSON.stringify({ type: 'finish', finishReason: 'stop' })}\n\n`)
+    }) as typeof fetch,
+  })
+  await collect(adapter.stream({ provider: 'commandcode', model: 'review/model', messages: [userMessage('hi')] }))
+  assert.equal(sent.length, 1)
+  assert.equal('max_tokens' in sent[0]!.params, false)
+})
+
+test('Messages 端点必填 max_tokens，maxOutputTokens: 0 对它不生效', async () => {
+  // Omitting the field here would not lengthen an answer, it would make the
+  // whole Claude family unusable (`Invalid input: expected number, received
+  // undefined at max_tokens`), so the derived budget is still sent.
+  const sent: Array<Record<string, unknown>> = []
+  const adapter = makeAdapter({
+    options: MESSAGES_OPTIONS({ maxOutputTokens: 0 }),
+    fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/provider/v1/models')) {
+        return new Response(JSON.stringify({ object: 'list', data: [
+          { id: 'claude-opus-4-8', name: 'Claude', context_length: 1_000_000, supported_endpoints: ['/messages'] },
+        ] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      }
+      sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+      return messagesStream('ok')
+    }) as unknown as typeof fetch,
+  })
+  await adapter.listModels('commandcode')
+  await collect(adapter.stream({ provider: 'commandcode', model: 'claude-opus-4-8', messages: [userMessage('hi')] }))
+  assert.equal(sent.length, 1)
+  assert.equal(typeof sent[0]!.max_tokens, 'number')
+  assert.equal(sent[0]!.max_tokens, 128_000)
+})
+
+test('宿主显式给定的调用预算优先于 maxOutputTokens: 0', async () => {
+  // The session-title call passes 64 tokens because its output must stay
+  // bounded (issue #88): dropping the field there would let a title run long
+  // instead of making an answer fit.
+  const { adapter, sent } = openAiBudgetAdapter({ maxOutputTokens: 0 })
+  await collect(adapter.stream({
+    provider: 'commandcode', model: 'deepseek/deepseek-v4.1-flash', purpose: 'session-title',
+    maxTokens: 64, messages: [userMessage('hi')],
+  }))
+  assert.equal(sent.length, 1)
+  assert.equal(sent[0]!.max_tokens, 64)
+})
+
+test('省略输出字段后仍按推导预算诊断输出上限，而不是报 max_tokens=0', async () => {
+  // The budget stays a real number internally even when the field is omitted,
+  // so a length finish is still explained with the figure the model was
+  // actually allowed — the diagnostic must not read as "0 tokens allowed".
+  // A reasoning-only `length` finish is the shape that reaches
+  // `emptyCompletionError`, so the assertion has to provoke it rather than
+  // accept any successful finish.
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), maxOutputTokens: 0 }),
+    fetchImpl: fetchReturning(200, [
+      { choices: [{ delta: { reasoning_content: 'still thinking', tool_calls: [] } }] },
+      { choices: [{ delta: {}, finish_reason: 'length' }] },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join('')),
+  })
+  await assert.rejects(
+    collect(adapter.stream({ provider: 'commandcode', model: 'review/model', messages: [userMessage('hi')] })),
+    (error: unknown) => {
+      const e = error as { code: string; message: string }
+      assert.equal(e.code, 'OUTPUT_TOKEN_LIMIT')
+      // The derived budget, not the omitted field's sentinel.
+      assert.match(e.message, /max_tokens=131072/)
+      assert.doesNotMatch(e.message, /max_tokens=0\b/)
+      return true
+    },
+  )
+})
+
+test('解析模型的 defaultMaxTokens 跟随正整数输出预算', async () => {
+  const entry = { id: 'review/model', name: 'Probe', context_length: 1_000_000, supported_endpoints: ['/chat/completions'] }
+  const resolveDefault = async (maxOutputTokens: number | undefined) => {
+    const adapter = makeAdapter({
+      options: () => ({
+        apiBase: 'https://api.commandcode.ai',
+        workingDir: '/tmp/project',
+        modelsCachePath: '/tmp/cc-models-cache.json',
+        requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+        streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+        protocol: 'openai' as const,
+        ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+      }),
+      fetchImpl: (async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/provider/v1/models')) {
+          return new Response(JSON.stringify({ object: 'list', data: [entry] }))
+        }
+        return new Response('data: [DONE]\n\n')
+      }) as unknown as typeof fetch,
+    })
+    await adapter.listModels('commandcode')
+    return (await adapter.resolveModel('commandcode', 'review/model')).defaultMaxTokens
+  }
+  // Unset keeps the derived figure; a positive value lowers the advertised
+  // default so the host asks for the user's budget even when it omits its own.
+  const derived = await resolveDefault(undefined)
+  assert.equal(derived, 131_072)
+  assert.equal(await resolveDefault(20_000), 20_000)
+  // The omit sentinel is not a budget: the advertised default is unchanged.
+  assert.equal(await resolveDefault(0), 131_072)
+})
+
 test('旧网关公布的输出上限不会覆盖新网关的目录', async (t) => {
   const cachePath = join(tmpdir(), `cc-cross-gateway-published-${process.pid}.json`)
   t.after(() => rmSync(cachePath, { force: true }))

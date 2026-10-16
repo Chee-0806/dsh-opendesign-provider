@@ -26,6 +26,8 @@ import { IDENTITY_ENCODING_HEADER } from './response-encoding.ts'
 import { MAX_TIMEOUT_SECONDS } from './timeout-limits.ts'
 import { modelIsVisible } from './model-visibility.ts'
 import { effectiveContextWindow } from './context-window.ts'
+import { applyMaxOutputTokens, omitOutputTokens, MAX_OUTPUT_TOKEN_LIMIT } from './output-budget.ts'
+import { readableErrorText } from './readable-error.ts'
 import { bilingual, MAX_TRUSTED_RESET_MS, parseProviderError, generateHttpError, parseRetryAfterMs, classifyAccountRejection, isUpgradeRequiredError, isMessagesPermissionRejection, type AccountRotationReason } from './provider-errors.ts'
 export type { AccountRotationReason } from './provider-errors.ts'
 import { ownedResponseStream, settleStreamResponse, responseIdentifiers, failureWithRequestId, type CommandCodeProtocol, type ResponseMetadata } from './stream-response.ts'
@@ -91,33 +93,11 @@ export const DEFAULT_API_BASE = 'https://api.commandcode.ai'
 
 /**
  * The output budget this bundle asks for, and the ceiling it will never exceed.
- *
- * 131 072, chosen against a measured provider limit rather than a round guess.
- * Probing `/alpha/generate` directly on 2026-09-28: 64 000 → 200, 131 072 → 200,
- * 196 608 → 200, **200 000 → 200, 200 704 → 400**, 1 000 000 → 400. The server
- * therefore caps `max_tokens` at 200 000, and it does so identically for a
- * 262 144-window model (`stealth/pixel-canary`, retired by Command Code on
- * 2026-10-01 and named here only as the probe's subject) and a 1 000 000-window
- * one (`stealth/space-bunny-alpha`) — the cap is global, not per model. 131 072
- * keeps a 35 % margin under it while covering the real output ceiling of the
- * models that have one (Claude 64 K, Gemini 64 K, several at 128 K).
- *
- * The old 64 000 was never a provider requirement: it cost nothing in latency
- * (a 64 000 request answered headers in 1.28 s against 1.57 s for 131 072) but
- * it did cap what a model could ever say in one turn.
- *
- * No client-side clamp is applied on top of this: an earlier version pre-shrank
- * `max_tokens` from an estimate of the prompt already sent (`requestContextBudget()`,
- * issue #67), but that estimate over-corrected on ordinary long conversations —
- * exactly the "output gets cut short as the conversation grows" symptom issue #74
- * reported — while a live A/B probe (2026-09-30, `stealth/space-bunny-alpha`,
- * ~19.6% over its 1,000,000-token window with no client-side shrink) showed the
- * endpoint answers a genuine overflow with an unambiguous `400 … exceeds the
- * model's context window`, which `isContextOverflowDetail()` below already
- * classifies as `CONTEXT_WINDOW_EXCEEDED` independently of this constant. See
- * [决策记录](../docs/决策记录.md).
+ * The figure and its probe evidence live in `./output-budget.ts` — the module
+ * the browser settings page also bounds its input by — and are re-exported here
+ * under the historical name so existing importers are unaffected.
  */
-export const DEFAULT_GENERATE_MAX_TOKENS = 131_072
+export const DEFAULT_GENERATE_MAX_TOKENS = MAX_OUTPUT_TOKEN_LIMIT
 
 export const MODELS_TIMEOUT_MS = 10_000
 /** How long the picker's plan-filter billing facts stay cached before refetching. */
@@ -1434,6 +1414,14 @@ export interface CommandCodeConnectionOptions {
    */
   contextWindowOverrides?: Readonly<Record<string, number>> | undefined
   /**
+   * 输出预算上限（issue #74）。未设置＝沿用既有推导（模型公布/学习上限、
+   * 网关总上限）。正整数＝用户上限，与推导值取较小者，永远不会超过网关总上限。
+   * `0`＝不发送 `max_tokens`，把单轮输出规模交回平台——仅 CLI 与 OpenAI 传输
+   * 支持；Messages 端点必填该字段，因此那条链路仍按推导值发送（见
+   * `omitOutputTokens()`）。
+   */
+  maxOutputTokens?: number | undefined
+  /**
    * Optional protocol hint. `'auto'` (default) uses billing/cache plus
    * Provider API fallback; `'cli'` forces `/alpha/generate`; `'openai'`
    * prefers `/provider/v1/chat/completions` but still falls back to the CLI
@@ -1813,6 +1801,15 @@ interface GenerateCallFacts {
   apiKey: string
   /** maxTokens cap for the request model (in-memory catalog, else default). */
   maxTokens: number
+  /**
+   * Whether this attempt must send NO `max_tokens` field (`maxOutputTokens: 0`,
+   * issue #74). Carried separately from {@link maxTokens} so the derived budget
+   * stays a real number for the trace, the refusal recovery and the diagnostic
+   * that names the limit — the flag decides only whether the field reaches the
+   * wire. Always false on the Messages transport, which requires the field; see
+   * `omitOutputTokens()`.
+   */
+  omitMaxTokens: boolean
   /** Validated reasoning effort, or undefined when unset/unsupported. */
   reasoningEffort: string | undefined
   /**
@@ -1928,7 +1925,7 @@ function markLastUserCacheControl(messages: unknown[]): void {
 async function buildCliBody(
   options: GenerateOptions,
   connection: CommandCodeConnectionOptions,
-  facts: Pick<GenerateCallFacts, 'maxTokens' | 'reasoningEffort' | 'systemText' | 'readImage'>,
+  facts: Pick<GenerateCallFacts, 'maxTokens' | 'omitMaxTokens' | 'reasoningEffort' | 'systemText' | 'readImage'>,
 ): Promise<Record<string, unknown>> {
   return {
     config: {
@@ -1965,7 +1962,10 @@ async function buildCliBody(
         input_schema: toolParametersSchema(tool.parameters),
       })),
       system: cliSystem(facts.systemText),
-      max_tokens: facts.maxTokens,
+      // Omitted entirely when the user asked for it (issue #74): an absent
+      // field leaves the per-turn output size to the platform, which is the
+      // only way to stop the passive ceiling from cutting an answer short.
+      ...(facts.omitMaxTokens ? {} : { max_tokens: facts.maxTokens }),
       temperature: options.temperature ?? 0.3,
       stream: true,
       ...(facts.reasoningEffort ? { reasoning_effort: facts.reasoningEffort } : {}),
@@ -1977,7 +1977,7 @@ async function buildCliBody(
 /** Build the documented Provider Chat Completions request body for one call. */
 async function buildOpenAIBody(
   options: GenerateOptions,
-  facts: Pick<GenerateCallFacts, 'maxTokens' | 'reasoningEffort' | 'systemText' | 'readImage'>,
+  facts: Pick<GenerateCallFacts, 'maxTokens' | 'omitMaxTokens' | 'reasoningEffort' | 'systemText' | 'readImage'>,
 ): Promise<Record<string, unknown>> {
   const openAiMessages = [
     ...(facts.systemText ? [{ role: 'system', content: facts.systemText }] : []),
@@ -1995,7 +1995,7 @@ async function buildOpenAIBody(
     model: options.model,
     messages: openAiMessages,
     ...(openAiTools.length > 0 ? { tools: openAiTools } : {}),
-    max_tokens: facts.maxTokens,
+    ...(facts.omitMaxTokens ? {} : { max_tokens: facts.maxTokens }),
     temperature: options.temperature ?? 0.3,
     stream: true,
     ...(facts.reasoningEffort ? { reasoning_effort: facts.reasoningEffort } : {}),
@@ -2038,6 +2038,12 @@ async function buildMessagesBody(
 ): Promise<Record<string, unknown>> {
   const body: Record<string, unknown> = {
     model: options.model,
+    // Always sent, even under `maxOutputTokens: 0` (issue #74): this endpoint
+    // requires the field and refuses a body without it
+    // (`Invalid input: expected number, received undefined at max_tokens`), so
+    // omitting it would not lengthen an answer — it would make the whole Claude
+    // family unusable. `omitOutputTokens()` keeps the flag false for this
+    // transport; the derived budget stands.
     max_tokens: facts.maxTokens,
     stream: true,
     messages: await messagesToMessages(options.messages, facts.readImage),
@@ -2075,6 +2081,17 @@ async function buildMessagesBody(
   }
   markLastUserCacheControl(body.messages as unknown[])
   return body
+}
+
+/**
+ * Write the output budget into an already-built body, each transport in its own
+ * shape (the CLI route nests it under `params`). Used to keep a REBUILT body's
+ * figure in step with the budget without duplicating the nesting knowledge, and
+ * only called when the field is not being omitted (issue #74).
+ */
+function assignMaxTokens(body: Record<string, unknown>, target: CommandCodeProtocol, maxTokens: number): void {
+  if (target === 'cli') recordOrEmpty(body.params).max_tokens = maxTokens
+  else body.max_tokens = maxTokens
 }
 
 
@@ -2578,7 +2595,12 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
         ? {
             context: { contextWindow },
             // 用有效窗口重新计算，调大时解除旧目录窗口限制；模型输出上限与网关总上限仍有效。
-            defaultMaxTokens: Math.min(catalogModelMaxTokens(connection.apiBase, entry, contextWindow), DEFAULT_GENERATE_MAX_TOKENS),
+            // 用户输出预算（issue #74）同样压低这里宣告的默认值，让宿主在未显式
+            // 指定时也按用户上限请求；`0` 是省略哨兵，不改变宣告值。
+            defaultMaxTokens: applyMaxOutputTokens(
+              Math.min(catalogModelMaxTokens(connection.apiBase, entry, contextWindow), DEFAULT_GENERATE_MAX_TOKENS),
+              connection.maxOutputTokens,
+            ),
           }
         : {}),
       // Omit `reasoning` entirely for models without known effort support:
@@ -2903,7 +2925,7 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
         }
         return record
       } catch (error: unknown) {
-        failures.push(`${path}: ${error instanceof Error ? error.message : String(error)}`)
+        failures.push(`${path}: ${readableErrorText(error)}`)
         failed.push({ kind: 'transport' })
         return undefined
       }
@@ -3085,7 +3107,12 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     const modelMax = modelEntry === undefined ? facts.fallbackLimit : catalogModelMaxTokens(
       connection.apiBase, modelEntry, effectiveContextWindow(modelEntry.contextWindow, options.model, connection),
     )
-    const initialMax = Math.min(options.maxTokens ?? Infinity, modelMax, DEFAULT_GENERATE_MAX_TOKENS)
+    // 用户输出预算（issue #74）只收紧推导值，永远不能突破模型上限、学习上限或
+    // 网关总上限；`0` 是省略哨兵，不是预算，`applyMaxOutputTokens()` 原样返回推导值。
+    const initialMax = applyMaxOutputTokens(
+      Math.min(options.maxTokens ?? Infinity, modelMax, DEFAULT_GENERATE_MAX_TOKENS),
+      connection.maxOutputTokens,
+    )
     const budget = { max: initialMax, sent: initialMax }
     for (let attempt = 0; ; attempt++) {
       let delivered = false
@@ -3201,8 +3228,12 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     const buildBody = async (target: CommandCodeProtocol): Promise<Record<string, unknown>> => {
       const finishBody = timing.phase('body')
       try {
+      // Per target, not per call: a protocol fallback rebuilds the body for a
+      // different transport, and only the Messages endpoint requires the field.
+      const omitMaxTokens = omitOutputTokens(connection.maxOutputTokens, target, options.maxTokens)
       const facts = {
         maxTokens,
+        omitMaxTokens,
         reasoningEffort,
         // Reuse the lookup `stream()` already did: a model with no effort
         // levels offers nothing for the thinking switch to control.
@@ -3215,8 +3246,6 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
         : target === 'messages'
           ? await buildMessagesBody(requestOptions, facts)
           : await buildOpenAIBody(requestOptions, facts)
-      if (target === 'cli') recordOrEmpty(built.params).max_tokens = maxTokens
-      else built.max_tokens = maxTokens
       return built
       } finally { finishBody() }
     }
@@ -3267,8 +3296,11 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
         if (lower < maxTokens) {
           maxTokens = lower
           budget.max = Math.min(budget.max, lower)
-          if (protocol === 'cli') recordOrEmpty(body.params).max_tokens = lower
-          else body.max_tokens = lower
+          // The budget is still tracked even when the field is omitted (issue
+          // #74): the trace and the refusal recovery read it, and a future
+          // attempt on a transport that requires the field must have it. Only
+          // the WIRE write is conditional.
+          if (!omitOutputTokens(connection.maxOutputTokens, protocol, options.maxTokens)) assignMaxTokens(body, protocol, lower)
           serializedBodies.delete(body)
         }
         budget.sent = maxTokens

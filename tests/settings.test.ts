@@ -1330,6 +1330,86 @@ test('a bare or unknown suffix stays a format error', () => {
   }
 })
 
+test('输出预算字段接受 0（省略哨兵）与网关上限，并阻止越界保存', async () => {
+  // Unlike the context field, 0 is a MEANINGFUL value here (issue #74): it asks
+  // the adapter to send no `max_tokens` at all, so the spec must accept it
+  // rather than read it as "nothing set".
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  controller.edit('maxOutputTokens', '0')
+  assert.equal(controller.state().maxOutputTokens.invalid, false)
+  await controller.save()
+  assert.equal(scope.state.value.maxOutputTokens, 0)
+
+  controller.edit('maxOutputTokens', '64000')
+  assert.equal(controller.state().maxOutputTokens.invalid, false)
+  await controller.save()
+  assert.equal(scope.state.value.maxOutputTokens, 64_000)
+
+  // The upper bound is the gateway's own cap: a larger figure would be refused
+  // on the wire, so the input says so instead of spending a round trip.
+  controller.edit('maxOutputTokens', '131073')
+  assert.equal(controller.state().maxOutputTokens.invalidReason, 'tooLarge')
+  await controller.save()
+  assert.equal(scope.state.value.maxOutputTokens, 64_000)
+
+  // And it is a whole-token count, exactly like the context field.
+  controller.edit('maxOutputTokens', '64000.5')
+  assert.equal(controller.state().maxOutputTokens.invalidReason, 'format')
+})
+
+test('输出预算支持紧凑简写，且上界仍是网关上限', async () => {
+  const scope = makeScope({})
+  const { controller } = makeController({ scope })
+  controller.edit('maxOutputTokens', ' 64k ')
+  assert.equal(controller.state().maxOutputTokens.invalid, false)
+  await controller.save()
+  assert.equal(scope.state.value.maxOutputTokens, 65_536)
+
+  // 128K = 131 072 sits exactly on the cap and must pass; 256K overshoots it.
+  controller.edit('maxOutputTokens', '128K')
+  assert.equal(controller.state().maxOutputTokens.invalid, false)
+  await controller.save()
+  assert.equal(scope.state.value.maxOutputTokens, 131_072)
+
+  controller.edit('maxOutputTokens', '256K')
+  assert.equal(controller.state().maxOutputTokens.invalidReason, 'tooLarge')
+  await controller.save()
+  assert.equal(scope.state.value.maxOutputTokens, 131_072)
+})
+
+test('清空输出预算回到推导默认，而不是写入 0', async () => {
+  // The distinction the whole feature rests on: empty means "derive it as
+  // before", 0 means "send no field". A blank draft must clear the setting, so
+  // it can never be saved as the omit sentinel by accident.
+  const scope = makeScope({ value: { maxOutputTokens: 64_000 }, user: { maxOutputTokens: 64_000 } })
+  const { controller } = makeController({ scope })
+  assert.equal(controller.state().maxOutputTokens.text, '64000')
+  controller.edit('maxOutputTokens', '')
+  assert.equal(controller.state().maxOutputTokens.invalid, false)
+  await controller.save()
+  assert.equal(scope.state.value.maxOutputTokens, undefined)
+})
+
+test('the output-budget copy names the omit sentinel and the Messages limitation', () => {
+  // The setting is only honest if both surfaces say what `0` does and where it
+  // cannot apply: Claude's endpoint requires the field, so `0` is a no-op
+  // there, and the session-title call keeps its own host-supplied budget.
+  for (const [name, text] of [
+    ['zh', zh.maxOutputTokensHint],
+    ['en', en.maxOutputTokensHint],
+  ] as const) {
+    assert.match(text, /131072|131,072/, `${name} hint states the gateway cap`)
+    assert.match(text, /Messages/, `${name} hint names the route that requires the field`)
+    assert.match(text, /Claude/, `${name} hint ties that route to the Claude family`)
+  }
+  assert.match(zh.maxOutputTokensHint, /不发送/, 'zh spells out that 0 omits the field')
+  assert.match(en.maxOutputTokensHint, /sends no such field/, 'en spells out that 0 omits the field')
+  // The bounds copy must explain 0 rather than call it too small.
+  assert.match(zh.maxOutputTokensTooSmall, /0 表示不发送该字段/)
+  assert.doesNotMatch(zh.maxOutputTokensTooSmall, /不能小于 1/)
+})
+
 test('the request-timeout hint says when the Provider API route needs a bigger budget', () => {
   // The knob has always been in the Advanced card, so the gap was never the
   // field — it was that the hint only named the default. A user hitting issue

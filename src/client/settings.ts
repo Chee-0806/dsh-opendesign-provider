@@ -4,6 +4,7 @@
 import { MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../timeout-limits.ts'
 import { modelIsVisible, readVisibility } from '../model-visibility.ts'
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, isValidContextWindow, readContextWindowOverrides } from '../context-window.ts'
+import { MAX_OUTPUT_TOKEN_LIMIT, OMIT_OUTPUT_TOKENS, isValidMaxOutputTokens } from '../output-budget.ts'
 import type { SettingsMutationResult, SettingsPathOp } from './settings-scope.ts'
 import { SettingsWriter, DEFAULT_API_KEY_REF, accountModelMap, writeCompleted, type StoredRule, type SettingsWriteIntent, type SettingsWriteResult } from './settings-write.ts'
 export { DEFAULT_API_KEY_REF, accountModelMap } from './settings-write.ts'
@@ -203,6 +204,8 @@ export interface SettingsPageState {
   visibleModelsAll: boolean
   /** Global custom context-length draft; `''` = follow the catalog (issue #86). */
   contextWindow: StagedField
+  /** Single-turn output budget draft; `''` = the derived default, `0` = omit the field (issue #74). */
+  maxOutputTokens: StagedField
   /** Per-model context-length rows: staged draft or stored values, one per model. */
   contextWindowOverrides: ContextOverrideRow[]
   /** The catalog the model editors offer (Host-side, empty until loaded). */
@@ -283,18 +286,31 @@ function numberField(field: string, bounds?: { min?: number; max?: number }): Fi
  * The compact token-count shorthand (`32K`, `1M`) in BINARY units, the way
  * context windows are quoted: 32K → 32 768 (32 × 1024), 128K → 131 072,
  * 1M → 1 048 576 (1024 × 1024), so the common power-of-two windows land on
- * their exact values instead of 1000-based rounding.
- *
- * Plain text uses the {@link numberField} parse plus an integer check;
- * shorthand converts to whole tokens first. Empty-clears and bounds
- * errors stay identical, and the converted value is bounds-checked against the same
- * 1 – 10,000,000 range (the Host schema would reject an overshoot at save
- * time with only a generic failure; naming `tooLarge` here says which).
- * `Math.round` keeps fractional shorthand like `1.5K` on whole tokens.
+ * their exact values instead of 1000-based rounding. A leading sign is not part
+ * of the grammar, so this path can only produce values ≥ 0.
  */
 const COMPACT_TOKENS = /^(\d+(?:\.\d+)?)\s*([kKmM])$/
 
-function contextWindowField(field: string, bounds: { min: number; max: number }): FieldSpec {
+/**
+ * A whole-token count field with optional compact shorthand, shared by the
+ * context-length and output-budget inputs (issues #86, #74).
+ *
+ * Plain text goes through the {@link numberField} parse plus the caller's
+ * whole-token validator; shorthand converts to whole tokens first
+ * (`Math.round` keeps fractional shorthand like `1.5K` on whole tokens) and is
+ * then bounds-checked against the SAME `bounds`, so an overshoot names
+ * `tooLarge` here instead of reaching the Host schema, which would reject it at
+ * save time with only a generic failure. Empty clears in both paths.
+ *
+ * `isValid` is what tells the two apart: context lengths start at 1, while the
+ * output budget's lower bound IS its omit sentinel (`0` means "send no
+ * `max_tokens`"), so no single numeric range can serve both.
+ */
+function tokenCountField(
+  field: string,
+  bounds: { min: number; max: number },
+  isValid: (value: unknown) => boolean,
+): FieldSpec {
   const plain = numberField(field, bounds)
   return {
     field,
@@ -304,13 +320,16 @@ function contextWindowField(field: string, bounds: { min: number; max: number })
       if (compact === null) {
         const parsed = plain.parse(text)
         // 时长字段允许小数，词元计数则必须是整数；不能直接沿用通用数字字段的放行结果。
-        return parsed.kind === 'set' && !isValidContextWindow(parsed.value)
+        return parsed.kind === 'set' && !isValid(parsed.value)
           ? { kind: 'invalid', reason: 'format' }
           : parsed
       }
       const value = Math.round(Number(compact[1]) * (compact[2]!.toLowerCase() === 'k' ? 1024 : 1024 * 1024))
       if (value < bounds.min) return { kind: 'invalid', reason: 'tooSmall' }
       if (value > bounds.max) return { kind: 'invalid', reason: 'tooLarge' }
+      // No whole-token re-check here: the grammar cannot produce a negative or a
+      // fraction, and `bounds.max` already caps the value, so a validator that
+      // only tests integrality-plus-range is settled by the two checks above.
       return { kind: 'set', value }
     },
   }
@@ -333,6 +352,25 @@ function booleanField(field: string): FieldSpec {
       return { kind: 'invalid', reason: 'format' }
     },
   }
+}
+
+/**
+ * The single-turn output budget (issue #74).
+ *
+ * The range INCLUDES `0`, and `0` is not a budget: it is the sentinel asking
+ * the adapter to send no `max_tokens` field at all, leaving the per-turn output
+ * size to the platform. The upper bound is the gateway's own cap
+ * ({@link MAX_OUTPUT_TOKEN_LIMIT}) rather than an arbitrary one — a larger
+ * figure would simply be refused, so the input is where that is worth saying. A
+ * blank draft clears the setting back to the derived default, which is the
+ * behaviour every existing profile has.
+ */
+function maxOutputTokensField(field: string): FieldSpec {
+  return tokenCountField(
+    field,
+    { min: OMIT_OUTPUT_TOKENS, max: MAX_OUTPUT_TOKEN_LIMIT },
+    isValidMaxOutputTokens,
+  )
 }
 
 /**
@@ -392,7 +430,10 @@ const SECTION_FIELDS: FieldSpec[] = [
   // 自定义上下文长度（issue #86）：直接复用 Host schema 的同一对边界常量
   // （context-window.ts 是纯模块，客户端可打包导入），不像 transportMaxRetries
   // 那样需要镜像字面量加测试钉住。输入侧额外接受 256K/1M 简写，落盘仍是数字。
-  contextWindowField('contextWindow', { min: CONTEXT_WINDOW_MIN, max: CONTEXT_WINDOW_MAX }),
+  tokenCountField('contextWindow', { min: CONTEXT_WINDOW_MIN, max: CONTEXT_WINDOW_MAX }, isValidContextWindow),
+  // 输出预算（issue #74）：0 是「不发送 max_tokens」的省略哨兵，因此上界用
+  // 网关自己的总上限，而不是套用上下文窗口的范围。
+  maxOutputTokensField('maxOutputTokens'),
   booleanField('offloadSeenImagesForCache'),
   booleanField('filterModelsByPlan'),
   booleanField('webSearch'),
@@ -524,6 +565,7 @@ export class CommandCodeSettingsController {
       visibleModels: this.effectiveVisibleModels(),
       visibleModelsAll: this.visibleModelsDraft === undefined ? this.storedShowsAll() : this.visibleModelsDraft.length === 0,
       contextWindow: this.field('contextWindow'),
+      maxOutputTokens: this.field('maxOutputTokens'),
       contextWindowOverrides: this.effectiveContextWindowOverrides(),
       catalogModels: this.catalogModels,
       catalogFailed: this.catalogFailed,

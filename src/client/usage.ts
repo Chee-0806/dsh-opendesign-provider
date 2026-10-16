@@ -17,7 +17,7 @@ import type { EnrollmentRemote } from './enrollment.ts'
 import type { AnalyticsRemote } from './analytics.ts'
 import type { AnalyticsQuery, AnalyticsReport } from '../analytics-wire.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import { readableErrorText } from './error-text.ts'
+import { readableErrorText } from '../readable-error.ts'
 export { compactCountTitle, formatCompactCount, formatMoney, formatMoneyExact, formatTokensCompact, formatSuccessRate, windowRatio, formatResetAt } from '../display-format.ts'
 
 /**

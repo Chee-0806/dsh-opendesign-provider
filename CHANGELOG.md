@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- 问题 #74：新增**单轮输出上限**配置 `maxOutputTokens` 与网页设置页字段（「模型与上下文」分组，紧随自定义上下文长度）。不填（默认）＝沿用既有推导（模型公布或运行时学到的输出上限、网关总上限三者取最小），行为完全不变；填正整数＝与该推导值取最小，永远不会突破模型上限或网关总上限 131 072；填 **`0`＝请求中不发送 `max_tokens` 字段**，把单轮输出规模交回平台自行限制——这是报告者要的「不再被硬切」，因为该字段本身是被动硬限制，单纯调大数值只能把断点往后挪。省略仅对**接受缺省该字段的传输**生效：CLI（`/alpha/generate`）与 OpenAI（`/provider/v1/chat/completions`）；Claude 走的 Anthropic Messages 端点必填该字段（缺失会被上游以 `Invalid input: expected number, received undefined at max_tokens` 直接拒绝），因此那条链路仍按推导值发送，填 `0` 对它无效。宿主显式给定的每次调用预算（如会话标题的 64 词元）同样优先于此设置。`0` 与正整数共用一个数值字段，边界由 Host 与浏览器设置页共用的纯模块 `src/output-budget.ts` 判定；正数取值还会同步压低选择器上宣告的 `defaultMaxTokens`。字段留空＝清除该配置（回到推导默认），而不是写入 0。输入接受 `64K` 简写。设置页的上下文长度与输出预算两个 token 计数字段合并为同一个 `tokenCountField`（简写文法与边界检查只有一份）。
+
+### Fixed
+
+- 问题 #74（第二半）：**7 处裸 `error instanceof Error ? error.message : String(error)` 收进统一的可读错误兜底函数**。抛出的值不是 `Error` 时 `String()` 会退化成 `[object Object]`，信息全丢；0.12.2 只在浏览器侧的 RPC 边界修了这一点，Host 侧的服务端路径（通用 HTTP 用量查询、`/commandcode` 命令、账号卡片用量读取、浏览器登录流程、终端设置页注册失败、网页搜索的请求与凭据解析）仍是裸写法。支撑 `readableErrorText()` 的实现移入 Host 与客户端共用的 `src/readable-error.ts`，浏览器侧五个调用点直接导入它（不再保留中间再导出模块），两侧不会再各自演化。
+
 ## [0.13.4] - 2026-10-16
 
 ### Added
