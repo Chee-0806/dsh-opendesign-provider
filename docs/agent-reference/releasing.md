@@ -59,6 +59,13 @@ npm pack --dry-run --ignore-scripts # 查看实际发布文件清单
    通过全部检查并实际上传，npm `latest` 指向 `0.13.1`，绑定由 Pending validation（待首次发布验证）
    变为 Valid（有效），发布未要求人工输入验证码。注册表已提供来源证明，包摘要、工作流及发版提交匹配；
    原先的两天期限适用于新建且未验证的绑定，本项目当前绑定已完成验证。
+8. **命令行走完整流程已验证（2026-10-16，`0.13.4`）**：由 `gh workflow run publish.yml -f tag=v0.13.4 -f dist_tag=latest -f publish=true`
+   触发（[运行记录](https://github.com/Mars-Sea/dsh-commandcode-provider/actions/runs/38838339286)），
+   工作流依次通过输入校验、`npm ci`、类型检查、测试、构建、已提交产物一致性、双引擎加载、
+   隔离安装、发布入口检查与「版本尚未发布」校验后实际上传，`npm latest` 由 `0.13.3` 前移到 `0.13.4`，
+   并发布来源证明到透明度日志。命令行触发要求 `gh` 具备 `workflow` 权限；
+   本机 `~/.npm` 不可写会让 npm 因写日志失败而整体报 `EPERM`，用 `npm_config_cache=<可写目录>` 即可绕开
+   （`npm ci --dry-run` 不受影响，因为它在临时目录内不写全局日志）。
 
 ## 三、手动发布版本
 
