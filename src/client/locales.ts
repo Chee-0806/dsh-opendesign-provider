@@ -103,6 +103,7 @@ export type SettingsCommandCodeKey =
   | 'writeRefreshFailed'
   | 'writeRefreshRetry'
   | 'writeStateUnknown'
+  | 'writeCredentialRefNote'
   | 'unsavedChanges'
   | 'saveInvalid'
   | 'discard'
@@ -190,12 +191,19 @@ export type SettingsCommandCodeKey =
   | 'accountAddLogin'
   | 'accountAddPaste'
   | 'accountAddConfirm'
+  | 'accountAddCancel'
+  | 'accountAddLinkHint'
+  | 'accountAddOpenLink'
   | 'accountNamePlaceholder'
   | 'accountNameN'
+  | 'accountNameSaveRetry'
+  | 'accountNameAcceptExisting'
   | 'accountKeyPlaceholder'
   | 'accountOpFailed'
   | 'accountCleanupPending'
   | 'accountCleanupRetry'
+  | 'accountEnrollmentCleanupRetry'
+  | 'accountRefSeparator'
   | 'accountModels'
   | 'accountModelsHint'
   | 'accountModelOwner'
@@ -311,6 +319,7 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   writeRefreshFailed: '密钥状态刷新失败；已获确认的写入仍有效。',
   writeRefreshRetry: '仅刷新密钥状态',
   writeStateUnknown: '密钥状态尚未确认',
+  writeCredentialRefNote: '（原引用：{ref}）',
   unsavedChanges: '有未保存的更改',
   saveInvalid: '有字段填写不正确，修正后才能保存',
   discard: '放弃',
@@ -398,12 +407,19 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   accountAddLogin: '网页登录',
   accountAddPaste: '粘贴密钥',
   accountAddConfirm: '添加',
+  accountAddCancel: '取消开通',
+  accountAddLinkHint: '若登录页面未自动打开，请点击下方链接。',
+  accountAddOpenLink: '打开浏览器登录',
   accountNamePlaceholder: '备注名（可选，网页登录时默认使用账户名）',
   accountNameN: '账户 {n}',
+  accountNameSaveRetry: '重试保存名称',
+  accountNameAcceptExisting: '接受已有名称',
   accountKeyPlaceholder: '粘贴 API 密钥',
   accountOpFailed: '账户操作未能完成，请重试。',
   accountCleanupPending: '账户已移除，但有密钥尚未清理。可重试，不影响其他账户。',
   accountCleanupRetry: '重试清理密钥',
+  accountEnrollmentCleanupRetry: '重试清理',
+  accountRefSeparator: '：',
   accountModels: '专用模型',
   accountModelsHint: '选中的模型优先由此账户处理，此账户不可用时仍会自动切换。一个模型只属于一个账户，选中会把它从其他账户移过来。',
   accountModelOwner: '属于 {name}',
@@ -516,19 +532,20 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   saving: 'Saving',
   saved: 'Settings saved',
   saveFailed: 'Save failed, please retry.',
-  writeConflict: '待提交字段已被其他操作修改，配置未写入；请核对后再保存。',
-  writeConfigUnconfirmed: '配置提交未获确认；密钥未写入，请核对宿主状态后重试。',
-  writeConfigSaved: '配置已保存。',
-  writeKeyNotIssued: '密钥操作尚未发出；请核对后重试。',
-  writeKeyUnconfirmed: '密钥操作未获确认；请核对后手动重试。',
-  writeKeyConfirmed: '原引用的密钥操作已获确认。',
-  writeTargetBefore: '默认密钥引用已变化，本次密钥操作未发出；请核对当前目标。',
-  writeTargetAfter: '原引用的密钥操作已发出，默认引用随后变化；请核对两个引用。',
-  writeClosed: '客户端已销毁，未发出的操作已停止；已确认的修改保留。',
-  writeCleanupPending: '账号修改已确认，清理记录尚未收束，请重试清理。',
-  writeRefreshFailed: '密钥状态刷新失败；已获确认的写入仍有效。',
-  writeRefreshRetry: '仅刷新密钥状态',
-  writeStateUnknown: '密钥状态尚未确认',
+  writeConflict: 'Pending fields were modified by another operation; the configuration was not written. Please review and save again.',
+  writeConfigUnconfirmed: 'The configuration submission was not confirmed; the key was not written. Please check the host state and retry.',
+  writeConfigSaved: 'Configuration saved.',
+  writeKeyNotIssued: 'The key operation has not been issued; please review and retry.',
+  writeKeyUnconfirmed: 'The key operation was not confirmed; please review and retry manually.',
+  writeKeyConfirmed: 'The key operation on the original reference has been confirmed.',
+  writeTargetBefore: 'The default key reference has changed; this key operation was not issued. Please check the current target.',
+  writeTargetAfter: 'The key operation on the original reference was issued, then the default reference changed. Please check both references.',
+  writeClosed: 'The client has been destroyed; unissued operations were stopped. Confirmed changes are kept.',
+  writeCleanupPending: 'The account change was confirmed, but cleanup records are still pending. Please retry cleanup.',
+  writeRefreshFailed: 'Key status refresh failed; confirmed writes remain valid.',
+  writeRefreshRetry: 'Refresh key status only',
+  writeStateUnknown: 'Key status not yet confirmed',
+  writeCredentialRefNote: '(original ref: {ref})',
   unsavedChanges: 'You have unsaved changes',
   saveInvalid: 'Fix the highlighted field before saving',
   discard: 'Discard',
@@ -545,7 +562,7 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   usageCost: 'Spend',
   usageCompleted: 'Completed',
   usageBillingPeriod: 'Official billing-period usage',
-  usagePeriodUnknown: '官方用量汇总，统计周期未确认',
+  usagePeriodUnknown: 'Official usage summary; the billing period is unconfirmed',
   usageTokens: 'Tokens',
   usageTokensIn: 'in',
   usageTokensOut: 'out',
@@ -616,12 +633,19 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   accountAddLogin: 'Sign in',
   accountAddPaste: 'Paste key',
   accountAddConfirm: 'Add',
+  accountAddCancel: 'Cancel setup',
+  accountAddLinkHint: 'If the sign-in page did not open automatically, use the link below.',
+  accountAddOpenLink: 'Open the sign-in page',
   accountNamePlaceholder: 'Name (optional; sign-in uses the account name)',
   accountNameN: 'Account {n}',
+  accountNameSaveRetry: 'Retry saving the name',
+  accountNameAcceptExisting: 'Accept the existing name',
   accountKeyPlaceholder: 'Paste an API key',
   accountOpFailed: 'The account change did not complete. Try again.',
   accountCleanupPending: 'The account was removed, but credential cleanup is still pending. Retry without affecting other accounts.',
   accountCleanupRetry: 'Retry credential cleanup',
+  accountEnrollmentCleanupRetry: 'Retry cleanup',
+  accountRefSeparator: ': ',
   accountModels: 'Dedicated models',
   accountModelsHint: 'These models prefer this account and still switch when it is unavailable. A model belongs to one account; selecting it here moves it from any other.',
   accountModelOwner: 'on {name}',
@@ -650,7 +674,7 @@ export function settingsWriteNotice(
   const messages = key ? [t(key)] : []
   if (result.issue === 'target-changed' && result.credentialRef) {
     messages.push(t(result.credential === 'confirmed' ? 'writeKeyConfirmed' : 'writeKeyUnconfirmed'))
-    messages.push(`（原引用：${result.credentialRef}）`)
+    messages.push(t('writeCredentialRefNote').replace('{ref}', result.credentialRef))
   }
   if (key && result.config === 'confirmed' && result.issue !== 'cleanup-pending') messages.unshift(t('writeConfigSaved'))
   if (result.refreshFailed) messages.push(t('writeRefreshFailed'))

@@ -24,7 +24,9 @@ import {
   type SettingsPageApi,
 } from '../src/client/settings.ts'
 import { DEFAULT_REQUEST_TIMEOUT_MS } from '../src/adapter.ts'
-import { en, zh, settingsWriteNotice } from '../src/client/locales.ts'
+import { en, zh, settingsWriteNotice, type SettingsCommandCodeKey } from '../src/client/locales.ts'
+import { PANEL_COPY_EN } from '../src/client/panel-copy.ts'
+import { ANALYTICS_COPY_EN, ANALYTICS_COPY_ZH } from '../src/client/analytics-copy.ts'
 import type { SettingsPathOp } from '../src/client/settings-scope.ts'
 import { modelIsVisible } from '../src/model-visibility.ts'
 
@@ -1430,6 +1432,52 @@ test('the request-timeout hint says when the Provider API route needs a bigger b
   // same route took 117 s for a 200 k prompt and 30 s for a 1.2 M one.
   assert.doesNotMatch(zh.requestTimeoutMsHint, /请求体很大|大上下文/, 'zh does not blame prompt size')
   assert.doesNotMatch(en.requestTimeoutMsHint, /request body is large|large-context/, 'en does not blame prompt size')
+})
+
+/**
+ * 英文侧文案不得混入中文：PR #90 声称补齐英文界面残留的中文，却漏掉同一设置页
+ * 9 处写在 JSX 里的硬编码。词典是这条断言唯一覆盖得到的层——新增文案只写中文、
+ * 忘了 en 时，这里立刻变红，不再等用户在英文界面上看到中文。
+ */
+test('英文侧词典不含中日韩字符，同类漏译不会再静默复现', () => {
+  // 中日韩汉字、扩展区、兼容区，以及中英文标点（全角冒号、顿号、书名号等）。
+  const cjk = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/
+  for (const [key, value] of Object.entries(en)) {
+    assert.doesNotMatch(value, cjk, `settings.commandcode 的 en.${key} 混进了中文：${value}`)
+  }
+  // `PANEL_COPY_EN` 整片铺开 `ANALYTICS_COPY_EN`，后者按项目约定让错误、缺失与
+  // 读取状态各语言统一中文（见 analytics-copy.ts 顶部注释）。这是唯一被允许的
+  // 中文：必须逐字等于中文常量，其余任何 CJK 都按漏译处理。
+  for (const [key, value] of Object.entries(PANEL_COPY_EN)) {
+    if (!cjk.test(value)) continue
+    const shared = key as keyof typeof ANALYTICS_COPY_EN
+    assert.equal(value, ANALYTICS_COPY_EN[shared], `panel.commandcode 的 en.${key} 只能原样引用 ANALYTICS_COPY_EN`)
+    assert.equal(value, ANALYTICS_COPY_ZH[shared], `panel.commandcode 的 en.${key} 不在「状态文案统一中文」的范围内`)
+  }
+  // 该约定仍在生效：若 analytics 的英文表被整片翻译，上面的豁免条款就该一起删掉。
+  assert.ok(
+    Object.keys(ANALYTICS_COPY_EN).some((key) => cjk.test(ANALYTICS_COPY_EN[key as keyof typeof ANALYTICS_COPY_EN])),
+    'ANALYTICS_COPY_EN 仍按约定引用中文状态文案',
+  )
+})
+
+test('开通界面 9 处硬编码文案已入词典，中英成对且英文不再是中文', () => {
+  // 这些按钮与提示原先直接写在 JSX 里，英文界面照抄中文。键值表把两侧一起钉住：
+  // 少一侧、键名改动，或英文退回中文，都会在这里失败。
+  const pairs: ReadonlyArray<readonly [SettingsCommandCodeKey, string, string]> = [
+    ['accountAddLinkHint', '若登录页面未自动打开，请点击下方链接。', 'If the sign-in page did not open automatically, use the link below.'],
+    ['accountAddOpenLink', '打开浏览器登录', 'Open the sign-in page'],
+    ['accountAddCancel', '取消开通', 'Cancel setup'],
+    ['accountNameSaveRetry', '重试保存名称', 'Retry saving the name'],
+    ['accountNameAcceptExisting', '接受已有名称', 'Accept the existing name'],
+    ['accountEnrollmentCleanupRetry', '重试清理', 'Retry cleanup'],
+    // 分隔符也随语言：中文用全角冒号，英文用半角冒号加空格。
+    ['accountRefSeparator', '：', ': '],
+  ]
+  for (const [key, zhText, enText] of pairs) {
+    assert.equal(zh[key], zhText, `zh.${key} 与设置页文案不一致`)
+    assert.equal(en[key], enText, `en.${key} 与设置页文案不一致`)
+  }
 })
 
 /** 可控异步门：在真实控制器入口制造竞争，不依赖固定等待时长。 */
