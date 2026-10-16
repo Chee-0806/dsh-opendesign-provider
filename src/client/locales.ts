@@ -191,12 +191,19 @@ export type SettingsCommandCodeKey =
   | 'accountAddLogin'
   | 'accountAddPaste'
   | 'accountAddConfirm'
+  | 'accountAddCancel'
+  | 'accountAddLinkHint'
+  | 'accountAddOpenLink'
   | 'accountNamePlaceholder'
   | 'accountNameN'
+  | 'accountNameSaveRetry'
+  | 'accountNameAcceptExisting'
   | 'accountKeyPlaceholder'
   | 'accountOpFailed'
   | 'accountCleanupPending'
   | 'accountCleanupRetry'
+  | 'accountEnrollmentCleanupRetry'
+  | 'accountRefSeparator'
   | 'accountModels'
   | 'accountModelsHint'
   | 'accountModelOwner'
@@ -400,12 +407,19 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   accountAddLogin: '网页登录',
   accountAddPaste: '粘贴密钥',
   accountAddConfirm: '添加',
+  accountAddCancel: '取消开通',
+  accountAddLinkHint: '若登录页面未自动打开，请点击下方链接。',
+  accountAddOpenLink: '打开浏览器登录',
   accountNamePlaceholder: '备注名（可选，网页登录时默认使用账户名）',
   accountNameN: '账户 {n}',
+  accountNameSaveRetry: '重试保存名称',
+  accountNameAcceptExisting: '接受已有名称',
   accountKeyPlaceholder: '粘贴 API 密钥',
   accountOpFailed: '账户操作未能完成，请重试。',
   accountCleanupPending: '账户已移除，但有密钥尚未清理。可重试，不影响其他账户。',
   accountCleanupRetry: '重试清理密钥',
+  accountEnrollmentCleanupRetry: '重试清理',
+  accountRefSeparator: '：',
   accountModels: '专用模型',
   accountModelsHint: '选中的模型优先由此账户处理，此账户不可用时仍会自动切换。一个模型只属于一个账户，选中会把它从其他账户移过来。',
   accountModelOwner: '属于 {name}',
@@ -619,12 +633,19 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   accountAddLogin: 'Sign in',
   accountAddPaste: 'Paste key',
   accountAddConfirm: 'Add',
+  accountAddCancel: 'Cancel setup',
+  accountAddLinkHint: 'If the sign-in page did not open automatically, use the link below.',
+  accountAddOpenLink: 'Open the sign-in page',
   accountNamePlaceholder: 'Name (optional; sign-in uses the account name)',
   accountNameN: 'Account {n}',
+  accountNameSaveRetry: 'Retry saving the name',
+  accountNameAcceptExisting: 'Accept the existing name',
   accountKeyPlaceholder: 'Paste an API key',
   accountOpFailed: 'The account change did not complete. Try again.',
   accountCleanupPending: 'The account was removed, but credential cleanup is still pending. Retry without affecting other accounts.',
   accountCleanupRetry: 'Retry credential cleanup',
+  accountEnrollmentCleanupRetry: 'Retry cleanup',
+  accountRefSeparator: ': ',
   accountModels: 'Dedicated models',
   accountModelsHint: 'These models prefer this account and still switch when it is unavailable. A model belongs to one account; selecting it here moves it from any other.',
   accountModelOwner: 'on {name}',

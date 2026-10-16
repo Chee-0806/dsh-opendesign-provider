@@ -1528,13 +1528,13 @@ function AddAccountPanel({ state, disabled, t, enrollment, snapshot, onClose }: 
       <input className="cc-input" type="text" aria-label={t('accountNamePlaceholder')} placeholder={t('accountNamePlaceholder')}
         value={label} disabled={disabled || busy} onChange={(event) => setLabel(event.target.value)} />
       {active ? <p className="cc-hint" role="status">{active.message}</p> : null}
-      {active?.authUrl && active.phase === 'waiting' ? <p className="cc-hint">若登录页面未自动打开，请点击下方链接。</p> : null}
-      {active?.authUrl && active.phase === 'waiting' ? <a className="cc-linkButton" href={active.authUrl} target="_blank" rel="noreferrer">打开浏览器登录</a> : null}
+      {active?.authUrl && active.phase === 'waiting' ? <p className="cc-hint">{t('accountAddLinkHint')}</p> : null}
+      {active?.authUrl && active.phase === 'waiting' ? <a className="cc-linkButton" href={active.authUrl} target="_blank" rel="noreferrer">{t('accountAddOpenLink')}</a> : null}
       {snapshot.error ? <p className="cc-loginError" role="status">{snapshot.error}</p> : null}
       {active?.phase === 'naming' ? (
         <div className="cc-inlineActions">
-          <Button variant="primary" size="sm" disabled={disabled} onClick={() => void enrollment.name(active.suggestedName || label || fallbackName)}>重试保存名称</Button>
-          <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.name()}>接受已有名称</Button>
+          <Button variant="primary" size="sm" disabled={disabled} onClick={() => void enrollment.name(active.suggestedName || label || fallbackName)}>{t('accountNameSaveRetry')}</Button>
+          <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.name()}>{t('accountNameAcceptExisting')}</Button>
           <Button variant="ghost" size="sm" onClick={close}>{t('cancel')}</Button>
         </div>
       ) : pasting ? (
@@ -1549,7 +1549,7 @@ function AddAccountPanel({ state, disabled, t, enrollment, snapshot, onClose }: 
           <Button variant="ghost" size="sm" onClick={close}>{t('cancel')}</Button>
         </div>
       )}
-      {busy && active?.phase !== 'naming' && pasting ? <Button variant="ghost" size="sm" onClick={close}>取消开通</Button> : null}
+      {busy && active?.phase !== 'naming' && pasting ? <Button variant="ghost" size="sm" onClick={close}>{t('accountAddCancel')}</Button> : null}
     </div>
   )
 }
@@ -1622,19 +1622,19 @@ function AccountsCard({ t, state, usage, login, disabled, actions, onRefresh, cr
       ) : null}
       {snapshot.pending.filter((record) => record.id !== snapshot.active?.id).map((record) => (
         <div className="cc-rowError" role="status" key={record.id}>
-          <p>{record.ref}：{record.message}</p>
+          <p>{record.ref}{t('accountRefSeparator')}{record.message}</p>
           {record.phase === 'naming' && record.suggestedName ? (
-            <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.recover(record, record.suggestedName)}>重试保存名称</Button>
+            <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.recover(record, record.suggestedName)}>{t('accountNameSaveRetry')}</Button>
           ) : null}
           <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.recover(record)}>
-            {record.phase === 'naming' ? '接受已有名称' : '重试清理'}
+            {record.phase === 'naming' ? t('accountNameAcceptExisting') : t('accountEnrollmentCleanupRetry')}
           </Button>
         </div>
       ))}
       {snapshot.active?.phase === 'cleanup-needed' ? (
         <div className="cc-rowError" role="status">
           <p>{snapshot.active.message}</p>
-          <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.recover(snapshot.active!)}>重试清理</Button>
+          <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.recover(snapshot.active!)}>{t('accountEnrollmentCleanupRetry')}</Button>
         </div>
       ) : null}
       <div className="cc-accountList">
