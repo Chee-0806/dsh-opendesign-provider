@@ -12,6 +12,8 @@ import assert from 'node:assert/strict'
 import {
   CommandCodeUsageController,
   usageCardState,
+  compactCountTitle,
+  formatCompactCount,
   formatMoney,
   formatMoneyExact,
   formatResetAt,
@@ -149,6 +151,29 @@ test('formatTokensCompact renders K/M/B suffixes', () => {
   assert.equal(formatTokensCompact(1_900_000), '1.9M')
   assert.equal(formatTokensCompact(2_500), '2.5K')
   assert.equal(formatTokensCompact(3_000_000_000), '3.0B')
+  // 进位：先除以档位再四舍五入会算出 1000.0K 这种既超长、又落在不存在的档位上的文本。
+  assert.equal(formatTokensCompact(999_999), '1.0M')
+  assert.equal(formatTokensCompact(999_999_999), '1.0B')
+})
+
+test('formatCompactCount drops a redundant .0 and carries into the next unit', () => {
+  assert.equal(formatCompactCount(0), '0')
+  assert.equal(formatCompactCount(999), '999')
+  assert.equal(formatCompactCount(1_000), '1K')
+  assert.equal(formatCompactCount(1_234), '1.2K')
+  assert.equal(formatCompactCount(12_000), '12K')
+  assert.equal(formatCompactCount(99_999), '100K')
+  assert.equal(formatCompactCount(999_999), '1M')
+  assert.equal(formatCompactCount(1_500_000), '1.5M')
+  assert.equal(formatCompactCount(999_999_999), '1B')
+})
+
+test('compactCountTitle speaks up only when the compact form lost information', () => {
+  // 没有换算时不挂 title：悬停弹出的内容与卡片上写的一模一样，没有意义。
+  assert.equal(compactCountTitle([['成功', 123], ['失败', 7]]), undefined)
+  assert.equal(compactCountTitle([['成功', 1_234], ['失败', 7]]), '成功 1234 · 失败 7')
+  // 只要有一项被换算，整行都给出精确值，避免同一张卡上精确与近似混着看。
+  assert.equal(compactCountTitle([['成功', 123], ['失败', 1_024]]), '成功 123 · 失败 1024')
 })
 
 test('formatSuccessRate caps the precision at two decimals and trims trailing zeros', () => {

@@ -86,7 +86,7 @@ export { DEFAULT_MAX_OUTPUT_TOKENS, MODEL_CATALOG_TTL_MS } from './gateway-facts
 // Request / connection defaults (protocol constants). The model/plan/deal
 // capability snapshot lives in ./capabilities.ts — the sync-only surface.
 // ---------------------------------------------------------------------------
-export const COMMAND_CODE_CLI_VERSION = '1.82.2'
+export const COMMAND_CODE_CLI_VERSION = '1.82.5'
 export const DEFAULT_API_BASE = 'https://api.commandcode.ai'
 
 /**
@@ -3153,8 +3153,11 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     options.signal?.throwIfAborted()
     let maxTokens = Math.min(budget.max, learnedOutputLimit(connection.apiBase, options.model))
 
-    const effort = options.reasoningEffort as string | undefined
     const supported = KNOWN_EFFORTS[options.model]
+    // 标题调用默认只有 64 个输出词元，先思考可能耗尽预算而没有正文（问题 #88）。
+    // 仅在模型明确声明支持关闭思考时覆盖本次选择；普通对话、压缩及其他模型沿用原策略。
+    const effort = options.purpose === 'session-title' && supported?.includes('off')
+      ? 'off' : options.reasoningEffort as string | undefined
     // `off` carries two meanings, and only the snapshot tells them apart. The
     // host passes it as "no reasoning strength requested" — the Messages
     // transport's `output_config.effort` has no `none`, so it must send no

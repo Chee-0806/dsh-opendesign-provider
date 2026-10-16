@@ -60,7 +60,6 @@ export type SettingsCommandCodeKey =
   | 'visibleModelsShowAll'
   | 'visibleModelsStaleHint'
   | 'visibleModelsCleanStale'
-  | 'contextTitle'
   | 'contextWindow'
   | 'contextWindowHint'
   | 'contextOverridesTitle'
@@ -256,7 +255,6 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   visibleModelsShowAll: '显示全部',
   visibleModelsStaleHint: '有 {count} 个已选模型在目录中找不到了（可能已下架），不影响其他模型；可清理或保留。',
   visibleModelsCleanStale: '清理失效（{count}）',
-  contextTitle: '上下文长度',
   contextWindow: '自定义上下文长度',
   contextWindowHint:
     '覆盖模型目录公布的上下文窗口（token）：上下文计量、自动压缩时机与模型选择器的上下文标注都按此值计算，'
@@ -396,7 +394,7 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   modelPick: '选择模型…',
   modelCount: '已选 {count} 个模型',
   modelCatalogFailed: '模型目录获取失败，暂时无法选择模型；已保存的设置仍会生效。',
-  modelsTitle: '模型',
+  modelsTitle: '模型与上下文',
   privacyTitle: '隐私与安全',
   integrationsTitle: '集成与显示',
 }
@@ -459,7 +457,6 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   visibleModelsStaleHint: '{count} selected model(s) are no longer in the catalog (possibly retired);'
     + ' other models are unaffected. Clean them up or keep them.',
   visibleModelsCleanStale: 'Clean stale ({count})',
-  contextTitle: 'Context length',
   contextWindow: 'Custom context length',
   contextWindowHint:
     'Overrides the context window published by the model catalog (in tokens): the context meter, '
@@ -603,7 +600,7 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   modelPick: 'Choose models…',
   modelCount: '{count} models selected',
   modelCatalogFailed: 'The model catalog could not be loaded; saved settings still apply.',
-  modelsTitle: 'Models',
+  modelsTitle: 'Models & context',
   privacyTitle: 'Privacy & security',
   integrationsTitle: 'Integrations & display',
 }

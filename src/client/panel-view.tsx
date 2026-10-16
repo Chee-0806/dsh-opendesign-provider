@@ -183,9 +183,9 @@ function QuotaBar({ label, value, percent, barPercent, warn, resetsAt, resetsLab
 }
 
 /** A labelled figure. */
-function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Tile({ label, value, sub, title }: { label: string; value: string; sub?: string; title?: string | undefined }) {
   return (
-    <div className="ccp-tile">
+    <div className="ccp-tile" title={title}>
       <span className="ccp-tileLabel">{label}</span>
       <span className="ccp-tileValue">{value}</span>
       {sub !== undefined && sub !== '' ? <span className="ccp-tileSub">{sub}</span> : null}
@@ -303,7 +303,7 @@ function AccountCard({ account, view }: { account: PanelAccountView; view: Panel
           <p className="ccp-windowReset">{account.usagePeriod}</p>
           <div className="ccp-tiles">
             {account.stats.map((stat) => (
-              <Tile key={stat.label} label={text(stat.label)} value={stat.value} sub={stat.sub} />
+              <Tile key={stat.label} label={text(stat.label)} value={stat.value} sub={stat.sub} title={stat.title} />
             ))}
           </div>
         </div>

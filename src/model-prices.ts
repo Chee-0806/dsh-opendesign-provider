@@ -185,7 +185,7 @@ const MODEL_PRICE_ROWS: readonly ModelPriceRow[] = [
   { id: 'gpt-5.4-mini', rates: [0.75, 4.5, 0.075, 0], allowance: { go: 6, goat: 20, pro: 20 } },
   { id: 'gpt-5.5', rates: [5, 30, 0.5, 0], allowance: { go: 6, goat: 20, pro: 20 } },
   { id: 'gpt-5.6-luna', rates: [0.2, 1.2, 0.02, 0.25], allowance: { go: 6, goat: 20, pro: 30 }, contextTiers: [{"maxContext":272000,"rates":[0.2,1.2,0.02,0.25]},{"rates":[0.4,1.8,0.04,0.5]}] },
-  { id: 'gpt-5.6-sol', rates: [5, 30, 0.5, 6.25], allowance: { go: 6, goat: 70, pro: 80 }, contextTiers: [{"maxContext":272000,"rates":[5,30,0.5,6.25]},{"rates":[10,45,1,12.5]}] },
+  { id: 'gpt-5.6-sol', rates: [5, 30, 0.5, 6.25], allowance: { go: 6, goat: 20, pro: 30 }, contextTiers: [{"maxContext":272000,"rates":[5,30,0.5,6.25]},{"rates":[10,45,1,12.5]}] },
   { id: 'gpt-5.6-terra', rates: [2, 12, 0.2, 2.5], allowance: { go: 6, goat: 20, pro: 20 }, contextTiers: [{"maxContext":272000,"rates":[2,12,0.2,2.5]},{"rates":[4,18,0.4,5]}] },
   { id: 'gpt-6-astra', rates: [10, 50, 1, 12.5], allowance: { go: 6, goat: 20, pro: 20 }, contextTiers: [{"maxContext":272000,"rates":[10,50,1,12.5]},{"rates":[20,75,2,25]}] },
   { id: 'gpt-6-luna', rates: [0.1, 0.5, 0.01, 0.125], allowance: { go: 6, goat: 20, pro: 30 }, contextTiers: [{"maxContext":272000,"rates":[0.1,0.5,0.01,0.125]},{"rates":[0.2,0.75,0.02,0.25]}] },
@@ -201,7 +201,7 @@ const MODEL_PRICE_ROWS: readonly ModelPriceRow[] = [
   { id: 'kimi-k2.7-code', rates: [0.95, 4, 0.19], allowance: { go: 9, goat: 60, pro: 70 } },
   { id: 'kimi-k2.7-code-highspeed', rates: [1.9, 8, 0.38], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'kimi-k3', rates: [3, 15, 0.3], allowance: { go: 8, goat: 20, pro: 30 } },
-  { id: 'ling-3.1-flash', rates: [0.3, 0.9, 0.06], allowance: { go: 6, goat: 20, pro: 30 } },
+  { id: 'ling-3.1-flash', rates: [0.3, 0.9, 0.06], allowance: { go: 6, goat: 100, pro: 110 } },
   { id: 'longcat-2.0', rates: [0.3, 1.2, 0.006], allowance: { go: 10, goat: 50, pro: 60 } },
   { id: 'mimo-v2.5', rates: [0.14, 0.28, 0.0028], listRates: [0.8, 4, 0.16], allowance: { go: 6, goat: 30, pro: 40 } },
   { id: 'mimo-v2.5-pro', rates: [0.435, 0.87, 0.0036], listRates: [2, 6, 0.4], allowance: { go: 6, goat: 20, pro: 30 } },
@@ -217,8 +217,10 @@ const MODEL_PRICE_ROWS: readonly ModelPriceRow[] = [
   { id: 'muse-spark-1.2-contributor', rates: [0.1, 0.2, 0.002], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'muse-spark-1.3', rates: [1.25, 4.25, 0.15], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'muse-spark-1.3-contributor', rates: [0.1, 0.2, 0.002], allowance: { go: 6, goat: 20, pro: 30 } },
+  { id: 'muse-spark-open', rates: [1.25, 4.25, 0.15], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'muse-wonder-1.0', rates: [4, 20, 0.2], allowance: { go: 6, goat: 20, pro: 20 } },
   { id: 'nemotron-3-ultra', rates: [0.6, 2.4, 0.12], allowance: { go: 6, goat: 20, pro: 30 } },
+  { id: 'nemotron-3.5-super-vl', rates: [0.2, 0.5, 0.04], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'qwen-3.6-max', rates: [1.3, 7.8, 0.26, 1.63], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'qwen-3.6-plus', rates: [0.5, 3, 0.1], allowance: { go: 10, goat: 33, pro: 43 }, contextTiers: [{"maxContext":256000,"rates":[0.5,3,0.1]},{"rates":[2,6,0.2]}] },
   { id: 'qwen-3.7-flash', rates: [0.03, 0.13, 0.006, 0.038], allowance: { go: 6, goat: 20, pro: 30 }, contextTiers: [{"maxContext":32000,"rates":[0.03,0.13,0.006,0.038]},{"maxContext":256000,"rates":[0.1,0.4,0.02,0.125]},{"rates":[0.2,0.8,0.04,0.25]}] },
@@ -236,6 +238,7 @@ const MODEL_PRICE_ROWS: readonly ModelPriceRow[] = [
   { id: 'tencent/hy3-paid', rates: [0.14, 0.58, 0.035], allowance: { go: 10, goat: 70, pro: 80 } },
   { id: 'tencent/hy4-preview', rates: [0.834, 2.501, 0.042], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'typesafe/jev', rates: [0.042, 0, 0], allowance: { go: 6, goat: 20, pro: 30 } },
+  { id: 'typesafe/jev-1.14.0', rates: [0.042, 0, 0], allowance: { go: 6, goat: 20, pro: 30 } },
 ]
 
 /**

@@ -61,7 +61,7 @@ type CommandCodeProtocol = 'cli' | 'openai' | 'messages';
 declare const DEFAULT_MAX_OUTPUT_TOKENS = 131072;
 //#endregion
 //#region src/adapter.d.ts
-declare const COMMAND_CODE_CLI_VERSION = "1.82.2";
+declare const COMMAND_CODE_CLI_VERSION = "1.82.5";
 declare const DEFAULT_API_BASE = "https://api.commandcode.ai";
 /**
  * The output budget this bundle asks for, and the ceiling it will never exceed.
@@ -1013,14 +1013,16 @@ declare const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>>;
  */
 declare const KNOWN_IMAGE_MODELS: ReadonlySet<string>;
 /**
- * Models WITHOUT a zero-data-retention upstream, per the official CLI's own
- * registry (`command-code@1.82.1` `dist/cli.mjs`): `modelSupportsZdr(id)` is
- * exactly `!nonZdrSet.has(canonicalize(id))`, and `knownModelSupportsZdr`
- * carries the same membership in the sibling route table — the UNION of both
- * is this set. Reading only the sibling route table dropped
- * `meituan/LongCat-2.0`, which sat in `modelSupportsZdr` alone through
- * 1.73.0; the 1.74.3 table lists it in NEITHER set, so as of this snapshot it
- * is no longer excluded. The official docs (commandcode.ai/docs/resources/
+ * Models WITHOUT a zero-data-retention upstream. Through command-code@1.82.2
+ * the CLI's own registry answered this: `modelSupportsZdr(id)` was exactly
+ * `!nonZdrSet.has(canonicalize(id))`, and `knownModelSupportsZdr` carried the
+ * membership in the sibling route table — the UNION of both was this set, and
+ * the two anchors disagreed by one id (`meituan/LongCat-2.0:free`, which 1.74.1
+ * dropped from the first anchor while the canonical helper kept it).
+ * command-code@1.82.4 removes that disagreement by making the verdict a catalog
+ * lookup — `resolveKnownCatalogModel({model,catalog})?.zdr ?? false` — so this
+ * set is now the live catalog's `zdr:false` membership and nothing more. The
+ * official docs (commandcode.ai/docs/resources/
  * zdr) put coverage in prose — "99% of our models have ZDR-capable upstreams … only
  * a small handful of models are affected" — so the CLI's exclusion list is
  * the only per-model evidence there is; a ZDR request naming one of these
@@ -1033,10 +1035,19 @@ declare const KNOWN_IMAGE_MODELS: ReadonlySet<string>;
  * switch is on — the provider remains the routing authority and refuses an
  * unsupported model rather than silently dropping the privacy guarantee.
  *
- * `minimax/minimax-m3-free` is the one entry the public catalog
- * (`/provider/v1/models`) does not serve (it is CLI/pricing-visible and hidden
- * from the picker); it stays listed because the CLI carries it and a Go-plan
- * request can still name it.
+ * `minimax/minimax-m3-free` is the one entry the public catalog's default view
+ * (`/provider/v1/models`) does not serve through the picker (it is CLI/pricing-visible
+ * and hidden from the picker); it stays listed because the CLI carries it and a Go-plan
+ * request can still name it. Both this row and `stealth/cat-jam:free` ARE served
+ * by the `?view=client` catalog, which is where the 1.82.4 verdict comes from.
+ *
+ * command-code@1.82.4 moved the authority for this verdict: `knownModelSupportsZdr`
+ * no longer negates a bundled Set, it returns `resolveKnownCatalogModel({model,
+ * catalog})?.zdr ?? false`, so an id the catalog does not carry (or carries with
+ * `zdr:false`) is NOT covered. That inverts the default this helper was built on
+ * ("not listed" answered TRUE); the snapshot keeps its negative-set shape because
+ * 99% of the catalog is still covered, but membership is now read from the
+ * `?view=client` catalog and confirmed against the canonical helper set.
  *
  * Keep in sync via the dsh-commandcode-upstream skill: the CLI's registry data
  * (its `zdr:{only:[…]}` provider routes and the per-provider `zdr`/`noTraining`
@@ -1057,6 +1068,11 @@ declare const KNOWN_IMAGE_MODELS: ReadonlySet<string>;
  * `listSelectableModelIds()`, so they are pruned along with the rest of the
  * tables and `supportsZeroDataRetention` now answers TRUE for them, matching
  * what the current CLI says.
+ *
+ * 1.82.4 then reversed 1.74.1's removal of `meituan/LongCat-2.0:free` and added
+ * the `stealth/cat-jam:free` preview, taking this set to 24 members — the size
+ * of the live catalog's `zdr:false` list. The canonical helper set still carries
+ * 23 because `cat-jam:free` postdates the artifact's embedded snapshot.
  */
 declare const KNOWN_NON_ZDR_MODELS: ReadonlySet<string>;
 /**
@@ -1086,15 +1102,20 @@ declare const KNOWN_THINKING_MODELS: ReadonlySet<string>;
  * `/docs/plans/max` and `/docs/resources/pricing-limits`). Each plan's model
  * list is a superset of the one below it: Go ⊂ GOAT ⊂ Pro ⊂ Provider/Max.
  * Models absent from every plan list (Claude Opus/Fable, Fugu Ultra) are
- * Provider-tier. Re-verified at command-code@1.82.1 (2026-10-14): 89 catalog
- * ids at 54/64/79/87/89 cumulative, a strict superset chain. Mistral Large 4
+ * Provider-tier. Re-verified at command-code@1.82.4 (2026-10-16) against the
+ * live `?view=client` catalog: 93 ids, still a strict superset chain. Mistral
+ * Large 4
  * (1.75.0) was the only addition at the 1.77.0 check; the 1.78.0/1.79.0 pair
  * added Claude Haiku 5.5 at Pro and the free Glyph Cluster preview at Go.
  * 1.79.2 lowers Haiku 5.5's minimum plan to GOAT; 1.80.0 adds Muse Wonder at
- * Max; 1.82.0 adds Gemini 4 Argon at Pro and nothing else moves. Every other
+ * Max; 1.82.0 adds Gemini 4 Argon at Pro and nothing else moves. The 1.82.4
+ * train adds Qwen 3.8 Max Prime at GOAT plus Muse Spark Open, Nemotron 3.5
+ * Super VL and the free Cat Jam preview at Go, and drops Ling 3.0 Flash Sante,
+ * which left the live catalog. Every other
  * tier is unchanged.
  * The only removals since 1.49.0 are the two retired stealth previews (Pixel
- * Canary at 1.73.1, Space Bunny Alpha at 1.74.3). Per-entry tags below name the
+ * Canary at 1.73.1, Space Bunny Alpha at 1.74.3) and Ling 3.0 Flash Sante
+ * (2026-10-16). Per-entry tags below name the
  * releases that added or moved each row.
  *
  * The Provider API exposes no plan metadata, so this snapshot is the source of

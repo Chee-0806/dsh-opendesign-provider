@@ -26,6 +26,12 @@
  *   3. Audits every static named import in `lib/index.js` against the engine's
  *      own exports, reporting the missing symbol by name instead of a raw
  *      SyntaxError.
+ *   3b. Calls this engine's OWN `evaluatePluginCompatibility` on the published
+ *      manifest. Every other check stages the bundle into the engine's peer
+ *      tree, so none of them can see the host's ADMISSION verdict — and since
+ *      dsh 0.2.1-alpha.4 that verdict reads `engines.dsh` alone and ignores the
+ *      dsh peers entirely. "Everything green here, yet the install is refused"
+ *      is exactly how the alpha.4 upgrade would otherwise have shipped broken.
  *   4. Audits `lib/client.js`'s `require()` calls against the engine's platform
  *      seed table and its mounted `dsh.client` rows.
  *   5. Asserts the engine exports the whole durable-offload contract the
@@ -341,6 +347,59 @@ async function checkNamedImports(engineRoot) {
       fail(`${specifier} exports no ${missing.join(', ')} — a static import of it fails at ESM link time`)
     }
   }
+}
+
+/**
+ * Check 2b: the engine's own compatibility preflight admits this plugin.
+ *
+ * 其余检查都走「把发布面装进引擎的 peer 树再加载」，唯独看不见宿主**准入判定**
+ * 本身。自 dsh `0.2.1-alpha.4` 起 `evaluatePluginCompatibility`
+ * （`@deepseek-ai/dsh-app-boot`）在包自带 `engines.dsh` 时**只**读它、完全忽略
+ * `@deepseek-ai/dsh*` peer；判定不通过时插件行被禁用、bundle 层被静默跳过、
+ * `dsh plugin add` 在 pnpm 之前就拒绝——三条路径都不在上面的检查里，所以
+ * alpha.3 → alpha.4 那轮升级里本脚本全绿、真实安装却被拒绝。这里对真实引擎的
+ * 判定函数做一次真实调用补上这个缺口；旧引擎上该函数读 peer 规则，因此两种
+ * 判据都被覆盖。函数或包缺失时只记警告，不把「引擎没提供」读成「插件不兼容」。
+ * @param engineRoot - the engine's node_modules directory.
+ * @param version - the engine's own version, passed explicitly so the verdict names it.
+ */
+async function checkEngineAdmission(engineRoot, version) {
+  const require = createRequire(join(engineRoot, 'probe.cjs'))
+  let entry
+  try {
+    entry = require.resolve(`${SCOPE}/dsh-app-boot`)
+  } catch (error) {
+    warn(`dsh ${version} ships no ${SCOPE}/dsh-app-boot: the host compatibility preflight was not exercised (${error.message})`)
+    return
+  }
+  let evaluate
+  try {
+    evaluate = (await import(pathToFileURL(entry).href)).evaluatePluginCompatibility
+  } catch (error) {
+    fail(`${SCOPE}/dsh-app-boot cannot be loaded on this engine: ${error.message}`)
+    return
+  }
+  if (typeof evaluate !== 'function') {
+    warn(`dsh ${version} exports no evaluatePluginCompatibility: the host compatibility preflight was not exercised`)
+    return
+  }
+  const manifest = JSON.parse(readFileSync(join(repositoryDir, 'package.json'), 'utf8'))
+  let issue
+  try {
+    issue = evaluate(manifest, undefined, version)
+  } catch (error) {
+    // 清单读不出来宿主会直接拒绝该包，所以这是失败而不是警告。
+    fail(`the host compatibility preflight cannot read this plugin's manifest on dsh ${version}: ${error.message}`)
+    return
+  }
+  if (issue === undefined || issue.exempted === true) {
+    process.stdout.write(`host compatibility preflight admits this plugin on dsh ${version}\n`)
+    return
+  }
+  // `requirements` 是 alpha.4 起的字段名，旧引擎叫 `peers`。
+  const unmet = issue.requirements ?? issue.peers ?? {}
+  fail(`the host compatibility preflight REJECTS this plugin on dsh ${version}: ${JSON.stringify(unmet)} `
+    + '— the plugin would be disabled, its bundle skipped, and installation refused')
 }
 
 /** Check 3: the client bundle requires only seeds or mounted client rows. */
@@ -788,6 +847,51 @@ async function checkAnalyticsHistory(staged, engineModules) {
   finally { globalThis.fetch = savedFetch; await ctx.fiber.dispose() }
 }
 
+/** 通过真实模型运行时传递标题用途，验证发布产物在小预算下发送关闭思考档位。 */
+async function checkSessionTitle(staged, engineModules) {
+  if (staged === undefined) return
+  const require = createRequire(join(dirname(engineModules), 'session-title-probe.cjs'))
+  const load = async name => import(pathToFileURL(require.resolve(name)).href)
+  const [{ Context }, llm, plugin] = await Promise.all([
+    load(`${SCOPE}/cordis`), load(`${SCOPE}/dsh-llm`), import(pathToFileURL(join(staged, 'lib', 'index.js')).href),
+  ])
+  let verified = true
+  for (const protocol of ['cli', 'openai']) {
+    const ctx = new Context()
+    try {
+      const model = 'deepseek/deepseek-v4.1-flash'
+      const runtime = new llm.LlmRuntime(ctx)
+      const sent = []
+      const adapter = new plugin.CommandCodeAdapter({
+        options: () => ({ apiBase: 'https://engine-title.invalid', workingDir: '/tmp', modelsCachePath: '', protocol, requestTimeoutMs: 1000, streamIdleTimeoutMs: 1000 }),
+        resolveApiKey: async () => 'synthetic-title-key',
+        fetchImpl: async (url, init) => {
+          if (String(url).endsWith('/provider/v1/models')) return new Response(JSON.stringify({ data: [
+            { id: model, name: 'DeepSeek', context_length: 262144, supported_endpoints: ['/chat/completions'] },
+          ] }))
+          const body = JSON.parse(init.body)
+          sent.push(protocol === 'cli' ? body.params : body)
+          const events = protocol === 'cli'
+            ? [{ type: 'text-delta', text: '会话标题提取' }, { type: 'finish', finishReason: 'stop' }]
+            : [{ choices: [{ delta: { content: '会话标题提取' }, finish_reason: 'stop' }] }]
+          return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join(''))
+        },
+      })
+      runtime.registerAdapter(['commandcode'], adapter)
+      const chunks = []
+      for await (const chunk of runtime.stream({ provider: 'commandcode', model, maxTokens: 64, purpose: 'session-title',
+        messages: [llm.createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '生成会话标题' }] })] })) chunks.push(chunk)
+      assert.equal(sent.length, 1)
+      assert.equal(sent[0].reasoning_effort, 'off')
+      assert.equal(sent[0].max_tokens, 64)
+      assert.equal(chunks.filter(chunk => chunk.type === 'text-delta').map(chunk => chunk.text).join(''), '会话标题提取')
+      assert.deepEqual(chunks.filter(chunk => chunk.type === 'finish').map(chunk => chunk.reason.kind), ['stop'])
+    } catch (error) { verified = false; fail(`${protocol} 标题调用验证失败：${error.message}`) }
+    finally { await ctx.fiber.dispose() }
+  }
+  if (verified) process.stdout.write('真实模型运行时已验证两种聊天协议的标题用途、关闭思考和 64 词元预算（合成响应）\n')
+}
+
 /** 真实宿主负责把适配器异常转为唯一的失败结束；不是在测试里自行模拟这层转换。 */
 async function checkStreamSettlement(staged, engineModules) {
   if (staged === undefined) return
@@ -1023,12 +1127,14 @@ async function verify(options) {
     scratch = mkdtempSync(join(tmpdir(), 'dsh-engine-load-tree-'))
     const staged = await checkLink(engine.modules, scratch)
     await checkNamedImports(engine.modules)
+    await checkEngineAdmission(engine.modules, engine.version)
     checkClientRequires(engine.modules)
     await checkImagePricing(staged)
     await checkVolatileConfig(staged)
     await checkToolHistory(staged, engine.modules)
     await checkEnrollmentStream(staged, engine.modules)
     await checkAnalyticsHistory(staged, engine.modules)
+    await checkSessionTitle(staged, engine.modules)
     await checkStreamSettlement(staged, engine.modules)
     await checkGatewayRequestFacts(staged, engine.modules)
     const policy = await checkImagePolicy(engine.modules)

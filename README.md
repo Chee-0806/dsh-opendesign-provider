@@ -37,11 +37,14 @@ See [Screenshots](#screenshots) below for what the UI looks like.
 
 ## Install
 
-This release supports **dsh 0.2.0-rc.2 (RC) and dsh 0.2.1-alpha.3 (alpha)**.
+This release supports **dsh 0.2.0-rc.2 (RC) and dsh 0.2.1-alpha.4 (alpha)**.
 The compatibility policy keeps the latest verified official release candidate
 and alpha release, one per channel. These match npm's `latest` and `alpha` tags
-as checked on 2026-10-14. The peer range and compatibility records name only
-these two exact versions. A profile on `0.2.1-alpha.2` must upgrade its engine
+as checked on 2026-10-15. The peer range and compatibility records name only
+these two exact versions. Note that **dsh 0.2.1-alpha.4 reads `engines.dsh`
+alone** when it decides whether a plugin is compatible; the dsh peer ranges are
+consulted only when that field is absent, so a build that declares the wrong
+`engines.dsh` is refused outright. A profile on `0.2.1-alpha.3` must upgrade its engine
 before installing this build:
 
 ```sh
@@ -76,7 +79,7 @@ Fresh pnpm 10 marketplace generations are supported directly. Every Harness pack
 Update with the same tag you installed with:
 
 ```sh
-dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 or 0.2.1-alpha.3
+dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 or 0.2.1-alpha.4
 dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@0.9.1      # older dsh (0.5.0 line, unmaintained)
 ```
 
@@ -155,7 +158,7 @@ cmd login                               # writes ~/.commandcode/auth.json
         cwd: !!js process.cwd()
 ```
 
-**Engine version.** The plugin is maintained against two engines: **dsh 0.2.0-rc.2** and **dsh 0.2.1-alpha.3**. Its `@deepseek-ai/dsh-*` peers use `0.2.0-rc.2 || 0.2.1-alpha.3`, while `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` retain their engine-paired ranges `~4.0.4 || ~4.0.5-alpha.1` and `~3.18.4 || ~3.18.5-alpha.1`. Compatibility records contain exactly these two engines. Each channel upgrade replaces its previous version after verification; it does not accumulate supported releases or admit unverified neighbours. Both `npm run test:engine` and `npm run test:install` check each retained version. See [Install](#install) for older engines.
+**Engine version.** The plugin is maintained against two engines: **dsh 0.2.0-rc.2** and **dsh 0.2.1-alpha.4**. Its `@deepseek-ai/dsh-*` peers use `0.2.0-rc.2 || 0.2.1-alpha.4`, while `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` retain their engine-paired ranges `~4.0.4 || ~4.0.5-alpha.1` and `~3.18.4 || ~3.18.5-alpha.1` (alpha.4 pairs the same Cordis and Schemastery versions as alpha.3, so those ranges do not move). Compatibility records contain exactly these two engines. Each channel upgrade replaces its previous version after verification; it does not accumulate supported releases or admit unverified neighbours. Both `npm run test:engine` and `npm run test:install` check each retained version, and `test:engine` also calls that engine's own `evaluatePluginCompatibility` on the published manifest — from alpha.4 on, that verdict reads `engines.dsh` alone, so a wrong engine declaration fails there instead of only at install time. See [Install](#install) for older engines.
 
 ## Usage dashboard
 
@@ -174,7 +177,7 @@ With several Command Code subscriptions, the plugin **switches to the next accou
 - **Setup** — click **Add account** in the **Accounts** card at Settings → **Command Code**, optionally name it, then either **Sign in to Command Code** (the key is stored when you approve in the browser; a sign-in that does not complete leaves no empty account behind) or paste an API key. Account actions — add, rename, replace or clear a key, remove, pin — apply immediately; only the other settings on the page wait for the Save bar. The top-level key always serves first as the `default` account.
 - **Manual switching** — **Pin this account** in an account's **⋯** menu makes it the preferred account; if it is exhausted, requests fall back to other accounts and return once its window resets. **Unpin** returns to automatic rotation.
 - **Dedicated models** — expand an account and pick its **Dedicated models** from the live catalog. A request for one of those models serves from that account while it is usable; an exhausted or invalid account falls back to the normal rotation. A model belongs to one account at a time — picking it for another account moves it. (Stored as `modelAccountRules`.)
-- **Show only favorite models** — the **Visible models** picker in the **Models** card keeps only the checked models in the model picker; unchecked shows all (the default).
+- **Show only favorite models** — the **Visible models** picker in the **Models & context** card keeps only the checked models in the model picker; unchecked shows all (the default).
 - **Status** — each account row shows its plan, status and 5-hour/weekly meters; expand it for the full report. `/commandcode` reports the same per-account state.
 
 The equivalent YAML (`$DSH_HOME/settings.yaml` or composition config):
@@ -203,7 +206,7 @@ llm-commandcode:
 
 ## Configure
 
-**Settings → Command Code** is organized as **Accounts** (keys, sign-in, live quota, pinning, dedicated models), **Models** (hide out-of-plan models, visible models), **Context length** (a custom context window, global and per model, see below), **Privacy & security** (zero data retention, off by default, see below), **Integrations & display** (serve web search with Command Code, show the quota card in the sidebar, off by default), and a collapsed **Advanced** section (API base URL, request/stream timeouts, transport retries, cache-aware image offload). The working directory is no longer on the page; `workingDir` in config still works.
+**Settings → Command Code** is organized as **Accounts** (keys, sign-in, live quota, pinning, dedicated models), **Models & context** (hide out-of-plan models, visible models, then the **Custom context length** field and the **Per-model overrides** rows right after the allowlist — global and per model, see below), **Privacy & security** (zero data retention, off by default, see below), **Integrations & display** (serve web search with Command Code, show the quota card in the sidebar, off by default), and a collapsed **Advanced** section (API base URL, request/stream timeouts, transport retries, cache-aware image offload). The working directory is no longer on the page; `workingDir` in config still works.
 
 The same options live in `$DSH_HOME/settings.yaml` (changes apply immediately, no restart):
 
@@ -225,7 +228,7 @@ llm-commandcode:
 
 ### Custom context length
 
-The context window the harness meters against — and when it compacts — normally comes from the model catalog's `context_length`. The opt-in **Context length** group on **Settings → Command Code** (or the two config fields above, issue #86) replaces it per your own numbers: `contextWindow` is the global custom value applied to every model without its own row, and `contextWindowOverrides` sets one model by catalog id, winning over the global value. Unset follows the catalog; nothing changes by default.
+The context window the harness meters against — and when it compacts — normally comes from the model catalog's `context_length`. The opt-in **Custom context length** field and **Per-model overrides** rows inside **Settings → Command Code → Models & context**, directly after the visible-models allowlist (or the two config fields above, issue #86), replace it per your own numbers: `contextWindow` is the global custom value applied to every model without its own row, and `contextWindowOverrides` sets one model by catalog id, winning over the global value. Unset follows the catalog; nothing changes by default.
 
 - **When it helps**: a catalog window that over-reports turns into `context_length_exceeded` failures once a session grows past the model's real capacity — advertise the lower real number and the harness compacts before the gateway refuses. An under-reported window makes long sessions compact earlier than they need to; raise it to match the model's true capacity.
 - The model-picker context annotation and the `defaultMaxTokens` budget follow the same resolution (the budget still never exceeds the published or runtime-learned output ceiling). Session-cost tier pricing keeps using each request's actual token counts.

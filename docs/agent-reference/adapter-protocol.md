@@ -2,6 +2,7 @@
 
 Task-specific reference moved from the former root `AGENTS.md`. All source and test paths are relative to the repository root. Consult the relevant source and tests before changing behavior.
 
+- **会话标题的思考策略（问题 #88）**：`GenerateOptions.purpose === 'session-title'`（调用用途为会话标题）且 `KNOWN_EFFORTS`（模型思考档位快照）明确包含 `off`（关闭思考）时，本次请求强制使用该档位，优先于调用者的思考强度；OpenAI（开放接口协议）发送 `reasoning_effort: "off"`，CLI（命令行协议）发送 `params.reasoning_effort: "off"`，协议回退沿用同一选择。保留调用者的输出预算，不按小预算阈值推断用途，不修改调用选项；普通对话、`compaction`（上下文压缩）、不支持关闭思考及未知模型沿用原策略。Messages（消息接口）模型没有声明关闭思考能力，因此不发送不支持的值。纯思考耗尽预算仍由既有 `OUTPUT_TOKEN_LIMIT`（输出词元超限）诊断处理。决策见[《决策记录》第二章第4条](../决策记录.md#二标准协议复用边界)。
 - **错误正文读取有界**：收到非成功 HTTP 状态后，正文最多读取 64 KiB，期限为请求超时与 30 秒中的较小值；超时或截断保留原状态和已收片段，用于分类与重试。调用者取消传播原取消原因。成功生成流仍受独立的流空闲期限控制。
 - **流式终止与用量**：`src/stream-response.ts` 拥有单次已连接响应的读取、装配和释放；`src/provider-errors.ts` 统一连接拒绝与流内错误分类。OpenAI 的 `finish_reason`（生成结束原因）后继续读取独立用量，直到 `[DONE]` 或正文结束；尾部错误或空闲超时仍失败。Messages 的 `message_delta` 更新累计字段，在 `message_stop` 结束；其缺失用量字段保留先前值，不能当作零覆盖，也不能把累计值相加。
 - **取消与清理**：调用者取消后不再输出正文、工具或成功结束，仅交付取消前已解析的最后一份用量，再传播原取消原因。CLI 的 `finish`、OpenAI 的 `[DONE]`、Messages 的 `message_stop` 后，同包多余事件被忽略并留下有界诊断。释放本地读取锁、计时器和监听时发起底层取消，不等待其承诺完成。适配器迭代器的 `return()`（结束消费）先唤醒待读；消费方已结束时不能再交付用量。宿主迭代器自身的结束排队由宿主负责，宿主中止验证使用调用者取消信号。

@@ -15,7 +15,15 @@ import urllib.request
 
 URLS = {
     'npm': 'https://registry.npmjs.org/command-code/latest',
+    # The default view is the OpenAI-shaped model list the plugin routes on.
     'catalog': 'https://api.commandcode.ai/provider/v1/models',
+    # `?view=client` is the richer view the CLI itself consumes from
+    # command-code@1.82.4: it adds `reasoningEfforts`, `zdr`, `inputModalities`,
+    # `minimumPlan`, `pricing`, `aliases` and `hidden`, and it is the only
+    # authoritative source for effort/ZDR/vision once the CLI stops bundling
+    # those tables. Both views are fetched because they disagree (100 vs 92
+    # models, and the extra rows are the hidden ones).
+    'catalog-client': 'https://api.commandcode.ai/provider/v1/models?view=client',
     'models': 'https://commandcode.ai/docs/reference/cli/models',
     'pricing': 'https://commandcode.ai/docs/resources/pricing-limits',
     **{p: f'https://commandcode.ai/docs/plans/{p}' for p in ('go', 'goat', 'pro', 'max')},
@@ -54,7 +62,7 @@ def fetch_source(item, output):
     key, url = item
     try:
         body, record = download(url)
-        filename = key + ('.json' if key in ('npm', 'catalog') else '.html')
+        filename = key + ('.json' if key in ('npm', 'catalog', 'catalog-client') else '.html')
         (output / filename).write_bytes(body)
         return key, {**record, 'file': filename, 'ok': True}
     except Exception as error:

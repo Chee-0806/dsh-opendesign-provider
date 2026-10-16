@@ -93,8 +93,10 @@ src/client/usage.ts   Account-card controller (Remote fetch lifecycle +
 src/client/section.tsx  The settings page React component: the unified
                       account list (immediate operations, inline quota,
                       per-account dedicated models) over the staged form
-                      (Models, Privacy & security, Integrations & display,
-                      Advanced).
+                      (Models & context — plan filter, visible-model allowlist,
+                      then the flat custom-context-length field and the
+                      per-model override rows — Privacy & security,
+                      Integrations & display, Advanced).
 src/client/card.tsx   The Models-page provider card (keyed-slot component +
                       the SlotMap merge for `settings.models.provider-card` /
                       `settings.models.footer`, mirroring upstream).
@@ -209,7 +211,7 @@ tests/login.test.ts   browser-login flow integration tests (real loopback
 tests/login-wire.test.ts login descriptor uniformity + status parser.
 tests/login-client.test.ts login-panel controller poll lifecycle.
 tests/client-boot.test.ts client-boot integration tests (real apply() against a
-                      dsh 0.2.1-alpha.3-shaped client assembly; settings page +
+                      dsh 0.2.1-alpha.4-shaped client assembly; settings page +
                       provider card, and the `remote.settings` scope path end to
                       end: directory read, invalidation re-read, a save over the
                       path-op wire, and the degraded profile without the

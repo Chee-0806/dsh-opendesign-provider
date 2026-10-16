@@ -7,6 +7,7 @@ import { parseAnalyticsQuery, parseAnalyticsReport } from '../src/analytics-wire
 import { modelPriceTable } from '../src/model-prices.ts'
 import { AnalyticsController } from '../src/client/analytics.ts'
 import { dateRange, knownCostShare } from '../src/client/analytics-view.tsx'
+import { compareScenario } from '../src/client/analytics-comparison.ts'
 import type { AnalyticsReport } from '../src/analytics-wire.ts'
 import type { CommandCodePriceTable } from '../src/usage-wire.ts'
 const off = Date.parse('2026-10-05T00:00:00Z'), peak = off + 2 * 3600000
@@ -126,6 +127,60 @@ test('30 天折算仅用于完整用量和至少一天的时间窗口', () => {
   assert.ok(Math.abs(r.monthlyEstimate! - r.totals.cost * 15) < 1e-12)
   assert.equal(buildAnalytics([fact()], recent, table, []).monthlyEstimate, null)
   assert.equal(buildAnalytics([{ ...fact(), model: 'unknown' }], range, table, [], range.to).monthlyEstimate, null)
+})
+test('各模型以同一观察范围折算 30 天，并与完整历史工作量比较差额', () => {
+  const range = { mode: 'range' as const, from: off, to: off + 2 * 86400000 }
+  // 原工作量含峰谷、缓存写入与不同实际模型；目标仍按每次请求时段重算。
+  const r = buildAnalytics([fact(), fact(peak), { ...fact(), model: 'free' }], range, table, [catalog[0]!, { ...catalog[0]!, id: 'free' }], range.to)
+  const m = r.scenarios[0]!, result = compareScenario(r, m)
+  assert.ok(Math.abs(result.monthly.value! - m.cost * 15) < 1e-12)
+  assert.ok(Math.abs(result.difference.value! - (m.cost - r.totals.cost)) < 1e-12)
+  assert.ok(Math.abs(result.differencePercent! - (m.cost / r.totals.cost - 1) * 100) < 1e-10)
+  assert.deepEqual(compareScenario(r, r.scenarios[1]!), { monthly: { value: 0 }, difference: { value: -r.totals.cost }, differencePercent: -100 })
+})
+test('相同模型的价格试算与历史基准相同，最近会话可比较差额但不折算月份', () => {
+  const r = buildAnalytics([fact(), fact(peak)], recent, table, catalog)
+  assert.deepEqual(compareScenario(r, r.scenarios[0]!), { monthly: { value: null, reason: 'recent' }, difference: { value: 0 }, differencePercent: 0 })
+})
+test('基准为零仍比较金额，不产生无穷比例或把免费试算当成未知', () => {
+  const range = { mode: 'range' as const, from: off, to: off + 86400000 }
+  const r = buildAnalytics([{ ...fact(), model: 'free' }], range, table, [catalog[0]!, { ...catalog[0]!, id: 'free' }], range.to)
+  assert.equal(compareScenario(r, r.scenarios[0]!).difference.value, r.scenarios[0]!.cost)
+  assert.equal(compareScenario(r, r.scenarios[0]!).differencePercent, null)
+  assert.deepEqual(compareScenario(r, r.scenarios[1]!), { monthly: { value: 0 }, difference: { value: 0 }, differencePercent: null })
+})
+test('未读全历史不折算或比较，缺少候选价格与超上下文分别说明原因', () => {
+  const range = { mode: 'range' as const, from: off, to: off + 86400000 }
+  const r = buildAnalytics([fact()], range, table, catalog, range.to), m = r.scenarios[0]!
+  for (const flag of [{ truncated: true }, { unreadableSessions: 1 }, { skippedSessions: 1 }]) {
+    assert.deepEqual(compareScenario({ ...r, ...flag }, m), { monthly: { value: null, reason: 'partial' }, difference: { value: null, reason: 'partial' }, differencePercent: null })
+  }
+  for (const [scenario, reason] of [
+    [{ ...m, pricedRequests: 0, unknownRequests: 1 }, 'coverage'],
+    [{ ...m, pricedRequests: 0, excludedRequests: 1 }, 'excluded'],
+  ] as const) {
+    const result = compareScenario(r, scenario)
+    assert.equal(result.monthly.reason, reason); assert.equal(result.difference.reason, reason)
+    assert.equal(result.monthly.value, null); assert.equal(result.difference.value, null)
+  }
+})
+test('部分覆盖即使数量相同也不比较；基准缺价不阻断独立可计价的候选月度试算', () => {
+  const range = { mode: 'range' as const, from: off, to: off + 86400000 }
+  const r = buildAnalytics([fact(), { ...fact(), model: 'unknown' }], range, table, catalog, range.to)
+  const result = compareScenario(r, r.scenarios[0]!)
+  assert.ok(Math.abs(result.monthly.value! - r.scenarios[0]!.cost * 30) < 1e-12)
+  assert.deepEqual(result.difference, { value: null, reason: 'baseline' })
+  // 历史和候选都只计价一条，但不能证明是哪条；禁止只按计价数量相等直接相减。
+  const partial = compareScenario(r, { ...r.scenarios[0]!, pricedRequests: 1, unknownRequests: 1 })
+  assert.deepEqual(partial.difference, { value: null, reason: 'coverage' })
+})
+test('月度观察窗固定到报告生成时刻，不计未来空白天数或随客户端时间漂移', () => {
+  const range = { mode: 'range' as const, from: off, to: off + 10 * 86400000 }
+  const r = buildAnalytics([fact()], range, table, catalog, off + 2 * 86400000)
+  assert.ok(Math.abs(compareScenario(r, r.scenarios[0]!).monthly.value! - r.scenarios[0]!.cost * 15) < 1e-12)
+  assert.deepEqual(compareScenario({ ...r, generatedAt: off + 86400000 - 1 }, r.scenarios[0]!).monthly, { value: null, reason: 'short-range' })
+  const empty = buildAnalytics([], range, table, catalog, range.to)
+  assert.deepEqual(compareScenario(empty, empty.scenarios[0]!).monthly, { value: null, reason: 'empty' })
 })
 test('严格查询拒绝越界，响应拒绝畸形覆盖率并剥离正文', () => {
   for (const q of [{ mode: 'recent', limit: 0 }, { mode: 'recent', limit: 101 }, { mode: 'recent', limit: 1.5 }, { mode: 'range', from: off, to: off }, { mode: 'range', from: off, to: off + 367 * 86400000 }]) assert.throws(() => parseAnalyticsQuery(q))

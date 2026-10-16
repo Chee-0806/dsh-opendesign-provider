@@ -8,12 +8,12 @@
  *
  * Layout, top to bottom: Accounts (one card per account, status, quota,
  * actions and dedicated models — every operation commits immediately), Models
- * (plan filter + visible-model allowlist), Context length (the global custom
- * window and per-model overrides, issue #86), Privacy & security (ZDR),
- * Integrations & display (web search, sidebar quota card), and a collapsed
- * Advanced card (API base + network limits). Everything below Accounts is a
- * flat group of rows (title/description left, control right) inside the staged
- * form the floating save bar writes.
+ * & context (plan filter + visible-model allowlist, then the context-length
+ * rows: the global custom window and the per-model overrides, issue #86),
+ * Privacy & security (ZDR), Integrations & display (web search, sidebar quota
+ * card), and a collapsed Advanced card (API base + network limits). Everything
+ * below Accounts is a flat group of rows (title/description left, control
+ * right) inside the staged form the floating save bar writes.
  *
  * Styles are injected once by the client entry (see src/client/index.ts) and
  * class-prefixed `cc-` to stay local.
@@ -33,7 +33,7 @@ import { loginHint, loginStateForTarget } from './login.ts'
 import { allowlistedModels, buildModelSelectOptions, catalogIsReady, groupModelSelectOptions, staleModelIds, tierHeadingFor, toggleModelSelection } from './model-select.ts'
 import type { UsagePageState } from './usage.ts'
 import { usageCardState } from './usage.ts'
-import { formatMoney, formatMoneyExact, formatResetAt, formatSuccessRate, formatTokensCompact, windowRatio, formatUsageBillingPeriod } from '../display-format.ts'
+import { compactCountTitle, formatCompactCount, formatMoney, formatMoneyExact, formatResetAt, formatSuccessRate, formatTokensCompact, windowRatio, formatUsageBillingPeriod } from '../display-format.ts'
 import { PLUGIN_RELEASES_URL, PLUGIN_VERSION } from './version.ts'
 import { checkForUpdate, localStorageUpdateStore } from './update.ts'
 
@@ -263,9 +263,9 @@ function ToggleField({
 }
 
 /** One stat tile in the account card's summary grid. */
-function UsageStat({ label, value, sub }: { label: string; value: string; sub?: string | undefined }) {
+function UsageStat({ label, value, sub, title }: { label: string; value: string; sub?: string | undefined; title?: string | undefined }) {
   return (
-    <div className="cc-usageStat">
+    <div className="cc-usageStat" title={title}>
       <span className="cc-usageStatLabel">{label}</span>
       <span className="cc-usageStatValue">{value}</span>
       {sub !== undefined && sub !== '' ? <span className="cc-usageStatSub">{sub}</span> : null}
@@ -357,10 +357,17 @@ function AccountReport({ entry, fetchedAt, t, headless = false }: {
       ) : null}
       {report.usage !== undefined ? (
         <div className="cc-usageStats cc-usageStatsActivity">
+          {/* 计数按 K/M/B 紧凑显示：四列等宽窄卡里，原始位数会先把右侧的「失败 …」
+              挤出省略号。精确值改由 title 悬停查看，且只在确实换算过时才挂。 */}
           <UsageStat
             label={t('usageRequests')}
-            value={String(report.usage.totalCount)}
-            sub={`${t('usageCompleted')} ${report.usage.completedCount} / ${t('usageFailed')} ${report.usage.failedCount}`}
+            value={formatCompactCount(report.usage.totalCount)}
+            sub={`${t('usageCompleted')} ${formatCompactCount(report.usage.completedCount)} / ${t('usageFailed')} ${formatCompactCount(report.usage.failedCount)}`}
+            title={compactCountTitle([
+              [t('usageRequests'), report.usage.totalCount],
+              [t('usageCompleted'), report.usage.completedCount],
+              [t('usageFailed'), report.usage.failedCount],
+            ] as const)}
           />
           <UsageStat label={t('usageSuccessRate')} value={`${formatSuccessRate(report.usage.successRate)}%`} />
           <UsageStat
@@ -654,12 +661,17 @@ interface FormCardProps {
 }
 
 /**
- * Models: the plan filter and the allowlist sit together because both decide
- * what the model picker lists (the allowlist applies after the plan filter).
+ * Models & context: the plan filter and the allowlist sit together because both
+ * decide what the model picker lists (the allowlist applies after the plan
+ * filter), and the context-length fields follow them because they are the same
+ * subject seen from the other side — the window each listed model advertises.
+ * Those fields carry no heading or divider of their own: they are rows of this
+ * group, not a section inside it.
  */
-function ModelsCard({ state, disabled, t, onEdit, onReset, onSelect, onClear }: FormCardProps & {
+function ModelsCard({ state, disabled, t, onEdit, onReset, onSelect, onClear, onOverrides }: FormCardProps & {
   onSelect(ids: string[]): void
   onClear(): void
+  onOverrides(next: Record<string, string>): void
 }) {
   return (
     <SettingsGroup title={t('modelsTitle')} divided>
@@ -675,17 +687,28 @@ function ModelsCard({ state, disabled, t, onEdit, onReset, onSelect, onClear }: 
         t={t}
       />
       <VisibleModelsRow t={t} state={state} disabled={disabled} onSelect={onSelect} onClear={onClear} />
+      <ContextCard
+        state={state}
+        disabled={disabled}
+        t={t}
+        onEdit={onEdit}
+        onReset={onReset}
+        onOverrides={onOverrides}
+      />
     </SettingsGroup>
   )
 }
 
 /**
  * Context length (issue #86): the global custom window plus one row per model
- * override, both staged into the same save as the other form fields. The
- * advertised window is what the harness meters context against and when it
- * compacts, so a lowered value compacts earlier and a raised one follows the
- * model's real capacity when the catalog under-reports it. Precedence: a
- * per-model row, then the global value, then the catalog.
+ * override, both staged into the same save as the other form fields. Rendered
+ * as plain rows of the Models & context group — no heading, no divider of its
+ * own: the setting belongs to the models that group already governs, and on the
+ * real page a section inside the group read as visual noise. The advertised
+ * window is what the harness meters context against and when it compacts, so a
+ * lowered value compacts earlier and a raised one follows the model's real
+ * capacity when the catalog under-reports it. Precedence: a per-model row, then
+ * the global value, then the catalog.
  *
  * The rows live as raw text drafts: blank drops the override on save, an
  * unparseable one blocks the save with its own bounds copy, and the value
@@ -727,7 +750,7 @@ function ContextCard({ state, disabled, t, onEdit, onReset, onOverrides }: FormC
     return entry === undefined ? `${model} · ${t('modelStale')}` : `${entry.name} (${model})`
   }
   return (
-    <SettingsGroup title={t('contextTitle')} divided>
+    <>
       <Field
         id="cc-context-window"
         label={t('contextWindow')}
@@ -806,7 +829,7 @@ function ContextCard({ state, disabled, t, onEdit, onReset, onOverrides }: FormC
           {row.invalid ? <p className="cc-rowError cc-contextError">{invalidCopy(row.invalidReason, t, 'context')}</p> : null}
         </div>
       ))}
-    </SettingsGroup>
+    </>
   )
 }
 
@@ -1809,8 +1832,12 @@ export function CommandCodeSettingsPage(props: CommandCodeSettingsProps) {
         onRefresh={props.refreshUsage}
         createEnrollment={props.createEnrollment}
       />
-      <ModelsCard {...form} onSelect={props.editVisibleModels} onClear={props.clearVisibleModels} />
-      <ContextCard {...form} onOverrides={props.editContextWindowOverrides} />
+      <ModelsCard
+        {...form}
+        onSelect={props.editVisibleModels}
+        onClear={props.clearVisibleModels}
+        onOverrides={props.editContextWindowOverrides}
+      />
       <PrivacyCard {...form} />
       <IntegrationsCard {...form} />
       <AdvancedSection {...form} />
