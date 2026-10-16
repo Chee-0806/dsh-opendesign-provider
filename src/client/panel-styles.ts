@@ -200,7 +200,6 @@ export const PANEL_CSS = `
 .ccp-analysisTableHead{padding-top:11px;padding-bottom:11px;background:var(--dsw-alias-interactive-bg-hover);border-bottom:.5px solid var(--dsw-alias-border-l2);font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
 .ccp-analysisTableHead > span:not(:first-child){text-align:right}
 .ccp-analysisScenarioHead,.ccp-analysisScenarioSummary{grid-template-columns:minmax(190px,2fr) minmax(118px,1.1fr) minmax(155px,1.35fr) minmax(142px,1.15fr) 16px}
-.ccp-analysisScenarioHead > span:nth-child(3),.ccp-analysisScenarioHead > span:nth-child(4){text-align:left}
 .ccp-analysisModelSummary,.ccp-analysisScenarioSummary{cursor:pointer;list-style:none;min-height:60px}
 .ccp-analysisModelSummary::-webkit-details-marker,.ccp-analysisScenarioSummary::-webkit-details-marker,.ccp-analysisDisclosure::-webkit-details-marker{display:none}
 .ccp-analysisModelSummary:hover,.ccp-analysisScenarioSummary:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -208,7 +207,6 @@ export const PANEL_CSS = `
 .ccp-analysisModelName{font-size:14px;line-height:22px;font-weight:500;overflow-wrap:anywhere}
 .ccp-analysisModelCount{margin-top:3px}
 .ccp-analysisModelSummary > .ccp-analysisMetric,.ccp-analysisScenarioSummary > .ccp-analysisMetric{align-items:flex-end}
-.ccp-analysisScenarioSummary > .ccp-analysisMetric:nth-child(3),.ccp-analysisScenarioSummary > .ccp-analysisMetric:nth-child(4){align-items:flex-start}
 /* 宽表使用集中表头，但保留每个指标的无障碍标签；窄面板恢复可见标签。 */
 .ccp-analysisModelSummary .ccp-analysisMetricLabel,.ccp-analysisScenarioSummary .ccp-analysisMetricLabel,.ccp-analysisSearchLabel{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .ccp-analysisShare{display:flex;align-items:center;gap:8px;width:100%;max-width:148px;margin-top:3px}
@@ -232,6 +230,7 @@ export const PANEL_CSS = `
 .ccp-analysisMonthlyValue{font-size:14px;line-height:22px;font-weight:500;color:var(--dsw-alias-label-primary);font-variant-numeric:tabular-nums}
 .ccp-analysisMonthly .ccp-analysisNote{width:100%;margin:0}
 .ccp-analysisAssumption{font-size:14px;line-height:22px;color:var(--dsw-alias-label-tertiary);margin:0 0 18px;max-width:76ch}
+.ccp-analysisBaseline{margin:0 0 16px}
 .ccp-analysisSearch{flex:0 1 270px}
 .ccp-analysisSearchShell{position:relative;display:block}
 .ccp-analysisSearchShell > .ccp-analysisIcon{position:absolute;top:10px;left:11px;color:var(--dsw-alias-label-tertiary);pointer-events:none}

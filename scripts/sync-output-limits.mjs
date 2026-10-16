@@ -121,16 +121,14 @@ const normalizeId = (id) => id.toLowerCase().replace(/[^a-z0-9]/g, '')
  *   so `OFFICIAL_PROVIDERS.inclusionai` resolves to nothing and the
  *   vendor-first rule falls through; (b) the third-party rows are no longer
  *   unanimous — `kilo`, `novita-ai` and `openrouter` file 32768 while `vercel`
- *   files 32000, so rule 3 declines to guess. 32768 is still the right figure:
- *   it is the Ling family's established ceiling (the same one the retired 3.1
- *   free promo inherited) and carries a 3-to-1 majority. Pinned here so a
- *   regeneration does not silently drop a LIVE model's ceiling back to the
- *   131072 default — the model is still in the public catalog, still Go-tier,
- *   still free, and still reachable from the picker.
+ * The map is currently empty: its only entry, `inclusionai/ling-3.0-flash-sante:free`
+ * (pinned at 32768 because it had lost both its vendor row and its unanimous
+ * third-party vote), left the live catalog with the 1.82.4 catalog migration on
+ * 2026-10-16 and is absent from the 1.82.4 artifact's embedded snapshot too. The
+ * map stays because the rule it encodes is still needed — a live model whose
+ * ceiling cannot be resolved must be pinned rather than defaulted.
  */
-const MANUAL_CEILINGS = {
-  'inclusionai/ling-3.0-flash-sante:free': { value: 32768, via: 'manual: no vendor row and no longer unanimous (vercel 32000); Ling family ceiling 32768, see MANUAL_CEILINGS' },
-}
+const MANUAL_CEILINGS = {}
 
 /** The vendor namespace of a catalog id, or its family for a bare one. */
 function namespaceOf(id) {

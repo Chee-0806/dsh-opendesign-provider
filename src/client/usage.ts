@@ -18,7 +18,7 @@ import type { AnalyticsRemote } from './analytics.ts'
 import type { AnalyticsQuery, AnalyticsReport } from '../analytics-wire.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { readableErrorText } from './error-text.ts'
-export { formatMoney, formatMoneyExact, formatTokensCompact, formatSuccessRate, windowRatio, formatResetAt } from '../display-format.ts'
+export { compactCountTitle, formatCompactCount, formatMoney, formatMoneyExact, formatTokensCompact, formatSuccessRate, windowRatio, formatResetAt } from '../display-format.ts'
 
 /**
  * Merge the plugin's Remote endpoints into the harness's typed client Remote

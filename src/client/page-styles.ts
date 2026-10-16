@@ -33,7 +33,8 @@ export const PAGE_CSS_ID = '@mars-sea/dsh-commandcode-provider/CommandCodeSettin
  * 12/18 label-tertiary, the control on the right. The hairline rhythm is
  * section-level: a 0.5px border-l2 rule separates the GROUPS (see
  * `cc-groupDivided`), never the rows inside one, so a group's rows read as one
- * list. Selectors and buttons are capsules (36px / 28px compact), inputs are
+ * list. Selectors and buttons are
+ * capsules (36px / 28px compact), inputs are
  * 32px with an 8px radius and a 0.5px border-l4 edge, a card is a 0.5px
  * border-l4 outline with a 16px radius, and a nested panel is a
  * bg-module-platform fill with a 12px radius. Errors use state-error-primary.

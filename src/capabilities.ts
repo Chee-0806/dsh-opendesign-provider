@@ -4,7 +4,7 @@
  * subscription-plan labels, deals, and hourly (peak/off-peak) pricing.
  *
  * Everything here is synced from official sources — the command-code CLI
- * bundle's model table (`dist/cli.mjs`, re-verified at command-code@1.82.1) and
+ * bundle's model table (`dist/cli.mjs`, re-verified at command-code@1.82.5) and
  * the official plan/pricing/model docs; see the dsh-commandcode-upstream skill
  * for the extraction procedures. Keeping the snapshot in its own module
  * confines those frequent sync diffs here: src/adapter.ts holds only the stable
@@ -19,8 +19,14 @@ import { PLAN_LABELS, PLAN_ORDER } from './plan-tiers.ts'
 export { PLAN_LABELS, PLAN_ORDER } from './plan-tiers.ts'
 
 export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  // Re-verified against the authoritative command-code@1.82.1 bundled model
-  // table (dist/cli.mjs, the provider effort map): exactly these models carry
+  // Re-verified against the authoritative command-code@1.82.5 model table. From
+  // 1.82.4 the CLI no longer keeps this map bundled: `getSupportedEfforts()`
+  // resolves it through the model catalog (`reasoningEfforts`), served live at
+  // `GET /provider/v1/models?view=client` and falling back to an embedded
+  // snapshot. The embedded snapshot is a bootstrap only — it was one refresh
+  // stale within two days of release (99 of the live catalog's 100 models, and
+  // missing the three newest; 1.82.5 folded exactly those three in), so a sync
+  // must read the live catalog, not the artifact: exactly these models carry
   // selectable efforts. Models marked 'reasoning:!0' without efforts
   // (e.g. Tencent Hy3, GLM-5/5.1/5.2-Fast)
   // think automatically and are absent here - the CLI omits
@@ -41,6 +47,10 @@ export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'Qwen/Qwen3.8-Flash': ['low', 'medium', 'xhigh'],
   // command-code@1.56.0; same effort set as its Qwen 3.8 siblings.
   'Qwen/Qwen3.8-Omni-Flash': ['low', 'medium', 'xhigh'],
+  // command-code@1.82.4; the GOAT-tier sibling of `Qwen/Qwen3.8-Max` with the
+  // same three selectable levels. It is also the only model the 1.82.2 -> 1.82.4
+  // train added to the artifact's own effort table.
+  'Qwen/Qwen3.8-Max-Prime': ['low', 'medium', 'xhigh'],
   'claude-fable-5-1': ['low', 'medium', 'high', 'xhigh', 'max'],
   'claude-fable-5': ['low', 'medium', 'high', 'xhigh', 'max'],
   'claude-opus-4-7': ['low', 'medium', 'high', 'xhigh', 'max'],
@@ -112,6 +122,12 @@ export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   // the only registry addition in the 1.79.2 -> 1.81.0 train. It carries the
   // same four-level set as Muse Spark 1.1/1.2 (no `max`).
   'meta/muse-wonder-1.0': ['low', 'medium', 'high', 'xhigh'],
+  // 2026-10-15; the open-weight Muse Spark. Vision-capable, Go-tier and
+  // served only by the live catalog - it postdates the 1.82.4 artifact's own
+  // embedded snapshot, so it cannot be read out of `dist/cli.mjs`.
+  'meta/muse-spark-open': ['low', 'medium', 'high'],
+  // 2026-10-14; open vision-language reasoning model, Go tier.
+  'nvidia/nemotron-3.5-super-vl': ['low', 'medium', 'high'],
   // command-code@1.49.0; the full five-level set.
   'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
   // command-code@1.64.0: Claude Opus 5.5 and the GPT-6 Sol / Luna pair, the only
@@ -162,6 +178,11 @@ export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   // stops at four and offers no `max`.
   'claude-haiku-5-5': ['low', 'medium', 'high', 'xhigh', 'max'],
   'stealth/glyph-cluster:free': ['low', 'medium', 'high', 'xhigh'],
+  // 2026-10-15; a free stealth preview ("while the stealth preview lasts") and
+  // the only model in this train that carries the full five-level set. It is
+  // text-only and NOT ZDR-covered, unlike its Glyph Cluster sibling - see
+  // `KNOWN_NON_ZDR_MODELS`. Live-catalog only, not in the 1.82.4 artifact.
+  'stealth/cat-jam:free': ['low', 'medium', 'high', 'xhigh', 'max'],
 }
 
 /**
@@ -192,6 +213,9 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
   'Qwen/Qwen3.8-Max-0902',
   // command-code@1.56.0; Vision per the official registry and inputModalities.
   'Qwen/Qwen3.8-Omni-Flash',
+  // command-code@1.82.4; inputModalities:["text","image"] in both the artifact's
+  // embedded catalog and the live `?view=client` catalog.
+  'Qwen/Qwen3.8-Max-Prime',
   'claude-fable-5-1',
   'claude-fable-5',
   'claude-haiku-4-5-20251001',
@@ -251,6 +275,11 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
   // inputModalities:["text","image","file"] — the only model in this catalog
   // that also declares the `file` modality.
   'meta/muse-wonder-1.0',
+  // 2026-10-15; inputModalities:["text","image"] in the live catalog.
+  'meta/muse-spark-open',
+  // 2026-10-14; inputModalities:["text","image"], and the only Nemotron row
+  // in this catalog that carries vision.
+  'nvidia/nemotron-3.5-super-vl',
   // command-code@1.75.0; Vision per the official registry and the CLI's
   // inputModalities:["text","image"].
   'mistral/mistral-large-4',
@@ -284,14 +313,16 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
 ])
 
 /**
- * Models WITHOUT a zero-data-retention upstream, per the official CLI's own
- * registry (`command-code@1.82.1` `dist/cli.mjs`): `modelSupportsZdr(id)` is
- * exactly `!nonZdrSet.has(canonicalize(id))`, and `knownModelSupportsZdr`
- * carries the same membership in the sibling route table — the UNION of both
- * is this set. Reading only the sibling route table dropped
- * `meituan/LongCat-2.0`, which sat in `modelSupportsZdr` alone through
- * 1.73.0; the 1.74.3 table lists it in NEITHER set, so as of this snapshot it
- * is no longer excluded. The official docs (commandcode.ai/docs/resources/
+ * Models WITHOUT a zero-data-retention upstream. Through command-code@1.82.2
+ * the CLI's own registry answered this: `modelSupportsZdr(id)` was exactly
+ * `!nonZdrSet.has(canonicalize(id))`, and `knownModelSupportsZdr` carried the
+ * membership in the sibling route table — the UNION of both was this set, and
+ * the two anchors disagreed by one id (`meituan/LongCat-2.0:free`, which 1.74.1
+ * dropped from the first anchor while the canonical helper kept it).
+ * command-code@1.82.4 removes that disagreement by making the verdict a catalog
+ * lookup — `resolveKnownCatalogModel({model,catalog})?.zdr ?? false` — so this
+ * set is now the live catalog's `zdr:false` membership and nothing more. The
+ * official docs (commandcode.ai/docs/resources/
  * zdr) put coverage in prose — "99% of our models have ZDR-capable upstreams … only
  * a small handful of models are affected" — so the CLI's exclusion list is
  * the only per-model evidence there is; a ZDR request naming one of these
@@ -304,10 +335,19 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
  * switch is on — the provider remains the routing authority and refuses an
  * unsupported model rather than silently dropping the privacy guarantee.
  *
- * `minimax/minimax-m3-free` is the one entry the public catalog
- * (`/provider/v1/models`) does not serve (it is CLI/pricing-visible and hidden
- * from the picker); it stays listed because the CLI carries it and a Go-plan
- * request can still name it.
+ * `minimax/minimax-m3-free` is the one entry the public catalog's default view
+ * (`/provider/v1/models`) does not serve through the picker (it is CLI/pricing-visible
+ * and hidden from the picker); it stays listed because the CLI carries it and a Go-plan
+ * request can still name it. Both this row and `stealth/cat-jam:free` ARE served
+ * by the `?view=client` catalog, which is where the 1.82.4 verdict comes from.
+ *
+ * command-code@1.82.4 moved the authority for this verdict: `knownModelSupportsZdr`
+ * no longer negates a bundled Set, it returns `resolveKnownCatalogModel({model,
+ * catalog})?.zdr ?? false`, so an id the catalog does not carry (or carries with
+ * `zdr:false`) is NOT covered. That inverts the default this helper was built on
+ * ("not listed" answered TRUE); the snapshot keeps its negative-set shape because
+ * 99% of the catalog is still covered, but membership is now read from the
+ * `?view=client` catalog and confirmed against the canonical helper set.
  *
  * Keep in sync via the dsh-commandcode-upstream skill: the CLI's registry data
  * (its `zdr:{only:[…]}` provider routes and the per-provider `zdr`/`noTraining`
@@ -328,6 +368,11 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
  * `listSelectableModelIds()`, so they are pruned along with the rest of the
  * tables and `supportsZeroDataRetention` now answers TRUE for them, matching
  * what the current CLI says.
+ *
+ * 1.82.4 then reversed 1.74.1's removal of `meituan/LongCat-2.0:free` and added
+ * the `stealth/cat-jam:free` preview, taking this set to 24 members — the size
+ * of the live catalog's `zdr:false` list. The canonical helper set still carries
+ * 23 because `cat-jam:free` postdates the artifact's embedded snapshot.
  */
 export const KNOWN_NON_ZDR_MODELS: ReadonlySet<string> = new Set([
   'MiniMaxAI/MiniMax-M3',
@@ -347,6 +392,14 @@ export const KNOWN_NON_ZDR_MODELS: ReadonlySet<string> = new Set([
   // artifact is the evidence. 22 members as of 1.82.1 — Gemini 4 Argon, the
   // only registry addition in the 1.81.0 -> 1.82.1 train, is NOT in the set.
   'meta/muse-wonder-1.0',
+  // command-code@1.82.4. LongCat returns to this list as a deliberate reversal
+  // of 1.74.1: that release dropped it from the anchor `knownModelSupportsZdr`
+  // read, while the canonical helper `modelSupportsZdr2` kept it, so the two
+  // anchor sets disagreed by exactly this one id (22 vs 23) for eight releases.
+  // 1.82.4 ends the disagreement by making both read the catalog's per-model
+  // `zdr` field, which serves `zdr:false` for this row. The plugin now follows
+  // the catalog verdict rather than the older 22-member anchor.
+  'meituan/LongCat-2.0:free',
   'minimax/minimax-m3-free',
   'poolside/laguna-s-2.1-free',
   'sakana/fugu-ultra',
@@ -356,6 +409,12 @@ export const KNOWN_NON_ZDR_MODELS: ReadonlySet<string> = new Set([
   // 100 requests a day. Not routed under ZDR." The CLI's own exclusion set
   // carries the same membership.
   'stealth/glyph-cluster:free',
+  // 2026-10-15. The live catalog serves `zdr:false` for this free stealth
+  // preview and no anchor set names it at all, so it is excluded on the
+  // catalog verdict alone. Its pricing tip reads "Free while the stealth
+  // preview lasts"; unlike its Glyph Cluster sibling the page states no ZDR
+  // note for this row.
+  'stealth/cat-jam:free',
   'stepfun/Step-3.7-Flash',
   'stepfun/Step-5-Preview',
   'xai/grok-4.5',
@@ -418,9 +477,6 @@ export const KNOWN_THINKING_MODELS: ReadonlySet<string> = new Set([
   // `reasoning:!0` and no `reasoningEfforts`, one release after the backend
   // rename the 1.57.0 sync recorded here.
   'meituan/LongCat-2.0',
-  // Ling 3.0 Flash Sante (command-code@1.52.0, 262K context, text-only) is
-  // free and reasons automatically with no selectable efforts.
-  'inclusionai/ling-3.0-flash-sante:free',
 ])
 
 /**
@@ -491,11 +547,12 @@ export function requiresMessagesEndpoint(modelId: string): boolean {
  * catalog ids as of 2026-10-15. Each row carries a comment naming the entry it
  * came from.
  *
- * One of those 76 rests on more than a vendor lookup, hand-recorded in the
- * script's `MANUAL_CEILINGS`: `inclusionai/ling-3.0-flash-sante:free` (32768)
- * lost both its vendor row and its unanimous third-party vote (vercel files
- * 32000), and is pinned so a regeneration cannot drop a live model's ceiling
- * back to the default. (`gpt-6.1-sol` (128000) needs no pin — OpenAI's own row
+ * No row needs a hand-recorded pin as of 2026-10-16: the one that did
+ * (`inclusionai/ling-3.0-flash-sante:free`, pinned at 32768 because it had lost
+ * both its vendor row and its unanimous third-party vote) left the live catalog
+ * with the 1.82.4 catalog migration, so the script's `MANUAL_CEILINGS` map is
+ * now empty and every remaining row resolves from a vendor row or a unanimous
+ * third-party vote. (`gpt-6.1-sol` (128000) never needed a pin — OpenAI's own row
  * carries it and every other provider carrying the id agrees.) All are still
  * correctable — a stricter gateway costs one refused request, and
  * `streamRequest()` remembers what the endpoint said.
@@ -577,8 +634,6 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['gpt-6-sol', 128000],
   // openai
   ['gpt-6.1-sol', 128000],
-  // manual: no vendor row and no longer unanimous (vercel 32000); Ling family ceiling 32768, see MANUAL_CEILINGS
-  ['inclusionai/ling-3.0-flash-sante:free', 32768],
   // 1 provider(s), unanimous
   ['meituan/LongCat-2.0', 131072],
   // meta
@@ -689,15 +744,20 @@ export const DEFAULT_MESSAGES_MAX_TOKENS = 64_000
  * `/docs/plans/max` and `/docs/resources/pricing-limits`). Each plan's model
  * list is a superset of the one below it: Go ⊂ GOAT ⊂ Pro ⊂ Provider/Max.
  * Models absent from every plan list (Claude Opus/Fable, Fugu Ultra) are
- * Provider-tier. Re-verified at command-code@1.82.1 (2026-10-14): 89 catalog
- * ids at 54/64/79/87/89 cumulative, a strict superset chain. Mistral Large 4
+ * Provider-tier. Re-verified at command-code@1.82.4 (2026-10-16) against the
+ * live `?view=client` catalog: 93 ids, still a strict superset chain. Mistral
+ * Large 4
  * (1.75.0) was the only addition at the 1.77.0 check; the 1.78.0/1.79.0 pair
  * added Claude Haiku 5.5 at Pro and the free Glyph Cluster preview at Go.
  * 1.79.2 lowers Haiku 5.5's minimum plan to GOAT; 1.80.0 adds Muse Wonder at
- * Max; 1.82.0 adds Gemini 4 Argon at Pro and nothing else moves. Every other
+ * Max; 1.82.0 adds Gemini 4 Argon at Pro and nothing else moves. The 1.82.4
+ * train adds Qwen 3.8 Max Prime at GOAT plus Muse Spark Open, Nemotron 3.5
+ * Super VL and the free Cat Jam preview at Go, and drops Ling 3.0 Flash Sante,
+ * which left the live catalog. Every other
  * tier is unchanged.
  * The only removals since 1.49.0 are the two retired stealth previews (Pixel
- * Canary at 1.73.1, Space Bunny Alpha at 1.74.3). Per-entry tags below name the
+ * Canary at 1.73.1, Space Bunny Alpha at 1.74.3) and Ling 3.0 Flash Sante
+ * (2026-10-16). Per-entry tags below name the
  * releases that added or moved each row.
  *
  * The Provider API exposes no plan metadata, so this snapshot is the source of
@@ -723,6 +783,9 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   'Qwen/Qwen3.8-Max': 'go',
   // command-code@1.41.0; listed on the Go plan page.
   'Qwen/Qwen3.8-Max-0902': 'go',
+  // command-code@1.82.4; individual-go is false and individual-goat true — the
+  // one new model in this train that lands on GOAT rather than Go.
+  'Qwen/Qwen3.8-Max-Prime': 'goat',
   // command-code@1.56.0; the pricing page's embedded availability grants every
   // tier (individual-go through teams-pro) — the "all":true shape shared by the
   // Qwen 3.8 family and the stealth-preview models below.
@@ -746,9 +809,6 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   // followed in command-code@1.58.0, marking the retired `:free` sibling
   // `hidden`, so its registry now agrees with the catalog this map is keyed by.
   'meituan/LongCat-2.0': 'go',
-  // command-code@1.52.0; free on every plan ("up to 100 requests a day"),
-  // successor to the retired `inclusionai/ling-3.0-flash-free` promo.
-  'inclusionai/ling-3.0-flash-sante:free': 'go',
   // command-code@1.82.2; the paid successor of the retired
   // `ling-3.1-flash:free` promo. The pricing page's embedded availability
   // grants every tier (individual-go through teams-pro) — the "all":true shape
@@ -758,6 +818,9 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   // sibling.
   'meta/muse-spark-1.2-contributor': 'go',
   'meta/muse-spark-1.3-contributor': 'go',
+  // 2026-10-15; individual-go true (Go and every higher tier), the same
+  // "all":true availability shape as its Muse siblings.
+  'meta/muse-spark-open': 'go',
   // command-code@1.75.0; the pricing page's embedded availability grants every
   // tier (individual-go through teams-pro) — the "all":true shape shared by the
   // Qwen 3.8 family above.
@@ -769,12 +832,18 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   'moonshotai/Kimi-K2.7-Code-Highspeed': 'go',
   'moonshotai/Kimi-K3': 'go',
   'nvidia/nemotron-3-ultra-550b-a55b': 'go',
+  // 2026-10-14; individual-go true, the "all":true shape shared by the rest of
+  // the open-weight Nemotron family.
+  'nvidia/nemotron-3.5-super-vl': 'go',
   'poolside/laguna-s-2.1-free': 'go',
   'stepfun/Step-3.5-Flash': 'go',
   'stepfun/Step-3.7-Flash': 'go',
   // command-code@1.60.0; every tier, and listed by the Go/GOAT/Pro/Max plan
   // pages alike — the superset chain this map encodes.
   'stepfun/Step-5-Preview': 'go',
+  // 2026-10-15; the free Cat Jam stealth preview, individual-go true like its
+  // Glyph Cluster sibling, whose zero-credit deal also makes it lead the picker.
+  'stealth/cat-jam:free': 'go',
   // command-code@1.79.0 ("Add Glyph Cluster as a free model, 100 requests a
   // day"); the pricing page's embedded availability grants every tier
   // (individual-go through teams-pro) — the "all":true shape shared by the Ling
@@ -1037,9 +1106,12 @@ export const KNOWN_DEALS: Readonly<Record<string, KnownDeal>> = {
   'xiaomi/mimo-v2.5-pro': { label: '99% off' },
   'xiaomi/mimo-v2.5': { label: '98% off' },
   'poolside/laguna-s-2.1-free': { label: 'FREE', free: true },
-  // command-code@1.52.0; free "up to 100 requests a day" with no published end
-  // date, so a permanent-style deal like the stealth previews below.
-  'inclusionai/ling-3.0-flash-sante:free': { label: 'FREE', free: true },
+  // 2026-10-15; the second live stealth preview, "Free while the stealth
+  // preview lasts" with no published end date — the same permanent-style deal
+  // as Glyph Cluster above, and likewise served at a literal zero by the page.
+  // Unlike Glyph Cluster it is text-only and not ZDR-routed (see
+  // `KNOWN_NON_ZDR_MODELS`).
+  'stealth/cat-jam:free': { label: 'FREE', free: true },
   // `inclusionai/ling-3.1-flash:free` (command-code@1.70.0, 100% off "Free
   // while it lasts", the `ling-3.0-flash-sante:free` successor) left this map
   // on 2026-10-15: command-code@1.82.2 ships the row as `hidden`, drops its
@@ -1048,6 +1120,10 @@ export const KNOWN_DEALS: Readonly<Record<string, KnownDeal>> = {
   // `meituan/LongCat-2.0:free` and `stealth/space-bunny-alpha` took. Its paid
   // graduation `inclusionai/ling-3.1-flash` is priced normally and carries no
   // deal.
+  // `inclusionai/ling-3.0-flash-sante:free` followed it out on 2026-10-16 with
+  // the 1.82.4 catalog migration: it had already left the live catalog and the
+  // pricing page, and it is absent from the 1.82.4 artifact's embedded snapshot
+  // as well, so no official source names it any more.
   // command-code@1.79.0 ("Add Glyph Cluster as a free model, 100 requests a
   // day"): 100% off "Free while the preview lasts", the same 100-requests-a-day
   // cap as its Ling predecessors and likewise no published end date, so no

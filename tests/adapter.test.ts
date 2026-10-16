@@ -49,7 +49,7 @@ import {
 } from '../src/capabilities.ts'
 import type { CommandCodeAdapterDeps, CommandCodeConnectionOptions, SurfaceImagePolicy } from '../src/adapter.ts'
 import type { ContentBlock, GenerateOptions, Message, RequestMessage, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { MessageId, ToolCallId, type LlmError } from '@deepseek-ai/dsh-llm'
+import { MessageId, ToolCallId, ReasoningEffortId, type LlmError } from '@deepseek-ai/dsh-llm'
 import type { RequestTimingSummary } from '../src/request-timing.ts'
 import type {
   AttachmentStore,
@@ -3297,9 +3297,12 @@ test('compareByPlan() sorts free models first, then plan tier, then name', () =>
     { id: 'poolside/laguna-s-2.1-free', name: 'Laguna S 2.1 (CC)' },
     { id: 'zai-org/GLM-5.2', name: 'GLM-5.2 (CC)' },
   ) < 0)
+  // Both are Go-tier free models, so the tie falls through to the name and the
+  // Cat Jam preview leads. This row names the free stealth preview that replaced
+  // the retired Ling 3.0 Sante promo in the 1.82.4 sync.
   assert.ok(compareByPlan(
+    { id: 'stealth/cat-jam:free', name: 'Cat Jam (CC)' },
     { id: 'poolside/laguna-s-2.1-free', name: 'Laguna S 2.1 (CC)' },
-    { id: 'inclusionai/ling-3.0-flash-sante:free', name: 'Ling 3.0 Flash Sante (CC)' },
   ) < 0)
   assert.ok(compareByPlan(
     { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4 Pro (CC)' },
@@ -4311,6 +4314,109 @@ test('`off` travels only for models whose snapshot publishes it as a level', asy
   assert.equal(await effortOnWire('deepseek/deepseek-v4-flash-fast'), undefined)
   // A model absent from the snapshot is treated the same way.
   assert.equal(await effortOnWire('m'), undefined)
+})
+
+for (const protocol of ['cli', 'openai'] as const) {
+  test(`${protocol}：会话标题关闭已声明的思考能力，让 64 词元预算用于正文`, async () => {
+    for (const model of ['deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4-pro']) {
+      for (const reasoningEffort of [undefined, 'high'] as const) {
+        const sent: Record<string, unknown>[] = []
+        const adapter = makeAdapter({
+          options: () => ({ ...OPENAI_OPTIONS(), protocol }),
+          fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+            const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+            const params = protocol === 'cli' ? body.params as Record<string, unknown> : body
+            sent.push(params)
+            // 复现问题 #88 的网关行为：未关闭思考时，小预算只产生思考内容。
+            const event = params.reasoning_effort === 'off'
+              ? protocol === 'cli' ? { type: 'text-delta', text: '会话标题提取' } : { choices: [{ delta: { content: '会话标题提取' } }] }
+              : protocol === 'cli' ? { type: 'reasoning-delta', text: 'thinking' } : { choices: [{ delta: { reasoning_content: 'thinking' } }] }
+            const reason = params.reasoning_effort === 'off' ? 'stop' : 'length'
+            const finish = protocol === 'cli' ? { type: 'finish', finishReason: reason }
+              : { choices: [{ delta: {}, finish_reason: reason }] }
+            return new Response(`data: ${JSON.stringify(event)}\n\ndata: ${JSON.stringify(finish)}\n\n`)
+          }) as typeof fetch,
+        })
+        const options: GenerateOptions = Object.freeze({
+          provider: 'commandcode', model, purpose: 'session-title', maxTokens: 64,
+          ...(reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(reasoningEffort) }),
+          messages: [userMessage('生成会话标题')],
+        })
+        const chunks = await collect(adapter.stream(options))
+        assert.equal(sent.length, 1, '标题调用应当一次完成')
+        assert.equal(sent[0]!.reasoning_effort, 'off')
+        assert.equal(sent[0]!.max_tokens, 64, '关闭思考不应增加输出预算')
+        assert.equal(chunks.filter(chunk => chunk.type === 'text-delta').map(chunk => chunk.text).join(''), '会话标题提取')
+        assert.equal(chunks.some(chunk => chunk.type === 'reasoning-delta'), false)
+        assert.equal(chunks.filter(chunk => chunk.type === 'finish').length, 1)
+        assert.equal(options.reasoningEffort, reasoningEffort, '不得改写调用者的选项')
+      }
+    }
+  })
+
+  test(`${protocol}：普通调用、上下文压缩及不支持关闭思考的模型保持原策略`, async () => {
+    const cases = [
+      ...([undefined, 'compaction'] as const).flatMap(purpose => [undefined, 'high'].map(effort => ({
+        model: 'deepseek/deepseek-v4.1-flash', purpose, effort, expected: effort,
+      }))),
+      ...['deepseek/deepseek-v4-flash-fast', 'unknown-title-model'].flatMap(model => [undefined, 'high'].map(effort => ({
+        model, purpose: 'session-title' as const, effort, expected: model === 'unknown-title-model' ? undefined : effort,
+      }))),
+    ]
+    for (const { model, purpose, effort, expected } of cases) {
+      let sent: Record<string, unknown> | undefined
+      const adapter = makeAdapter({
+        options: () => ({ ...OPENAI_OPTIONS(), protocol }),
+        fetchImpl: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+          const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+          sent = protocol === 'cli' ? body.params as Record<string, unknown> : body
+          return okStream(protocol)
+        }) as typeof fetch,
+      })
+      await collect(adapter.stream({
+        provider: 'commandcode', model, ...(purpose === undefined ? {} : { purpose }), maxTokens: 64,
+        ...(effort === undefined ? {} : { reasoningEffort: ReasoningEffortId(effort) }), messages: [userMessage('hi')],
+      }))
+      assert.equal(sent!.reasoning_effort, expected, `${model}, ${purpose}, ${effort}`)
+    }
+  })
+}
+
+test('会话标题回退到 CLI 时继续关闭思考，后续普通调用保留所选强度', async () => {
+  const paths: string[] = []
+  const sent: Record<string, unknown>[] = []
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), apiBase: 'https://title-fallback.invalid', protocol: 'auto' }),
+    fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      paths.push(path)
+      sent.push(path === '/alpha/generate' ? body.params as Record<string, unknown> : body)
+      return path === '/provider/v1/chat/completions'
+        ? new Response('{"error":{"code":"upgrade_required"}}', { status: 403 }) : okStream('cli')
+    }) as typeof fetch,
+  })
+  const options: GenerateOptions = {
+    provider: 'commandcode', model: 'deepseek/deepseek-v4.1-flash', maxTokens: 64,
+    reasoningEffort: ReasoningEffortId('high'), messages: [userMessage('hi')],
+  }
+  await collect(adapter.stream({ ...options, purpose: 'session-title' }))
+  await collect(adapter.stream(options))
+  assert.deepEqual(paths, ['/provider/v1/chat/completions', '/alpha/generate', '/alpha/generate'])
+  assert.deepEqual(sent.map(params => params.reasoning_effort), ['off', 'off', 'high'])
+  assert.deepEqual(sent.map(params => params.max_tokens), [64, 64, 64])
+})
+
+test('Messages 标题调用不发送模型未声明的关闭思考值', async () => {
+  for (const reasoningEffort of [undefined, 'high'] as const) {
+    const { adapter, sent } = messagesAdapter(() => messagesStream('会话标题'))
+    await collect(adapter.stream({
+      provider: 'commandcode', model: 'claude-opus-4-8', purpose: 'session-title', maxTokens: 64,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(reasoningEffort) }), messages: [userMessage('hi')],
+    }))
+    assert.deepEqual(sent()[0]!.thinking, { type: 'adaptive' })
+    assert.deepEqual(sent()[0]!.output_config, reasoningEffort === undefined ? undefined : { effort: reasoningEffort })
+  }
 })
 
 test('Messages drops an explicit temperature, which adaptive thinking constrains to 1', async () => {
@@ -5736,7 +5842,10 @@ test('known thinking snapshot covers reasoning models without effort levels', ()
   assert.ok(!KNOWN_THINKING_MODELS.has('meta/muse-spark-1.2-contributor'))
   assert.ok(KNOWN_THINKING_MODELS.has('meituan/LongCat-2.0'))
   assert.ok(!KNOWN_THINKING_MODELS.has('meituan/LongCat-2.0:free'))
-  assert.ok(KNOWN_THINKING_MODELS.has('inclusionai/ling-3.0-flash-sante:free'))
+  // `inclusionai/ling-3.0-flash-sante:free` left every snapshot table on
+  // 2026-10-16 with the command-code@1.82.4 catalog migration — it is gone from
+  // the live catalog, the pricing page and the artifact's embedded snapshot.
+  assert.ok(!KNOWN_THINKING_MODELS.has('inclusionai/ling-3.0-flash-sante:free'))
   // command-code@1.82.2: the `ling-3.1-flash:free` promo is retired — the CLI
   // ships the row `hidden`, drops its effort list, and the model left both the
   // public catalog and the pricing page — so no table in the snapshot names it
@@ -5879,7 +5988,11 @@ test('known plan snapshot tiers models by the official plan pages', () => {
   assert.equal(KNOWN_PLANS['meituan/LongCat-2.0'], 'go')
   // The retired free id is gone from the snapshot with the promo.
   assert.equal(KNOWN_PLANS['meituan/LongCat-2.0:free'], undefined)
-  assert.equal(KNOWN_PLANS['inclusionai/ling-3.0-flash-sante:free'], 'go')
+  // `inclusionai/ling-3.0-flash-sante:free` left the snapshot on 2026-10-16 with
+  // the command-code@1.82.4 catalog migration: it is gone from the live
+  // `?view=client` catalog, from the pricing page and from the 1.82.4 artifact's
+  // own embedded snapshot, so no official source names it any more.
+  assert.equal(KNOWN_PLANS['inclusionai/ling-3.0-flash-sante:free'], undefined)
   assert.equal(KNOWN_PLANS['deepseek/deepseek-v4.1-flash'], 'go')
   // command-code@1.67.0: the throughput variant is Go-tier like the rest of the family.
   assert.equal(KNOWN_PLANS['deepseek/deepseek-v4.1-flash-fast'], 'go')
@@ -5977,8 +6090,9 @@ test('known deals snapshot has anchors and expiry-aware labels', () => {
   assert.equal(KNOWN_DEALS['meituan/LongCat-2.0'], undefined)
   // Laguna S 2.1 is still the permanent-style free deal.
   assert.equal(KNOWN_DEALS['poolside/laguna-s-2.1-free']?.free, true)
-  // Ling 3.0 Flash Sante is free "up to 100 requests a day" — also permanent-style.
-  assert.equal(KNOWN_DEALS['inclusionai/ling-3.0-flash-sante:free']?.free, true)
+  // Ling 3.0 Flash Sante's free deal went with the model on 2026-10-16 (see the
+  // plan snapshot above); its paid graduation `ling-3.1-flash` carries no deal.
+  assert.equal(KNOWN_DEALS['inclusionai/ling-3.0-flash-sante:free'], undefined)
   // Grok 4.7's 40% off launch deal ran to 2026-09-27T23:59:59.999Z and the
   // pricing page dropped it: the entry is REMOVED rather than left to lapse, so
   // it never badges a model the catalog now serves at its list price.
@@ -6224,7 +6338,7 @@ test('CLI version and API base constants are stable', () => {
   // record — what each upstream version added and what was re-verified unchanged — lives
   // in CHANGELOG.md (whose newest published entry may lag the pinned constant); this
   // assertion pins the constant only.
-  assert.equal(COMMAND_CODE_CLI_VERSION, '1.82.2')
+  assert.equal(COMMAND_CODE_CLI_VERSION, '1.82.5')
   assert.equal(DEFAULT_API_BASE, 'https://api.commandcode.ai')
 })
 
@@ -7852,5 +7966,10 @@ test('every new-arrival model carries an output ceiling or is left to runtime le
   // which is the whole point of the table — deriving `max_tokens` from
   // `context_length` is exactly what produced #71.
   assert.ok(MODEL_OUTPUT_TOKEN_LIMITS.get('gpt-6.1-sol')! < 1_050_000)
-  assert.ok(MODEL_OUTPUT_TOKEN_LIMITS.get('inclusionai/ling-3.0-flash-sante:free')! < 262_144)
+  // `inclusionai/ling-3.0-flash-sante:free` (32768, hand-pinned) carried this
+  // row until 2026-10-16, when the model left every table with the
+  // command-code@1.82.4 catalog migration and the generator's `MANUAL_CEILINGS`
+  // map emptied. Muse Wonder takes over the assertion: 131072 against a
+  // 1 048 576-token window, so the table is still demonstrably not the window.
+  assert.ok(MODEL_OUTPUT_TOKEN_LIMITS.get('meta/muse-wonder-1.0')! < 1_048_576)
 })

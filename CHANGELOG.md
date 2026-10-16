@@ -4,13 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.4] - 2026-10-16
 
 ### Added
 
+- 问题 #79：价格试算新增逐模型 30 天折算，以及相对所选历史完整工作量的成本差额与比例；主行保留计价覆盖，能力与排除明细可展开。缺价、超上下文、读取不完整或观察不足一天时明确说明原因，基准为零不制造百分比。指标复用同一份报告，不增加历史读取、远端字段或模型调用。
+
 - 支持**自定义上下文长度**（#86）：新增全局 `contextWindow` 与按模型 `contextWindowOverrides`，解析顺序为按模型 → 全局 → 目录；网页设置页与配置文件均可设置，终端设置页尚未接入。接受 1～10,000,000 的整数，输入支持二进制 `32K`/`1M` 简写。按模型行只列白名单可见模型，已有覆盖保留；清空整表写 `{}` 遮蔽基础层。选择器、宿主计量与默认输出预算跟随有效窗口。
 
+### Changed
+
+- 同步 Command Code CLI `1.82.2` → `1.82.4`：请求版本标识（`x-command-code-version`）随之上调。官方日志**没有 1.82.1–1.82.4 任何条目**（CLI 通道最新仍是 `1.82.0`／2026-10-13，页面最新条目 `0.1.55` 属 Desktop 应用版本线，两条产品线混排在同一时间轴），因此结论全部来自产物级比对：逐字节比对两版 `dist/cli.mjs` 与本仓库固定的 `1.82.2` 基线，并用实时目录与官方定价页交叉验证。
+
+- **能力数据的权威来源换了**：`1.82.4` 的 `getSupportedEfforts()` 不再从 CLI 内置 Map 取数（`xn.get(n) ?? null`），改为 `resolveKnownCatalogModel({model, catalog})?.reasoningEfforts`；`knownModelSupportsZdr()` 同样由「取反硬编码集合」改为读目录的每模型 `zdr` 字段（`?.zdr ?? false`），**默认值语义随之反转——过去「未列出」视为已覆盖，现在「未列出或不为 true」即不覆盖**。CLI 新增内嵌快照 + 远程覆盖机制（`schemaVersion`／`catalogVersion`／`refreshAfterSeconds: 900`），远程端点为 `GET /provider/v1/models?view=client`——该视图才带 `reasoningEfforts`／`zdr`／`inputModalities`／`minimumPlan`／`pricing`，默认视图（92 条）没有这些字段。内嵌快照只是兜底：它发布后约两天即过期（`f3eebbb3…`／99 条 对 远程 `d6177bab…`／100 条，仅成员增减、共同 id 字段零漂移），因此本插件的 `KNOWN_*` 快照以实时目录为准。**这次迁移也让技能的 `extract-cli.mjs` 失效**（锚点按 minified 函数名与 `.get()`／`.has()` 调用形态取数，而 `1.82.4` 把语义名移入 `__name(fn,"…")`、真实声明改名 `getSupportedEfforts2`／`modelSupportsZdr2`），先报 `Missing/ambiguous effort map`、短路后再报 `Missing/ambiguous ZDR exception set`；`buildModelGroups` 与 `getPlanInfo` 两个锚点仍可正常提取。本轮差异由人工提取补齐，巡检脚本与 `audit.py` 的适配另行处理。
+
+- 模型快照同步（以实时 `?view=client` 目录为准）：新增 4 个模型——`Qwen/Qwen3.8-Max-Prime`（最低 **GOAT** 档、100 万上下文、支持图像输入、三档 `low`／`medium`／`xhigh`）、`meta/muse-spark-open`（2026-10-15 上线、Go 档、图像、三档）、`nvidia/nemotron-3.5-super-vl`（2026-10-14、Go 档、图像、三档）、`stealth/cat-jam:free`（免费隐身预览、Go 档、仅文本、五档 `low`／`medium`／`high`／`xhigh`／`max`，免费促销无结束日期）。推理档位表 60 → 64 条，图像表 67 → 70 条，最低套餐表 89 → 92 条（严格超集链不变）。`Qwen/Qwen3.8-Max-Prime` 在 `0.13.3` 曾因「CLI 未注册」而不予录入，`1.82.4` 已把它写进内嵌目录与实时目录，这条待观察项就此结清。
+
+- **零数据保留例外集 22 → 24 条**：新增 `meituan/LongCat-2.0:free` 与 `stealth/cat-jam:free`。LongCat 是对 `1.74.1` 的**有意回退**——那次只把它从提取器读取的锚点里移除，canonical 辅助函数一直保留着它，两个锚点集因此相差恰好这一个 id（22 对 23）并持续了八个版本；`1.82.4` 让两者都改读目录的 `zdr` 字段，该行取值为 `false`，于是本表跟随目录判决把它收回。`stealth/cat-jam:free` 同理（目录 `zdr:false`，且不在任何锚点集里）。两处都已更新注释与测试断言。
+
+- 退役清理：`inclusionai/ling-3.0-flash-sante:free` 从**全部**快照表移除（最低套餐、免费促销、自动推理、输出上限，以及生成器的手工上限映射 `MANUAL_CEILINGS`，该映射随之清空）——它已从实时目录、定价页与 `1.82.4` 内嵌快照三处同时消失，没有任何官方来源再提名它。价格表随官方页面重新生成（92 行）：新增 `muse-spark-open`（$1.25／$4.25／$0.15）、`nemotron-3.5-super-vl`（$0.2／$0.5／$0.04）、`typesafe/jev-1.14.0`（$0.042 输入、输出免费）三行，`gpt-5.6-sol` 的每月额度由 Go $6／GOAT $70／Pro $80 下调为 **$6／$20／$30**、`ling-3.1-flash` 由 **$20／$30 上调为 $100／$110**（`0.13.3` 记录的 `planBudgetSteps` 预生效额度，本次随之结清）；费率与峰谷窗口零变化。`node scripts/sync-model-prices.mjs --check` 与 `sync-output-limits.mjs --check` 均已干净。
+
+- 同步收官到 `1.82.5`：同一轮巡检中官方又发布了 `1.82.5`（`1.82.4` 之上一个补丁）。产物级比对确认**协议与数据面零差异**——`1.82.5` 唯一的变化是把实时目录里那三个新模型（`meta/muse-spark-open`、`nvidia/nemotron-3.5-super-vl`、`stealth/cat-jam:free`）与 `stealth/cat-jam:free` 的 ZDR 判定**折回内嵌快照**，也就是把本轮同步依据的实时目录结果固化进产物。因此本次只需上调请求版本标识；`candidateDiffs` 对 `KNOWN_EFFORTS`／`KNOWN_NON_ZDR_MODELS`／`KNOWN_IMAGE_MODELS` 三张表均为零差异，证明按实时目录同步的快照已完全覆盖 `1.82.5` 的内嵌表。
+
+- 复核**无变化**的项：峰谷计价仍是 5 个 DeepSeek 模型、窗口 `01–04 & 06–10 UTC, Mon–Fri` 与本地常量逐值一致（官方 `/pricing` 营销页另展示 15 个含 GLM／MiniMax 的峰谷行，与生成器数据源 `/docs/resources/pricing-limits` 的 5 行冲突，属上游两页不一致，本插件继续以生成器数据源为准）；订阅标签与月额度、`minimumPlan` 与目录逐条一致；自动推理模型 22 个逐 id 不变；effort 词汇表两版都是 `off｜low｜medium｜high｜xhigh｜max`。
+
+- 引擎兼容范围的 alpha（早期测试版）通道由 `0.2.1-alpha.3` 替换为 **`0.2.1-alpha.4`**；RC（候选发布版）通道 `0.2.0-rc.2` 本次未变动。**这一版必须升级**：dsh 自 `0.2.1-alpha.4` 起把插件兼容性判定改为**只读 `engines.dsh`**、完全忽略 `@deepseek-ai/dsh*` 对等依赖（只有缺少该字段时才回落到 peer 规则），旧声明在新引擎上会被宿主拒绝——插件行被预检禁用、作为 bundle 被静默跳过、`dsh plugin add` 在 pnpm 之前就拒绝，而本地 `npm run test:engine` 仍然全绿。`engines.dsh`、`dsh.compatibility.dsh`、`dsh.compatibility.dshReleases`、全部 Harness 对等依赖与开发依赖、`package-lock.json` 同批同步；锁文件采用精准替换（29 个 dsh 条目加根声明面），非 dsh 依赖零漂移，平台可选依赖分支 10 个保持完整。插件 `src/` 与 `lib/` 运行时零改动，测试夹具也零改动。
+
+- `npm run test:engine` 新增**准入判定检查**：对每个已声明引擎真实调用该引擎自己的 `evaluatePluginCompatibility`（`checkEngineAdmission`）。该脚本此前的检查全都走「把发布面装进引擎的 peer 树再加载」，看不见宿主准入判定本身，正是这个盲区让上面那个破坏点在全绿的情况下依然存在。红绿对照已实测：alpha.4 通过，已退出兼容范围的 alpha.3 被拒并报出未满足项。
+
+- 设置页信息架构调整：原本独立成组的「上下文长度」并入「模型」分组，分组标题改为**「模型与上下文」**（英文 **Models & context**），顶级分组由 6 个减为 5 个：账户 → 模型与上下文 → 隐私与安全 → 集成与显示 → 高级设置（默认折叠）。组内顺序为隐藏套餐外模型开关 → 可见模型白名单 → **自定义上下文长度**字段 → **按模型覆盖**标题行与覆盖行列表；这些控件直接平铺，**不设子节标题、不画分隔线**——中间版本曾把它们做成带次级标题与细分隔线的子节（`SettingsSubGroup`、locale 键 `contextTitle`），用户在实际页面上查看后判定视觉冗余，随即改为平铺并删除该组件与键。**行为零变化**：`contextWindow` 与 `contextWindowOverrides` 两个配置项、解析优先级（按模型 → 全局 → 目录）与保存路径都没有改动，仅位置与呈现调整。
+
 ### Fixed
+
+- 问题 #88：会话标题调用在模型明确支持 `off`（关闭思考）时自动发送该档位，避免默认 64 词元预算耗在思考上；两种聊天协议及协议回退均生效，普通对话、上下文压缩和其他模型保留原策略，输出预算不变。
+
+- 设置页与侧边栏面板的**请求计数自动换算**：`成功 1234567 / 失败 123` 在四列等宽卡片里是单行不换行文本，宽度不够时省略号从右侧吃掉「失败 …」——恰好是最该看见的那个数。现在计数按 `K`/`M`/`B` 紧凑显示（`1234567` → `1.2M`、`12000` → `12K`，整数不带多余的 `.0`），精确值改由悬停 `title` 给出，且**只在确实换算过时才挂**（未换算时悬停弹出的文字与卡片上写的一模一样）。卡片主数字（请求总数）一并换算。新增 `formatCompactCount` 与 `compactCountTitle`（`src/display-format.ts`，设置页与面板共用同一实现与同一档位规则），并修好既有 `formatTokensCompact` 的**进位边界**：`999999` 过去显示为 `1000.0K`、`999999999` 显示为 `1000.0M`，现在分别是 `1.0M` 与 `1.0B`——先除以档位再四舍五入会落到并不存在的档位上。终端命令的用量行保持不换算：终端宽度充足，且那里更需要精确值。
+
 
 - 自定义上下文普通小数在网页及配置结构中均被拒绝，避免宿主报无效模型上下文；程序化绕过校验时仍清洗无效值。
 - 调大窗口时解除旧目录窗口对输出预算的限制；三协议默认及显式请求仍遵守有效窗口、模型公布或快照输出上限、运行时学习上限和网关总上限。

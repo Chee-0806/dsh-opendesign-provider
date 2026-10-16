@@ -19,7 +19,7 @@
 import type { CommandCodeUsageReport } from '../adapter.ts'
 import type { CommandCodeAccountUsage } from '../usage-wire.ts'
 import type { UsagePageState } from './usage.ts'
-import { formatMoney, formatMoneyExact, formatSuccessRate, formatTokensCompact, formatResetAt, formatUsageBillingPeriod } from '../display-format.ts'
+import { compactCountTitle, formatCompactCount, formatMoney, formatMoneyExact, formatSuccessRate, formatTokensCompact, formatResetAt, formatUsageBillingPeriod } from '../display-format.ts'
 import { PANEL_KEYS, panelTextEN } from './panel-copy.ts'
 import type { PanelKey, PanelTranslator } from './panel-copy.ts'
 
@@ -100,6 +100,8 @@ export interface PanelStatView {
   value: string
   /** Secondary line, empty when there is none. */
   sub: string
+  /** 精确值悬停提示；只在紧凑显示确实丢掉信息时才有，否则省略。 */
+  title?: string | undefined
 }
 
 /** One pool account's report, ready to render. */
@@ -331,8 +333,15 @@ function accountView(entry: CommandCodeAccountUsage, t: PanelTranslator): PanelA
   if (usage !== undefined) {
     stats.push({
       label: 'requests',
-      value: String(usage.totalCount),
-      sub: `${usage.completedCount} ${t('completed')} / ${usage.failedCount} ${t('failed')}`,
+      // 与设置页同一套紧凑规则：这里是同一份用量的另一个展示面，
+      // 两边必须给出同一个数字的同一个写法。
+      value: formatCompactCount(usage.totalCount),
+      sub: `${formatCompactCount(usage.completedCount)} ${t('completed')} / ${formatCompactCount(usage.failedCount)} ${t('failed')}`,
+      title: compactCountTitle([
+        [t('requests'), usage.totalCount],
+        [t('completed'), usage.completedCount],
+        [t('failed'), usage.failedCount],
+      ] as const),
     })
     stats.push({ label: 'successRate', value: `${formatSuccessRate(usage.successRate)}%`, sub: '' })
     stats.push({

@@ -1,10 +1,11 @@
 /** 只展示数字快照；筛选提交后才查询，页签、展开与模型筛选不触发历史读取。 */
 import { useEffect, useId, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import type { AnalyticsMetrics, AnalyticsQuery, AnalyticsScenario } from '../analytics-wire.ts'
+import type { AnalyticsMetrics, AnalyticsQuery, AnalyticsReport, AnalyticsScenario } from '../analytics-wire.ts'
 import { parseAnalyticsQuery } from '../analytics-wire.ts'
 import type { AnalyticsState } from './analytics.ts'
 import type { AnalyticsKey } from './analytics-copy.ts'
+import { compareScenario, type EstimateUnavailable } from './analytics-comparison.ts'
 
 export interface AnalyticsViewProps {
   useCommandCodeAnalytics<T>(selector: (state: AnalyticsState) => T): T
@@ -85,17 +86,27 @@ function ModelRow({ m, name, totalCost, text }: { m: AnalyticsMetrics & { id: st
     <Chevron />
   </summary><MetricsDetails m={m} text={text} /></details>
 }
-function ScenarioRow({ m, text }: { m: AnalyticsScenario; text: Text }) {
+const estimateReasonKeys: Record<EstimateUnavailable, AnalyticsKey> = {
+  unavailable: 'analysisUnavailable', empty: 'analysisNoRequests', partial: 'analysisIncomplete',
+  excluded: 'analysisScenarioExcluded', coverage: 'analysisScenarioUnpriced', baseline: 'analysisBaselineUnpriced',
+  recent: 'analysisNeedRange', 'short-range': 'analysisShortRange',
+}
+const signedMoney = (n: number) => `${n > 0 ? '+' : n < 0 ? '-' : ''}${money(Math.abs(n))}`
+function ScenarioRow({ m, report, text }: { m: AnalyticsScenario; report: AnalyticsReport; text: Text }) {
+  const comparison = compareScenario(report, m)
+  const { monthly, difference, differencePercent } = comparison
   return <details className="ccp-analysisModelRow"><summary className="ccp-analysisScenarioSummary">
     <span className="ccp-analysisIdentity"><span className="ccp-analysisModelName">{m.name}</span><span className="ccp-analysisSub">{m.id}</span></span>
-    <Metric label={text('analysisSimulationCost')} value={m.pricedRequests ? money(m.cost) : text('analysisMissing')} sub={text('analysisUsd')} />
-    <Metric label={text('analysisCoverage')} value={`${m.pricedRequests}/${m.pricedRequests + m.excludedRequests + m.unknownRequests}`} sub={`${text('analysisExcluded')} ${digits(m.excludedRequests)} · ${text('analysisUnknownPrice')} ${digits(m.unknownRequests)}`} />
-    <Metric label={text('analysisCapabilities')} value={m.contextWindow === null ? text('analysisMissing') : `${digits(m.contextWindow)} ${text('analysisTokenUnit')}`} sub={text(m.images ? 'analysisImages' : 'analysisTextOnly')} /><Chevron />
+    <Metric label={text('analysisSimulationCost')} value={m.pricedRequests ? money(m.cost) : text('analysisMissing')} sub={`${text('analysisCoverage')} ${m.pricedRequests}/${report.totals.requests}`} />
+    <Metric label={text('analysisScenarioMonthly')} value={monthly.value === null ? text('analysisMissing') : money(monthly.value)} sub={monthly.value === null ? text(estimateReasonKeys[monthly.reason]) : text('analysisUsd')} />
+    <Metric label={text('analysisDifference')} value={difference.value === null ? text('analysisMissing') : signedMoney(difference.value)} sub={difference.value === null ? text(estimateReasonKeys[difference.reason]) : differencePercent === null ? text('analysisZeroBaseline') : `${differencePercent > 0 ? '+' : ''}${differencePercent.toFixed(1)}%`} /><Chevron />
   </summary><div className="ccp-analysisDetails ccp-analysisScenarioDetails">
     <DetailGroup title="analysisSamples" text={text} values={[
       ['analysisPriced', digits(m.pricedRequests)], ['analysisExcluded', digits(m.excludedRequests)], ['analysisUnknownPrice', digits(m.unknownRequests)],
     ]} />
     <DetailGroup title="analysisCapabilities" text={text} values={[
+      ['analysisContext', m.contextWindow === null ? text('analysisMissing') : `${digits(m.contextWindow)} ${text('analysisTokenUnit')}`],
+      ['analysisInputType', text(m.images ? 'analysisImages' : 'analysisTextOnly')],
       ['analysisEfforts', m.efforts.length ? m.efforts.map(e => effortName(e, text)).join(', ') : text('analysisNoEfforts')],
     ]} />
   </div></details>
@@ -164,9 +175,10 @@ export function AnalyticsView(props: AnalyticsViewProps) {
       </section>
       <section className="ccp-analysisPanel" id={`${id}-simulation`} role="tabpanel" aria-labelledby={`${id}-simulation-tab`} tabIndex={0} hidden={page !== 'simulation'}>
         <p className="ccp-analysisAssumption">{text('analysisAssumption')}</p>
+        <p className="ccp-analysisNote ccp-analysisBaseline">{text('analysisBaseline')}: {m.pricedRequests === m.requests && m.requests > 0 && !report.truncated && !report.unreadableSessions && !report.skippedSessions ? money(m.cost) : text('analysisMissing')} · {text('analysisMonthlyHint')}</p>
         {report.catalogUnavailable ? <p className="ccp-analysisMessage ccp-analysisWarning" role="status">{text('analysisCatalog')}</p> : null}
         <div className="ccp-analysisSectionHead"><div><h3 className="ccp-analysisHeading">{text('analysisSimulationHeading')}</h3><p className="ccp-analysisNote">{text('analysisSimulationHint')}</p></div><label className="ccp-analysisField ccp-analysisSearch"><span className="ccp-analysisSearchLabel">{text('analysisSearch')}</span><span className="ccp-analysisSearchShell"><AnalysisIcon kind="search" /><input className="ccp-analysisInput" type="search" placeholder={text('analysisSearchPlaceholder')} value={filter} onChange={e => setFilter(e.target.value)} /></span></label></div>
-        {m.requests === 0 ? <p className="ccp-analysisEmpty">{text('analysisEmpty')}</p> : scenarios.length ? <div className="ccp-analysisModels"><div className="ccp-analysisTableHead ccp-analysisScenarioHead" aria-hidden="true"><span>{text('analysisModel')}</span><span>{text('analysisSimulationCost')}</span><span>{text('analysisCoverage')}</span><span>{text('analysisCapabilities')}</span><span /></div>{scenarios.map(model => <ScenarioRow key={model.id} m={model} text={text} />)}</div> : !report.catalogUnavailable ? <p className="ccp-analysisEmpty" role="status">{text('analysisNoMatches')}</p> : null}
+        {m.requests === 0 ? <p className="ccp-analysisEmpty">{text('analysisEmpty')}</p> : scenarios.length ? <div className="ccp-analysisModels"><div className="ccp-analysisTableHead ccp-analysisScenarioHead" aria-hidden="true"><span>{text('analysisModel')}</span><span>{text('analysisSimulationCost')}</span><span>{text('analysisScenarioMonthly')}</span><span>{text('analysisDifference')}</span><span /></div>{scenarios.map(model => <ScenarioRow key={model.id} m={model} report={report} text={text} />)}</div> : !report.catalogUnavailable ? <p className="ccp-analysisEmpty" role="status">{text('analysisNoMatches')}</p> : null}
       </section>
       <details className="ccp-analysisRules"><summary className="ccp-analysisDisclosure"><Chevron />{text('analysisRules')}</summary><div className="ccp-analysisRulesBody"><p>{text('analysisBasis')}</p><p>{text('analysisCoverageHint')}</p></div></details>
     </> : null}

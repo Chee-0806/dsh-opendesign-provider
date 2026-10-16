@@ -21,11 +21,14 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   `inject: [...]`) makes the host serve `lib/client.js` as a client module.
   The bundle may only `require` the platform/seed modules the Web frontend
   actually seeds. That table is exactly `react`, `react/jsx-runtime`,
-  `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`,
-  `@deepseek-ai/dsh-client-store`, `@deepseek-ai/dsh-client-ui-slots`,
+  `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`, `zod`,
+  `@tanstack/react-virtual`, `@deepseek-ai/dsh-client-store`,
+  `@deepseek-ai/dsh-client-ui-slots`,
   `@deepseek-ai/dsh-client-ui-primitives` and
-  `@deepseek-ai/dsh-client-ui-dockkit` (re-read out of the 0.2.1-alpha.3 engine;
-  unchanged from 0.2.1-alpha.2, 0.2.1-alpha.1, 0.2.0-rc.2 and 0.1.7-rc.2). Any other import
+  `@deepseek-ai/dsh-client-ui-dockkit` (re-read out of the 0.2.1-alpha.4 engine;
+  unchanged from 0.2.1-alpha.3, 0.2.1-alpha.2, 0.2.1-alpha.1, 0.2.0-rc.2 and
+  0.1.7-rc.2 — `zod` and `@tanstack/react-virtual` were seeded all along but
+  missing from this list until the alpha.4 audit). Any other import
   must be type-only or bundled — `dsh-client-web-react`, `dsh-client-schema-form`
   and `dsh-client-ui-attachment` are NOT seeded and would fail the client
   `require()` audit in `scripts/verify-engine-load.mjs`. This client keeps the
@@ -244,8 +247,11 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   including a frozen visible-model selection. Account lists are rebuilt from raw stored entries so
   literal-key or unknown entries the page cannot name survive unrelated account edits.
 - **自定义上下文长度（issue #86）**：`Config.contextWindow`（全局值）与 `Config.contextWindowOverrides`
-  （按模型，键为目录 id）覆盖宣告给宿主的上下文窗口，解析顺序为按模型 → 全局 → 目录。页面上是独立的
-  「上下文长度」分组（`ContextCard`，位于「模型」之后）：全局值是 staged 字段，spec 为
+  （按模型，键为目录 id）覆盖宣告给宿主的上下文窗口，解析顺序为按模型 → 全局 → 目录。页面上是
+  「模型与上下文」分组内平铺的两段内容（`ContextCard` 渲染，直接排在「隐藏套餐外模型」开关与可见模型
+  白名单之后，与其它行同属该分组，无独立标题与分隔线——中间版本曾用 `SettingsSubGroup` 给出次级标题与
+  细分隔线，已在用户实机查看后删除该组件与 locale 键 `contextTitle`；不再是独立顶级分组，也不再是子节）：
+  全局值是 staged 字段，spec 为
   `contextWindowField`——在 `numberField` 之上只加简写后缀一层：`32K`/`1M` 按**二进制**换算
   （×1024 / ×1024²，32K = 32 768、1M = 1 048 576），换算后仍走同一对
   `CONTEXT_WINDOW_MIN/MAX` 边界（直接复用 `src/context-window.ts` 纯模块，客户端可打包导入，
@@ -259,7 +265,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   只有绕过配置校验的程序化调用，才由 `resolveAdapterOptions`（`readContextWindowOverrides`）
   与适配器（`effectiveContextWindow`）清洗无效值，按有效全局值、目录值依次回落；未知模型（无目录条目）保持无
   `context` 宣告。覆盖行的模型下拉经 `allowlistedModels`（`src/client/model-select.ts`）限于
-  「模型」白名单的可见模型（显示全部即整个目录），行带「模型 / 上下文长度」列头
+  「模型白名单」的可见模型（显示全部即整个目录），行带「模型 / 上下文长度」列头
   （`.cc-contextHead`，宽度与行内三列逐一对齐），`<select>` 用 `appearance:none` + 自绘
   `.cc-contextCaret`（同 `.cc-selectorCaret` 形状）替换平台箭头。宿主侧应用（选择器标注与
   `defaultMaxTokens` 预算）见[模型目录](model-catalog.md)。
@@ -273,5 +279,5 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   包含基础层隐藏项的显式覆盖。保存冲突或缺少原子写入能力时保留草稿。
   显示全部会选中已加载的目录模型；目录失败不清空已存选择。
 - **字号与校验说明**：页面及面板辅助文字至少 12px；重试次数提示与实际 0～50 次限制一致。
-- **模型分析第二版**：历史与试算仍读取同一份既有报告；模型名称复用试算目录，成本比例只比较已知小计，零小计或无计价样本不生成占比。页签、展开与模型筛选不增加远端读取，刷新保留草稿并使用已提交范围。窄面板按实际可用宽度恢复指标标签，未知数据不补零。统计口径及合成浏览器验证边界见[模型分析说明](../模型成本与性能分析.md)和[第二版设计](../模型分析第二版设计.md)。
+- **模型分析第二版**：历史与试算仍读取同一份既有报告；模型名称复用试算目录，成本比例只比较已知小计，零小计或无计价样本不生成占比。`analytics-comparison.ts` 在客户端派生逐模型 30 天试算及相同完整工作量的成本差额；缺价、排除、历史不完整与零基准有独立展示口径，不扩展远端。页签、展开与模型筛选不增加远端读取，刷新保留草稿并使用已提交范围。窄面板按实际可用宽度恢复指标标签，未知数据不补零。统计口径及浏览器验证边界见[模型分析说明](../模型成本与性能分析.md)和[第二版设计](../模型分析第二版设计.md)。
 - **压缩摘要计入会话费用读数**：`compaction/summary`（上下文压缩摘要）事件也会产生真实花费——压缩器自己调一次 `ctx.llm.stream()`，但不落在任何 turn/step 上，也不产生 `request/header`。费用投影把它折进分组，并用 `summaryTokens` 记录「已折进分组、但不属于宿主 `tokenUsage`」的那部分，对账等式因此变为「分组合计 − `summaryTokens` === 宿主 `tokenUsage`」；历史分析侧同样单独登记一条请求事实。详见[模型分析说明](../模型成本与性能分析.md)。

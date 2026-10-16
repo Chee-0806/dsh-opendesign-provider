@@ -272,9 +272,15 @@ def main():
         manifest = json.loads((args.input / 'manifest.json').read_text())
         report['sources'] = manifest['sources']
         report['errors'].extend(manifest.get('errors', []))
-        for key in ['npm', 'catalog', 'models', 'pricing', 'go', 'goat', 'pro', 'max', 'provider', 'zdr', 'changelog', 'whats-new', 'cli']:
+        # `catalog-client` is OPTIONAL: evidence directories collected before
+        # 2026-10-16 have only the default view, and audit still runs on them
+        # (the capability columns then come from the CLI artifact alone). It is
+        # read last because its absence is reported as a review item, not an error.
+        for key in ['npm', 'catalog', 'models', 'pricing', 'go', 'goat', 'pro', 'max', 'provider', 'zdr', 'changelog', 'whats-new', 'cli', 'catalog-client']:
             record = manifest['sources'].get(key, {})
             if not record.get('ok'):
+                if key == 'catalog-client':
+                    continue
                 report['errors'].append(f'{key}: fetch missing/failed')
                 continue
             file = (args.input / record['file']).resolve()
@@ -346,11 +352,64 @@ def main():
                     'reason': 'The newest changelog entry differs from npm latest; confirm which the pinned artifact comes from',
                 })
         vision = registry_vision(data['models'])
-        catalog = json.loads(data['catalog'])['data']
-        if not isinstance(catalog, list) or not catalog or any(not isinstance(m.get('id'), str) or not isinstance(m.get('name'), str) or not isinstance(m.get('context_length'), (int, float)) or m['context_length'] <= 0 for m in catalog):
-            raise ValueError('Invalid/empty catalog')
-        if len({m['id'] for m in catalog}) != len(catalog):
-            raise ValueError('Duplicate catalog IDs')
+
+        def catalog_rows(key):
+            """Validate one catalog view and return its model rows."""
+            raw = json.loads(data[key])
+            rows = raw['data'] if isinstance(raw, dict) else raw
+            if not isinstance(rows, list) or not rows or any(
+                not isinstance(m.get('id'), str)
+                or not isinstance(m.get('name'), str)
+                or not isinstance(m.get('context_length'), (int, float))
+                or m['context_length'] <= 0
+                for m in rows
+            ):
+                raise ValueError(f'Invalid/empty catalog ({key})')
+            if len({m['id'] for m in rows}) != len(rows):
+                raise ValueError(f'Duplicate catalog IDs ({key})')
+            return raw, rows
+
+        # From command-code@1.82.4 the capability fields the plugin's snapshots
+        # mirror (`reasoningEfforts`, `zdr`, `inputModalities`, `minimumPlan`) live
+        # ONLY in the `?view=client` view; the default view is the OpenAI-shaped
+        # routing list. So the client view is authoritative for capabilities and
+        # the default one still supplies the routed model list. Both are read and
+        # their disagreement is reported, because neither is a superset by design:
+        # the client view carries hidden rows the default one omits, and a release
+        # could add a routed model before the client view serves it.
+        catalog_raw, catalog = catalog_rows('catalog')
+        if 'catalog-client' in data:
+            client_raw, client_rows = catalog_rows('catalog-client')
+            default_ids, client_ids = {m['id'] for m in catalog}, {m['id'] for m in client_rows}
+            report['catalogViews'] = {
+                'default': {'modelCount': len(catalog), 'catalogVersion': catalog_raw.get('catalogVersion')},
+                'client': {'modelCount': len(client_rows), 'catalogVersion': client_raw.get('catalogVersion')},
+                'onlyDefault': sorted(default_ids - client_ids),
+                'onlyClient': sorted(client_ids - default_ids),
+            }
+            if report['catalogViews']['onlyDefault'] or report['catalogViews']['onlyClient']:
+                report['review'].append({
+                    'catalogViewDrift': {
+                        'onlyDefault': report['catalogViews']['onlyDefault'],
+                        'onlyClient': report['catalogViews']['onlyClient'],
+                        'note': 'The two catalog views disagree; confirm which rows are served before changing a snapshot',
+                    },
+                })
+            # `catalog` stays the DEFAULT view on purpose: it is the routed model
+            # list the pricing tables and the plugin's plan snapshot are keyed by,
+            # so widening it would report "missing pricing mapping" for every
+            # hidden row. The client view is consulted only for capabilities
+            # (`catalog_capabilities`), where its extra hidden rows are wanted.
+            catalog_capabilities = {}
+            for m in catalog:
+                catalog_capabilities[m['id']] = m
+            for m in client_rows:
+                catalog_capabilities[m['id']] = {**catalog_capabilities.get(m['id'], {}), **m}
+        else:
+            catalog_capabilities = {m['id']: m for m in catalog}
+            report['review'].append({
+                'catalogClientMissing': 'fetched without ?view=client, so effort/zdr/inputModalities/minimumPlan have no authoritative source; rerun fetch.py to collect it',
+            })
         extractor = Path(__file__).with_name('extract-cli.mjs')
         command = ['node', str(extractor), str((args.input / manifest['sources']['cli']['file']).resolve()), str(args.repo.resolve())]
         cli = json.loads(subprocess.check_output(command, text=True))
@@ -370,6 +429,36 @@ def main():
             report['cliDiff']['zdrExceptions'] = diff({v: True for v in old['zdrExceptions']}, {v: True for v in cli['zdrExceptions']})
             report['cliDiff']['models'] = diff({m['id']: m for m in old['models']}, {m['id']: m for m in cli['models']})
         cli_models = {m['id']: m for m in cli['models']}
+        # Artifact-side anomalies the extractor now reports instead of failing on.
+        if cli.get('effortSource') == 'registry-rows':
+            report['review'].append({
+                'effortSource': 'registry-rows',
+                'note': f"the CLI artifact bundles no effort Map ({cli.get('effortError')}); efforts come from the registry rows and must be confirmed against the ?view=client catalog",
+            })
+        for conflict in cli.get('effortConflict') or []:
+            report['review'].append({'id': conflict['id'], 'effortArtifactConflict': conflict})
+        # From command-code@1.82.4 the ZDR answer is a catalog lookup
+        # (`resolveKnownCatalogModel(...)?.zdr ?? false`), so the artifact's own
+        # exclusion sets are only part of the answer: union them with the client
+        # catalog's `zdr:false` rows. Neither side is a superset — the artifact
+        # keeps rows the catalog no longer serves, and the catalog serves rows the
+        # embedded snapshot predates — so the union is the snapshot's membership,
+        # exactly as the two CLI anchors were unioned before the migration.
+        catalog_zdr = sorted(i for i, m in catalog_capabilities.items() if m.get('zdr') is False)
+        if cli.get('zdrMigrated') or cli.get('zdrSource') == 'catalog':
+            merged_zdr = sorted(set(cli['zdrExceptions']) | set(catalog_zdr))
+            report['zdrResolution'] = {
+                'artifactExceptions': cli['zdrExceptions'],
+                'artifactMigratedAnchors': cli.get('zdrMigrated', []),
+                'catalogZdrFalse': catalog_zdr,
+                'union': merged_zdr,
+            }
+            for model_id in sorted(set(catalog_zdr) - set(cli['zdrExceptions'])):
+                report['review'].append({
+                    'id': model_id,
+                    'zdrFromCatalogOnly': True,
+                    'reason': 'the artifact exclusion sets do not name it but the ?view=client catalog serves zdr:false',
+                })
         mapped, used = [], set()
         for model in catalog:
             model_id = model['id']
@@ -410,10 +499,18 @@ def main():
                 report['errors'].append(f'{model_id}: absent from CLI registry')
             else:
                 cm = cli_models[model_id]
-                row['efforts'] = cli['efforts'].get(model_id)
-                row['automaticReasoning'] = cm.get('reasoning') is True and row['efforts'] is None
-                if cm.get('reasoningEfforts') != row['efforts']:
-                    report['review'].append({'id': model_id, 'effortConflict': {'registry': cm.get('reasoningEfforts'), 'helper': row['efforts']}})
+                served = catalog_capabilities.get(model_id, {})
+                # The catalog view is authoritative from 1.82.4 (it is what the
+                # CLI's own `getSupportedEfforts` resolves); the artifact's
+                # registry row is the cross-check.
+                row['efforts'] = served.get('reasoningEfforts') if served.get('reasoningEfforts') is not None else cli['efforts'].get(model_id)
+                row['automaticReasoning'] = (served.get('reasoning') is True or cm.get('reasoning') is True) and row['efforts'] is None
+                artifact_efforts = cm.get('reasoningEfforts')
+                catalog_efforts = served.get('reasoningEfforts')
+                if catalog_efforts is not None and artifact_efforts is not None and sorted(catalog_efforts) != sorted(artifact_efforts):
+                    report['review'].append({'id': model_id, 'effortConflict': {'catalog': catalog_efforts, 'registry': artifact_efforts}})
+                if artifact_efforts != row['efforts'] and catalog_efforts is None:
+                    report['review'].append({'id': model_id, 'effortConflict': {'registry': artifact_efforts, 'helper': row['efforts']}})
                 if 'vision' in row and row['vision'] != ('image' in cm['inputModalities']):
                     report['review'].append({'id': model_id, 'cliVisionConflict': True})
             deal = doc.get('deal')

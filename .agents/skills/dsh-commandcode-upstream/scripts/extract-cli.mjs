@@ -17,11 +17,28 @@ export function extract(file, repo, local = false) {
     const symbol = checker.getSymbolAtLocation(name);
     if (symbol && value) bindings.set(symbol, [...(bindings.get(symbol) ?? []), value]);
   };
+  const named = new Map();
+  const nameWrappers = [];
   visit(source, n => {
     if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) add(n.name, n.initializer);
     if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(n.left)) add(n.left, n.right);
     if (ts.isFunctionDeclaration(n) && n.name) functions.set(n.name.text, [...(functions.get(n.name.text) ?? []), n]);
+    // `__name(fn, "semanticName")` — the bundler's name-preservation wrapper.
+    // Recorded here, resolved AFTER the walk: the wrapper call sits before the
+    // declaration it names, so resolving it inline would always miss.
+    if (ts.isCallExpression(n) && n.expression.getText(source) === '__name' && n.arguments.length === 2) {
+      const target = n.arguments[0], label = n.arguments[1];
+      if (ts.isIdentifier(target) && ts.isStringLiteral(label)) nameWrappers.push({ target: target.text, label: label.text });
+    }
   });
+  for (const wrapper of nameWrappers) {
+    // Resolve by DECLARATION, not by the binding table: a function declaration is
+    // also recorded as a variable binding, so checking `bindings` first would
+    // always skip this branch. Exactly one declaration with that name is the only
+    // unambiguous case.
+    const decls = functions.get(wrapper.target);
+    if (decls?.length === 1) named.set(wrapper.label, [...(named.get(wrapper.label) ?? []), decls[0]]);
+  }
   function deref(n, seen = new Set()) {
     if (ts.isAsExpression(n) || ts.isParenthesizedExpression(n) || ts.isSatisfiesExpression(n)) return deref(n.expression, seen);
     if (!ts.isIdentifier(n)) return n;
@@ -66,10 +83,33 @@ export function extract(file, repo, local = false) {
     if (ts.isPropertyAccessExpression(n)) return value(memberNode(n));
     throw Error(`Unsupported static expression: ${n.getText(source).slice(0, 100)}`);
   }
+  /**
+   * Resolve an anchor by its SEMANTIC name.
+   *
+   * Minified releases stop shipping the semantic name as the declaration name:
+   * from command-code@1.82.4 the bundler wraps the real declaration as
+   * `__name(function getSupportedEfforts2(e){…}, "getSupportedEfforts")`, so the
+   * declaration is `getSupportedEfforts2` and only the wrapper's second argument
+   * carries the name the rest of the bundle calls it by. Looking up the
+   * declaration name alone therefore fails with a misleading
+   * `Missing/ambiguous function anchor` even though the function is present.
+   *
+   * Three lookups, in order: the declaration name (pre-1.82.4 shape), the
+   * `__name(fn, "name")` wrapper (1.82.4+ shape), then a loud failure. Both
+   * shapes are kept so one extractor reads both release trains — the older one
+   * is not a fallback for the newer, they are two encodings of the same fact.
+   */
+  function resolveAnchor(name) {
+    const direct = functions.get(name);
+    if (direct?.length === 1) return { node: direct[0], via: 'declaration' };
+    if (direct?.length > 1) throw Error(`Ambiguous function anchor (declaration): ${name}`);
+    const wrapped = named.get(name);
+    if (wrapped?.length === 1) return { node: wrapped[0], via: 'name-wrapper' };
+    if (wrapped?.length > 1) throw Error(`Ambiguous function anchor (name wrapper): ${name}`);
+    throw Error(`Missing/ambiguous function anchor: ${name}`);
+  }
   function anchor(name) {
-    const nodes = functions.get(name);
-    if (nodes?.length !== 1) throw Error(`Missing/ambiguous function anchor: ${name}`);
-    return nodes[0];
+    return resolveAnchor(name).node;
   }
   function unique(nodes, label) {
     const distinct = [...new Set(nodes.map(derefNode => deref(derefNode)))];
@@ -105,12 +145,47 @@ export function extract(file, repo, local = false) {
     if (Object.keys(snapshots).length !== wanted.length) throw Error('Missing local snapshot');
     return snapshots;
   }
-  const mapRefs = [];
-  visit(anchor('getSupportedEfforts'), n => {
-    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'get') mapRefs.push(n.expression.expression);
-  });
-  const efforts = value(unique(mapRefs, 'effort map'));
-  if (!Object.keys(efforts).length || Object.values(efforts).some(x => !Array.isArray(x) || !x.length || x.some(y => typeof y !== 'string'))) throw Error('Invalid effort map');
+  // Effort data. Two encodings exist and BOTH must be tolerated by one
+  // extractor, because the release that switched them is the release this check
+  // runs against:
+  //
+  //   pre-1.82.4  `getSupportedEfforts(e){return xn.get(n) ?? null}` — a bundled
+  //               Map inside the anchor. The registry rows ALSO carry a
+  //               `reasoningEfforts` field, so the two are compared.
+  //   1.82.4+     `getSupportedEfforts(e,n){…resolveKnownCatalogModel({model,catalog})
+  //               ?.reasoningEfforts…}` — no Map at all, no `.get()` call, and
+  //               no `.has()` either. The bundle only carries the registry rows
+  //               plus a bootstrap catalog snapshot; the live answer comes from
+  //               the `?view=client` catalog, which audit.py merges in.
+  //
+  // The registry rows are therefore the authoritative artifact-side source; the
+  // bundled Map is compared against them when it is still there. A disagreement
+  // is reported rather than resolved, because silently preferring either side is
+  // how a release that changes one of them goes unnoticed.
+  // The anchor must still RESOLVE: 1.82.4 kept the function, it only renamed the
+  // declaration behind a `__name` wrapper, so `resolveAnchor` finds it either
+  // way. A release that genuinely drops the function is a loud failure, not a
+  // silent fall-back to the registry rows.
+  const effortAnchor = resolveAnchor('getSupportedEfforts');
+  let bundledEfforts = null;
+  let effortError = null;
+  try {
+    const mapRefs = [];
+    visit(effortAnchor.node, n => {
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === 'get') mapRefs.push(n.expression.expression);
+    });
+    const map = value(unique(mapRefs, 'effort map'));
+    if (!Object.keys(map).length || Object.values(map).some(x => !Array.isArray(x) || !x.length || x.some(y => typeof y !== 'string'))) throw Error('Invalid effort map');
+    bundledEfforts = map;
+  } catch (error) {
+    // ONLY the catalog migration is tolerated here: a `Missing/ambiguous effort
+    // map` means the anchor has no bundled Map left because the data moved to the
+    // catalog. Every other failure — duplicate Map entries, an unresolvable
+    // expression, an invalid map — is a real artifact defect and must propagate.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.startsWith('Missing/ambiguous effort map')) throw error;
+    effortError = message;
+  }
   const tableRefs = [];
   visit(anchor('buildModelGroups'), n => {
     if (ts.isCallExpression(n) && n.expression.getText(source) === 'Object.values' && n.arguments.length === 1) {
@@ -136,6 +211,27 @@ export function extract(file, repo, local = false) {
     models.push(model);
   }
   if (!models.length || new Set(models.map(m => m.id)).size !== models.length) throw Error('Empty/duplicate model registry');
+
+  // Artifact-side effort table: prefer the bundled Map when the release still
+  // ships one (it is the exact table the CLI consults), otherwise derive it from
+  // the registry rows. Report any disagreement between the two rather than
+  // picking a winner — a release that changes one and not the other is a signal,
+  // not a tie to break.
+  const registryEfforts = {};
+  for (const model of models) {
+    if (Array.isArray(model.reasoningEfforts) && model.reasoningEfforts.length) registryEfforts[model.id] = model.reasoningEfforts;
+  }
+  const efforts = bundledEfforts ?? registryEfforts;
+  const effortSource = bundledEfforts ? 'bundled-map' : 'registry-rows';
+  const effortConflict = [];
+  if (bundledEfforts) {
+    for (const id of new Set([...Object.keys(bundledEfforts), ...Object.keys(registryEfforts)])) {
+      const a = bundledEfforts[id], b = registryEfforts[id];
+      if (JSON.stringify(a) !== JSON.stringify(b)) effortConflict.push({ id, bundled: a ?? null, registry: b ?? null });
+    }
+  }
+  if (!Object.keys(efforts).length) throw Error('Invalid effort map');
+
   const plans = [];
   visit(anchor('getPlanInfo'), n => {
     if (ts.isElementAccessExpression(n)) {
@@ -154,14 +250,50 @@ export function extract(file, repo, local = false) {
   // flag. The authoritative per-model answer is the exclusion set behind the
   // CLI's `modelSupportsZdr` predicate; `knownModelSupportsZdr` carries the
   // sibling route table's membership. Both anchors are read when present and
-  // unioned, and a release that drops either keeps the remaining one. A
-  // release that drops BOTH is a loud failure — silently returning "every
-  // model is covered" would let the plugin's ZDR switch fail live requests.
-  const zdrAnchors = ['modelSupportsZdr', 'knownModelSupportsZdr'].filter(name => functions.has(name));
+  // unioned, and a release that drops either keeps the remaining one.
+  //
+  // From command-code@1.82.4 the ANSWER MOVED: both predicates became
+  // `resolveKnownCatalogModel({model,catalog})?.zdr ?? false`, so neither body
+  // contains a `.has()` call any more and there is no set left in the artifact
+  // to read. That is a migration, not a missing anchor — `zdrMigrated` names the
+  // predicates that moved, and the caller is expected to fall back to the
+  // `?view=client` catalog's per-model `zdr` field (audit.py does). A release
+  // that drops BOTH NAMES entirely is still a loud failure, and so is one where
+  // an anchor exists but yields no readable set for a reason other than the
+  // catalog migration — silently returning "every model is covered" would let
+  // the plugin's ZDR switch fail live requests.
+  const zdrAnchors = ['modelSupportsZdr', 'knownModelSupportsZdr'].filter(name => functions.has(name) || named.has(name));
   if (!zdrAnchors.length) throw Error('Missing ZDR anchor');
-  const zdrSets = Object.fromEntries(zdrAnchors.map(name => [name, negatedSet(name, `ZDR exception set (${name})`)]));
-  const zdrExceptions = [...new Set(zdrAnchors.flatMap(name => zdrSets[name]))].sort();
-  return { efforts, models, subscriptions: Object.fromEntries(Object.keys(credits).map(id => [id, { name: names[id], monthlyCredits: credits[id] }])), zdrAnchors, zdrSets, zdrExceptions, anchors: ['getSupportedEfforts', 'buildModelGroups', 'getPlanInfo', ...zdrAnchors] };
+  const zdrSets = {}, zdrMigrated = [];
+  for (const name of zdrAnchors) {
+    try {
+      zdrSets[name] = negatedSet(name, `ZDR exception set (${name})`);
+    } catch (error) {
+      // `Missing/ambiguous` here means the predicate has no `.has()` receiver:
+      // with a catalog-backed body that is the documented migration. Anything
+      // else (an unreadable set literal, a duplicate anchor) stays fatal.
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.startsWith('Missing/ambiguous')) throw error;
+      zdrMigrated.push(name);
+    }
+  }
+  const zdrExceptions = [...new Set(Object.values(zdrSets).flat())].sort();
+  const zdrSource = zdrMigrated.length === zdrAnchors.length ? 'catalog' : zdrMigrated.length ? 'mixed' : 'artifact-sets';
+  return {
+    efforts,
+    models,
+    subscriptions: Object.fromEntries(Object.keys(credits).map(id => [id, { name: names[id], monthlyCredits: credits[id] }])),
+    zdrAnchors,
+    zdrSets,
+    zdrExceptions,
+    // Added 2026-10-16; the fields above keep their pre-existing meaning.
+    effortSource,
+    effortError,
+    effortConflict,
+    zdrMigrated,
+    zdrSource,
+    anchors: ['getSupportedEfforts', 'buildModelGroups', 'getPlanInfo', ...zdrAnchors],
+  };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(fs.realpathSync(process.argv[1])).href) {

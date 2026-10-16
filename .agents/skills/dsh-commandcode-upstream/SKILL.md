@@ -30,10 +30,14 @@ Choose a NEW output directory for each collection. `fetch.py` records HTTP outco
 - `errors`: unavailable sources, invalid schemas, missing/ambiguous mappings or missing required fields. Exit 2 / `incomplete` means evidence is insufficient.
 - `review`: source conflicts, candidate aliases, dynamic model visibility, promotional terms, schedules and remaining manual checks.
 - `models`, `cli`, `sources`: normalized evidence with original metadata retained.
-- `zdr`, `zdrDocs`: the zero-data-retention exception sets (per CLI anchor, plus their union) and the docs page's still-current mechanism markers.
+- `catalogViews`: the two catalog views side by side (`default` vs `?view=client`) with their `catalogVersion`s and the ids only one of them serves. The extra client-only ids are the rows the default view hides (8 at the 2026-10-16 check); a drift item also lands in `review`.
+- `zdr`, `zdrDocs`: the zero-data-retention exception sets (per CLI anchor, plus their union) and the docs page's still-current mechanism markers. From command-code@1.82.4 the CLI no longer bundles a set to read, so `zdrResolution` carries the rework: `artifactExceptions`, the `artifactMigratedAnchors` that moved to the catalog, `catalogZdrFalse` from `?view=client`, and their `union` — that union is the membership a snapshot should carry.
+- `cli.effortSource` / `cli.effortError` / `cli.effortConflict`: where the artifact's effort table came from (`bundled-map` before 1.82.4, `registry-rows` after, where the bundled Map is gone and the rows are the only artifact-side source), why the Map could not be read, and any row where the two disagree. `review` repeats both as `effortSource` / `effortArtifactConflict`, and `cli.efforts` is still an id → levels map.
 - `docsOnly`, `cliOnly`: differences from the current API response, **not a removal list**.
 - `cliDiff`: changes from the pinned CLI when its version differs, including existing models gaining/losing effort levels and ZDR exception membership.
 - `localSnapshots`, `candidateDiffs`, `dealEvidence`: differences against the actual dirty working-tree snapshots. Candidate removals can mean missing evidence or catalog drift; never apply them blindly.
+
+A `catalogClientMissing` review item means the evidence was collected before 2026-10-16 and has only the default view: effort, `zdr`, `inputModalities` and `minimumPlan` then have no authoritative source, and the capability columns come from the CLI artifact alone.
 
 Exit 0 means automated extraction completed, **not approval to apply**. Status remains `review-required`, `readyToApply=false` and protocol remains `not-verified`: the helper does not automate prose interpretation, all plan-page semantics, or server behavior.
 
@@ -45,14 +49,15 @@ Aliases proposed by name or ID suffix are suggestions only. After verifying each
 | --- | --- | --- |
 | Version / CLI artifact | `https://registry.npmjs.org/command-code/latest` | Match version to artifact; integrity check before extraction |
 | Catalog ID, display name, context | `https://api.commandcode.ai/provider/v1/models` | Public GET; validate unique IDs and positive context; do not use a filtered picker or its stale cache |
-| Efforts | CLI map read by `getSupportedEfforts()` | Cross-check entries in registry consumed by `buildModelGroups()`; report disagreement |
+| Catalog capabilities (effort, ZDR, modalities, minimum plan, pricing) | `https://api.commandcode.ai/provider/v1/models?view=client` | The default view carries NONE of these fields. Authoritative from command-code@1.82.4, when `getSupportedEfforts`/`knownModelSupportsZdr` became catalog lookups; report the two views' id drift rather than merging silently |
+| Efforts | From 1.82.4 the `?view=client` `reasoningEfforts`; before that the CLI map read by `getSupportedEfforts()` | Cross-check the artifact's registry rows (`buildModelGroups()`) either way; on the newer train the bundled Map is gone, so the rows are the only artifact-side source |
 | Automatic reasoning | CLI registry `reasoning` with no supported efforts | Check all serving providers; not an OAuth-only table and not a provider-name filter |
 | Vision | Official `/docs/reference/cli/models` row capability label | Compare pricing `caps.vision` and CLI modalities; textual Vision fallback does not count |
 | Minimum plan | Pricing embedded `availability` | Cross-check Go data and remaining plan pages; absent/false are different; missing tier is unknown |
 | Subscription names / credits | Maps actually referenced by CLI `getPlanInfo()` | Matching key sets; `tierWeight` remains a reviewed plugin policy |
 | Deals | Pricing embedded `deal` plus rendered terms | Expiry, date timezone and conditional availability require review |
-| Peak membership / schedule | Pricing embedded `timeOfDay` plus prose | Effective date, weekday, timezone, boundaries and ratios; never use flattened row annotations |
-| ZDR exceptions | CLI negated sets behind `modelSupportsZdr` / `knownModelSupportsZdr` | Union of the predicate sets; routing rule re-checked against the `/docs/resources/zdr` page markers |
+| Peak membership / schedule | Pricing embedded `timeOfDay` plus prose | Effective date, weekday, timezone, boundaries and ratios; never use flattened row annotations. Compare against the generator's own source (`/docs/resources/pricing-limits`), not the `/pricing` marketing page — they disagree |
+| ZDR exceptions | From 1.82.4 the `?view=client` `zdr:false` set UNIONED with any surviving CLI negated set; before that the negated sets behind `modelSupportsZdr` / `knownModelSupportsZdr` | The CLI's default flipped from "unlisted means covered" to "unlisted means NOT covered", so a membership that merely disappeared from the artifact is not evidence it is covered. Re-check the routing rule against the `/docs/resources/zdr` page markers |
 | Protocol / login / billing / search | CLI call sites, official docs and changelog | Static evidence does not prove server compatibility; see reference below |
 
 Read [references/data-contracts.md](references/data-contracts.md) when resolving source conflicts, parser changes, dates, aliases or snapshot edits. Read [references/protocol.md](references/protocol.md) for protocol, login and account-flow verification.

@@ -17,26 +17,30 @@ import {
   supportsZeroDataRetention,
 } from '../src/capabilities.ts'
 
-test('the ZDR exception list is the CLI registry exclusion set (command-code@1.82.2)', () => {
-  // Re-verified at `dist/cli.mjs` 1.82.2: the negated canonical-ID membership
-  // predicates retain the same union across both route tables, cross-checked
-  // against the public catalog. A sync that moves
-  // membership must be a deliberate diff. 1.74.1 dropped `meituan/LongCat-2.0`
-  // from both anchors, so it is no longer listed. Both retired stealth previews
-  // (Pixel Canary, retired 2026-10-01; Space Bunny Alpha, retired 2026-10-06)
-  // stayed listed through 1.74.3 because the CLI still named them; 1.77.0 names
-  // neither and filters both out of `listSelectableModelIds()`, so they left
-  // this list with it. 1.79.0 added the free `stealth/glyph-cluster:free`
-  // preview — the one entry the pricing page itself flags "Not routed under
-  // ZDR" — bringing the set back to 21. 1.80.0 ("Add Muse Wonder") added
-  // `meta/muse-wonder-1.0` to the same exclusion set: 22 members, and the
-  // 1.80.0 -> 1.81.0, the 1.81.0 -> 1.82.1 and the 1.82.1 -> 1.82.2 steps moved
-  // no membership at all (1.82.0's `google/gemini-4-argon` is not in the
-  // exclusion set, and 1.82.2's Ling 3.1 Flash swap does not touch it either).
+test('the ZDR exception list is the live catalog zdr verdict (command-code@1.82.4)', () => {
+  // command-code@1.82.4 moved the authority for this verdict out of the CLI
+  // artifact: `knownModelSupportsZdr` no longer negates a bundled Set, it reads
+  // `resolveKnownCatalogModel({model,catalog})?.zdr ?? false`. So this list is
+  // now the live catalog's `zdr:false` membership, read from
+  // `GET /provider/v1/models?view=client`, cross-checked against the artifact's
+  // canonical helper set. A sync that moves membership must be a deliberate diff.
+  //
+  // History: 1.74.1 dropped `meituan/LongCat-2.0:free` from the anchor that the
+  // old extractor read while the canonical helper `modelSupportsZdr2` kept it,
+  // so the two anchor sets disagreed by exactly that one id (22 vs 23) for eight
+  // releases; 1.82.4 ends the disagreement and serves `zdr:false` for the row,
+  // which is why it is listed again here. Both retired stealth previews (Pixel
+  // Canary, retired 2026-10-01; Space Bunny Alpha, retired 2026-10-06) left the
+  // list in 1.77.0. 1.79.0 added the free `stealth/glyph-cluster:free` preview —
+  // the one entry the pricing page itself flags "Not routed under ZDR" — and
+  // 1.80.0 added `meta/muse-wonder-1.0`, bringing the set to 22. 1.82.4 then
+  // adds `stealth/cat-jam:free` (the second live stealth preview), for 24
+  // members: LongCat + cat-jam with nothing removed.
   assert.deepEqual([...KNOWN_NON_ZDR_MODELS].sort(), [
     'MiniMaxAI/MiniMax-M3',
     'Qwen/Qwen3.8-Max-0902',
     'deepseek/deepseek-v4.1-flash-fast',
+    'meituan/LongCat-2.0:free',
     'meta/muse-spark-1.1',
     'meta/muse-spark-1.2',
     'meta/muse-spark-1.2-contributor',
@@ -46,6 +50,7 @@ test('the ZDR exception list is the CLI registry exclusion set (command-code@1.8
     'minimax/minimax-m3-free',
     'poolside/laguna-s-2.1-free',
     'sakana/fugu-ultra',
+    'stealth/cat-jam:free',
     'stealth/glyph-cluster:free',
     'stepfun/Step-3.7-Flash',
     'stepfun/Step-5-Preview',
@@ -65,9 +70,10 @@ test('supportsZeroDataRetention answers false for every listed model and true ot
   }
   // One per family served through the Provider API, plus unseen ids: the table
   // only shrinks the answer for listed ids, and the header rides either way.
-  // `meituan/LongCat-2.0` moved here in 1.74.1 and both retired stealth
-  // previews followed in 1.77.0 — they left the CLI's exclusion sets, so the
-  // snapshot now answers true for them.
+  // `meituan/LongCat-2.0:free` is NOT in this group any more: command-code@1.82.4
+  // serves `zdr:false` for it in the live catalog, so it moved back into the
+  // exception set above. Both retired stealth previews left the CLI's exclusion
+  // sets in 1.77.0, so the snapshot still answers true for them.
   for (const id of [
     'deepseek/deepseek-v4.1-flash',
     'deepseek/deepseek-v4-flash',

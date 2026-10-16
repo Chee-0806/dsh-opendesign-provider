@@ -61,10 +61,10 @@ test('every Harness peer and development package shares one supported release ra
 test('per-release DSH compatibility lists only verified releases', () => {
   // DSH STORE only restores a listing from exact per-release records under
   // dsh.compatibility.dshReleases, and a release with no record reads as
-  // `unknown`. DSH itself refuses to load a plugin whose @deepseek-ai/dsh*
-  // peers do not admit the running engine, so every record here must name a
-  // bare version the honest peer range also admits — never a range, and never
-  // an engine that no `test:engine` run covers.
+  // `unknown`. DSH itself refuses to load a plugin whose declared engine range
+  // does not admit the running engine, so every record here must name a bare
+  // version the honest peer range also admits — never a range, and never an
+  // engine that no `test:engine` run covers.
   const releases = pkg.dsh?.compatibility?.dshReleases ?? {}
   const declared = Object.keys(releases)
   assert.ok(declared.length > 0, 'at least one declared-compatible release')
@@ -84,9 +84,12 @@ test('DSH compatibility keeps one release candidate and one alpha release', () =
 })
 
 test('the manifest declares the same engine range it supports', () => {
-  // `compatibility.dsh` and `engines.dsh` are declarative: dsh itself reads
-  // neither, but a catalog that finds no explicit engine range falls back to a
-  // peer range, so leaving them out lets the two drift apart silently.
+  // 三处必须逐字相同。**`engines.dsh` 不是装饰**：自 dsh `0.2.1-alpha.4` 起，
+  // 宿主 `evaluatePluginCompatibility` 在包自带 `engines.dsh` 时**只**看它，
+  // 完全忽略 `@deepseek-ai/dsh*` peer（`app-boot/src/plugin-compatibility.ts`）；
+  // 判定不通过时插件行被禁用、bundle 层被静默跳过、安装被拒绝。
+  // `compatibility.dsh` 仍是我们自己的声明面（宿主不读它），由外部目录消费；
+  // 三者分开维护必然漂移，故在此钉死相等。
   const supported = pkg.peerDependencies?.['@deepseek-ai/dsh-llm']
   assert.equal(pkg.dsh?.compatibility?.dsh, supported)
   assert.equal(pkg.engines?.dsh, supported)
