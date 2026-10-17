@@ -75,7 +75,9 @@ src/readable-error.ts Shared `readableErrorText()` for caught values: reads
                       paths and imported directly by the browser client.
 src/enrollment.ts    Host-owned account enrollment, durable recovery journal,
                       naming and cancellation compensation.
-src/enrollment-wire.ts Shared strict enrollment Remotes and page watch stream.
+src/enrollment-wire.ts Shared strict enrollment Remotes and page watch stream;
+                      also owns the `EnrollmentMessageKey` vocabulary the states
+                      carry (semantic keys, localized by the settings page).
 src/client/enrollment.ts Page-owned enrollment controller and stream lifetime.
 src/commands.ts       The /commandcode usage dashboard command.
 src/command-locales.ts  zh/en copy for the /commandcode command (Host-side

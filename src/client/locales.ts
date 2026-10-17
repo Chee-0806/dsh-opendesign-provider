@@ -5,7 +5,12 @@
  *
  * zh is the source of truth for the key set (repo convention); en must carry
  * the exact same keys — a mismatch is a compile error at the register site.
+ *
+ * 账号开通的状态文案也收在这里：宿主与浏览器侧控制器只产出语义键
+ * （`EnrollmentMessageKey`），界面语言只有这一侧知道，文案因此只有一个来源。
  */
+import type { EnrollmentMessageKey } from '../enrollment-wire.ts'
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'settings.commandcode': SettingsCommandCodeKey
@@ -215,6 +220,8 @@ export type SettingsCommandCodeKey =
   | 'modelsTitle'
   | 'privacyTitle'
   | 'integrationsTitle'
+  // 账号开通状态的语义键：宿主与浏览器侧控制器共同产出，见 `EnrollmentMessageKey`。
+  | EnrollmentMessageKey
 
 export const zh: Record<SettingsCommandCodeKey, string> = {
   openAnalytics: '查看模型用量、成本与性能分析',
@@ -429,6 +436,28 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   modelsTitle: '模型与上下文',
   privacyTitle: '隐私与安全',
   integrationsTitle: '集成与显示',
+  enrollmentCreating: '正在创建账号',
+  enrollmentWaiting: '等待浏览器登录',
+  enrollmentWriting: '正在保存凭据',
+  enrollmentNaming: '账号已登录，正在保存名称',
+  enrollmentNameFailed: '账号已登录，名称保存失败，请重试或接受已有名称',
+  enrollmentFinished: '账号开通完成',
+  enrollmentCancelling: '正在等待写入结束并清理',
+  enrollmentCancelled: '已取消',
+  enrollmentCancelledCleaned: '已取消并清理',
+  enrollmentFailed: '账号开通失败，未创建账号',
+  enrollmentFailedCleaned: '开通失败，已清理临时账号',
+  enrollmentCleanupPending: '收尾未完成，请重试',
+  enrollmentCleanupFailed: '清理未完成，请重试',
+  enrollmentRecordNaming: '已登录账号等待确认名称',
+  enrollmentRecordCleanup: '账号开通收尾未完成，请重试',
+  enrollmentBeginFailed: '账号开通请求失败，请检查连接后重试',
+  enrollmentCancelUnconfirmed: '取消请求未确认，重新连接后请检查未完成记录',
+  enrollmentNameRequestFailed: '名称保存失败，请重试或接受已有名称',
+  enrollmentCleanupRequestFailed: '收尾请求失败，请检查连接后重试',
+  enrollmentDisconnected: '开通连接已断开，宿主正在收尾；重连后请检查未完成记录',
+  enrollmentHostUnavailable: '宿主无法完成账号开通，请检查连接与写入权限',
+  enrollmentStatusUnavailable: '开通状态暂不可用，正在等待重新连接',
 }
 
 export const en: Record<SettingsCommandCodeKey, string> = {
@@ -655,6 +684,28 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   modelsTitle: 'Models & context',
   privacyTitle: 'Privacy & security',
   integrationsTitle: 'Integrations & display',
+  enrollmentCreating: 'Creating the account',
+  enrollmentWaiting: 'Waiting for the browser sign-in',
+  enrollmentWriting: 'Saving the credential',
+  enrollmentNaming: 'Signed in. Saving the name',
+  enrollmentNameFailed: 'Signed in, but saving the name failed. Retry, or accept the existing name.',
+  enrollmentFinished: 'Account setup complete',
+  enrollmentCancelling: 'Waiting for the write to finish, then cleaning up',
+  enrollmentCancelled: 'Cancelled',
+  enrollmentCancelledCleaned: 'Cancelled and cleaned up',
+  enrollmentFailed: 'Account setup failed. No account was created.',
+  enrollmentFailedCleaned: 'Setup failed; the temporary account was cleaned up.',
+  enrollmentCleanupPending: 'Cleanup is not finished. Please retry.',
+  enrollmentCleanupFailed: 'Cleanup failed. Please retry.',
+  enrollmentRecordNaming: 'Signed-in account waiting for its name to be confirmed',
+  enrollmentRecordCleanup: 'Account setup was not finished. Please retry.',
+  enrollmentBeginFailed: 'The account setup request failed. Check the connection and retry.',
+  enrollmentCancelUnconfirmed: 'The cancel request was not confirmed. After reconnecting, check for unfinished records.',
+  enrollmentNameRequestFailed: 'Saving the name failed. Retry, or accept the existing name.',
+  enrollmentCleanupRequestFailed: 'The cleanup request failed. Check the connection and retry.',
+  enrollmentDisconnected: 'The setup connection dropped; the host is finishing up. After reconnecting, check for unfinished records.',
+  enrollmentHostUnavailable: 'The host could not complete the account setup. Check the connection and write permissions.',
+  enrollmentStatusUnavailable: 'Setup status is unavailable; waiting to reconnect.',
 }
 
 /** 同一确认结果在设置页和模型卡使用相同措辞，不从 configured 推断写入结果。 */

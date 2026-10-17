@@ -1,6 +1,6 @@
 /** 每次设置页挂载独立拥有一个开通控制器；共享设置/用量控制器仍保持插件生命周期。 */
 import type { RemoteResult, RemoteStreamHandle } from '@deepseek-ai/dsh-typert-protocol'
-import type { EnrollmentAction, EnrollmentInput, EnrollmentPage, EnrollmentState } from '../enrollment-wire.ts'
+import type { EnrollmentAction, EnrollmentInput, EnrollmentMessageKey, EnrollmentPage, EnrollmentState } from '../enrollment-wire.ts'
 import { createSnapshotStore } from './snapshot-store.ts'
 import { openLoginPage } from './login-page.ts'
 
@@ -24,7 +24,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'commandcode/enrollmentWatch': EnrollmentRemote['enrollmentWatch']
   }
 }
-export interface EnrollmentPageState { active: EnrollmentState | undefined; pending: EnrollmentState[]; error: string | undefined }
+/**
+ * 页面状态。`error` 与宿主状态里的 `messageKey` 一样只存语义键：传输失败时这一侧
+ * 产出的也是键（如 `enrollmentDisconnected`），渲染时才按界面语言取文案，所以本
+ * 控制器不持有任何成品文本。
+ */
+export interface EnrollmentPageState { active: EnrollmentState | undefined; pending: EnrollmentState[]; error: EnrollmentMessageKey | undefined }
 const live = (state: EnrollmentState) => ['creating', 'waiting', 'writing', 'cancelling'].includes(state.phase)
 export class AccountEnrollmentController {
   readonly store = createSnapshotStore<EnrollmentPageState>({ active: undefined, pending: [], error: undefined })
@@ -51,7 +56,8 @@ export class AccountEnrollmentController {
     const pageId = this.pageId
     this.id = id
     this.openedPage = false
-    this.store.set({ ...this.store.getSnapshot(), error: undefined, active: { id, ref: '', phase: 'creating', message: '正在创建账号' } })
+    // 本地先行显示的状态与宿主同键，避免同一条状态在两侧各写一份文案。
+    this.store.set({ ...this.store.getSnapshot(), error: undefined, active: { id, ref: '', phase: 'creating', messageKey: 'enrollmentCreating' } })
     try {
       await this.ensureWatch()
       if (this.disposed || this.id !== id || this.pageId !== pageId) return
@@ -64,7 +70,7 @@ export class AccountEnrollmentController {
       this.receive(id, result)
     } catch {
       if (this.id === id) this.cancel()
-      this.failure('账号开通请求失败，请检查连接后重试')
+      this.failure('enrollmentBeginFailed')
     }
   }
   /** 页面可立即离开；宿主仍等待写入和补偿收尾。 */
@@ -74,24 +80,24 @@ export class AccountEnrollmentController {
     this.id = undefined
     this.stopTimer()
     if (!this.disposed) this.store.set({ ...this.store.getSnapshot(), active: undefined })
-    if (id) void Promise.resolve().then(() => this.remote().enrollmentCancel({ id, pageId })).then(() => { this.changed(); void this.refresh() }, () => this.failure('取消请求未确认，重新连接后请检查未完成记录'))
+    if (id) void Promise.resolve().then(() => this.remote().enrollmentCancel({ id, pageId })).then(() => { this.changed(); void this.refresh() }, () => this.failure('enrollmentCancelUnconfirmed'))
   }
   async name(name?: string): Promise<void> {
     const id = this.id
     if (!id) return
     try { this.receive(id, await this.remote().enrollmentName({ id, pageId: this.pageId, ...(name ? { name } : {}) })) }
-    catch { this.failure('名称保存失败，请重试或接受已有名称') }
+    catch { this.failure('enrollmentNameRequestFailed') }
   }
   async recover(record: EnrollmentState, name?: string): Promise<void> {
     try {
       const result = await this.remote().enrollmentRetry({ id: record.id, pageId: this.pageId, ...(name ? { name } : {}) })
-      if (!result.ok) this.failure('收尾未完成，请重试')
+      if (!result.ok) this.failure('enrollmentCleanupPending')
       else if (!this.disposed && this.store.getSnapshot().active?.id === record.id) {
         this.store.set({ ...this.store.getSnapshot(), active: result.value, error: undefined })
       }
       this.changed()
       await this.refresh()
-    } catch { this.failure('收尾请求失败，请检查连接后重试') }
+    } catch { this.failure('enrollmentCleanupRequestFailed') }
   }
   dispose(): void { this.disposed = true; this.cancel(); this.watch?.dispose(); this.watch = undefined; this.ready = undefined }
   private ensureWatch(): Promise<void> {
@@ -110,7 +116,7 @@ export class AccountEnrollmentController {
             this.watch = undefined
             this.ready = undefined
             this.cancel()
-            this.failure('开通连接已断开，宿主正在收尾；重连后请检查未完成记录')
+            this.failure('enrollmentDisconnected')
           }
         }
       })()
@@ -119,7 +125,7 @@ export class AccountEnrollmentController {
   }
   private receive(id: string, result: RemoteResult<EnrollmentState>): void {
     if (this.disposed || this.id !== id) return
-    if (!result.ok) { this.failure('宿主无法完成账号开通，请检查连接与写入权限'); return }
+    if (!result.ok) { this.failure('enrollmentHostUnavailable'); return }
     const active = result.value
     // 地址可能由后续轮询返回；只接受仍属于当前页面过程的地址，且每次过程只打开一次。
     if (active.phase === 'waiting' && active.authUrl && !this.openedPage) {
@@ -140,10 +146,11 @@ export class AccountEnrollmentController {
     if (this.disposed || this.id !== id) return
     try { this.receive(id, await this.remote().enrollmentStatus({ id, pageId: this.pageId })) }
     catch {
-      this.failure('开通状态暂不可用，正在等待重新连接')
+      this.failure('enrollmentStatusUnavailable')
       if (!this.disposed && this.id === id) this.timer = setTimeout(() => { void this.poll(id) }, this.pollMs)
     }
   }
-  private failure(message: string): void { if (!this.disposed) this.store.set({ ...this.store.getSnapshot(), error: message }) }
+  /** 记下要显示的语义键；文案在渲染处按界面语言取，本控制器不接触成品文本。 */
+  private failure(key: EnrollmentMessageKey): void { if (!this.disposed) this.store.set({ ...this.store.getSnapshot(), error: key }) }
   private stopTimer(): void { if (this.timer) clearTimeout(this.timer); this.timer = undefined }
 }

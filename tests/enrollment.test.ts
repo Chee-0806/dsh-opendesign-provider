@@ -93,7 +93,7 @@ test('浏览器自动命名失败保留账号，允许重试或接受已有名�
   await until(() => h.manager.status(owner, id).phase === 'waiting')
   h.mutateHook(async (ops) => { if (ops.some((op) => op.path[0] === 'accounts' && (op.value as { label?: string }[])[0]?.label === '浏览器名称')) throw new Error('名称拒绝') })
   await h.succeed()
-  await until(() => h.manager.status(owner, id).message.includes('名称保存失败'))
+  await until(() => h.manager.status(owner, id).messageKey === 'enrollmentNameFailed')
   assert.equal(h.keys.size, 1)
   assert.equal(h.value().accountEnrollmentTasks?.[0]?.phase, 'naming')
   assert.equal((await h.manager.name(owner, id, '浏览器名称')).phase, 'naming')
@@ -207,7 +207,7 @@ test('待命名日志保存失败也保留已登录账号，当前页面可以�
   const h = harness()
   h.mutateHook(async (ops) => { if (ops.some((op) => op.path[0] === 'accountEnrollmentTasks' && (op.value as { phase?: string }[])[0]?.phase === 'naming')) throw new Error('拒绝') })
   h.manager.begin(owner, input())
-  await until(() => h.manager.status(owner, id).message.includes('名称保存失败'))
+  await until(() => h.manager.status(owner, id).messageKey === 'enrollmentNameFailed')
   assert.equal(h.keys.size, 1)
   assert.equal((await h.manager.name(owner, id)).phase, 'finished')
 })
@@ -243,7 +243,7 @@ test('页面在待命名阶段结束，确认失败也不触发凭据清理，�
   await until(() => h.manager.status(owner, id).phase === 'waiting')
   h.mutateHook(async (ops) => { if (ops.some((op) => op.path[0] === 'accountEnrollmentTasks' && (op.value as unknown[]).length === 0)) throw new Error('确认写入失败') })
   await h.succeed()
-  await until(() => h.manager.status(owner, id).message.includes('名称保存失败'))
+  await until(() => h.manager.status(owner, id).messageKey === 'enrollmentNameFailed')
   release()
   await until(() => h.manager.pending('page-b').length === 1)
   assert.equal(h.keys.size, 1)
@@ -259,13 +259,38 @@ test('开通双方契约严格校验并丢弃多余密钥字段', () => {
   assert.throws(() => parseEnrollmentInput({ ...input(), id: 'bad' }))
   assert.throws(() => parseEnrollmentInput({ ...input(), mode: 'browser' }))
   assert.throws(() => parseEnrollmentInput({ ...input(), key: ' ' }))
-  assert.throws(() => parseEnrollmentState({ id, ref: 'KEY', phase: 'made-up', message: '' }))
-  assert.equal('apiKey' in parseEnrollmentState({ id, ref: 'KEY', phase: 'waiting', message: '', apiKey: 'secret' }), false)
+  assert.throws(() => parseEnrollmentState({ id, ref: 'KEY', phase: 'made-up', messageKey: 'enrollmentCreating' }))
+  assert.equal('apiKey' in parseEnrollmentState({ id, ref: 'KEY', phase: 'waiting', messageKey: 'enrollmentCreating', apiKey: 'secret' }), false)
+  // 状态消息只收语义键：自由文本与非枚举键都必须被拒绝，界面才不会收到无法渲染的文案。
+  assert.throws(() => parseEnrollmentState({ id, ref: 'KEY', phase: 'waiting', messageKey: '正在创建账号' }))
+  assert.throws(() => parseEnrollmentState({ id, ref: 'KEY', phase: 'waiting', message: '正在创建账号' }))
   assert.equal(new Set(ENROLLMENT_DESCRIPTORS.map((descriptor) => descriptor.method)).size, 7)
 })
 
+test('宿主产出的状态键与阶段语义一致，不依赖文案匹配', async () => {
+  const h = harness()
+  // begin 的同步返回值就是 creating：这一处若与阶段错配，界面会在刚发起时显示别的阶段的说明。
+  assert.equal(h.manager.begin(owner, input()).messageKey, 'enrollmentCreating')
+  // 写凭据之前必须已落到 writing，而不是仍停在 creating。
+  h.setHook(async () => { assert.equal(h.manager.status(owner, id).messageKey, 'enrollmentWriting') })
+  assert.equal((await settled(h)).messageKey, 'enrollmentFinished')
+})
+
+test('恢复记录的键按待命名与待收尾分开', () => {
+  // 两者共用同一个 phase 之外的语义：都靠各自的键区分，界面才不会把待命名说成待收尾。
+  const h = harness({
+    accountEnrollmentTasks: [
+      { id: '00000000-0000-4000-8000-0000000000a1', ref: 'KEY_2', phase: 'naming', label: '待命名' },
+      { id: '00000000-0000-4000-8000-0000000000a2', ref: 'KEY_3', phase: 'cleanup', label: '待收尾' },
+    ],
+  })
+  const pending = h.manager.pending(owner)
+  assert.equal(pending[0]?.messageKey, 'enrollmentRecordNaming')
+  assert.equal(pending[1]?.messageKey, 'enrollmentRecordCleanup')
+})
+
 function clientRemote(overrides: Partial<EnrollmentRemote> = {}): EnrollmentRemote {
-  const state: EnrollmentState = { id, ref: 'KEY_2', phase: 'waiting', message: '等待' }
+  const state: EnrollmentState = { id, ref: 'KEY_2', phase: 'waiting', messageKey: 'enrollmentWaiting' }
   const result = async (): Promise<RemoteResult<EnrollmentState>> => ({ ok: true, value: state })
   return { enrollmentBegin: result, enrollmentStatus: result, enrollmentCancel: result, enrollmentName: result, enrollmentRetry: result, enrollmentPending: async () => ({ ok: true, value: [] }),
     enrollmentWatch: () => {
@@ -281,14 +306,14 @@ test('页面卸载早于 begin 回复：立即按 id 取消，并在迟到回复
   const requested = deferred()
   const cancels: string[] = []
   const opened: string[] = []
-  const remote = clientRemote({ enrollmentBegin: () => { requested.resolve(); return reply.promise }, enrollmentCancel: async (action) => { cancels.push(action.id); return { ok: true, value: { id, ref: 'KEY_2', phase: 'cancelled', message: '取消' } } } })
+  const remote = clientRemote({ enrollmentBegin: () => { requested.resolve(); return reply.promise }, enrollmentCancel: async (action) => { cancels.push(action.id); return { ok: true, value: { id, ref: 'KEY_2', phase: 'cancelled', messageKey: 'enrollmentCancelled' } } } })
   const controller = new AccountEnrollmentController(() => remote, () => {}, 5, () => id, (url) => { opened.push(url) })
   const start = controller.begin({ mode: 'browser', label: '账号', automaticName: false })
   assert.equal(controller.store.getSnapshot().active?.id, id)
   await requested.promise
   controller.dispose()
   await until(() => cancels.length === 1)
-  reply.resolve({ ok: true, value: { id, ref: 'KEY_2', phase: 'waiting', authUrl: 'https://example.invalid/auth', message: '等待授权' } })
+  reply.resolve({ ok: true, value: { id, ref: 'KEY_2', phase: 'waiting', authUrl: 'https://example.invalid/auth', messageKey: 'enrollmentWaiting' } })
   await start
   assert.deepEqual(cancels, [id, id])
   assert.deepEqual(opened, [], '卸载后的迟到地址不打开授权页')
@@ -301,13 +326,13 @@ test('新增账号在后续轮询收到地址时打开，重复状态不重复�
   const reply = deferred<RemoteResult<EnrollmentState>>()
   const remote = clientRemote({
     enrollmentBegin: () => reply.promise,
-    enrollmentStatus: async () => { polls++; return { ok: true, value: { id, ref: 'KEY_2', phase: 'waiting', authUrl: 'https://example.invalid/auth', message: '等待授权' } } },
+    enrollmentStatus: async () => { polls++; return { ok: true, value: { id, ref: 'KEY_2', phase: 'waiting', authUrl: 'https://example.invalid/auth', messageKey: 'enrollmentWaiting' } } },
   })
   const controller = new AccountEnrollmentController(() => remote, () => {}, 2, () => id, (url) => { opened.push(url) })
   try {
     const begin = controller.begin({ mode: 'browser', label: '账号', automaticName: true })
     assert.deepEqual(opened, [], '请求发出时尚无地址，不打开页面')
-    reply.resolve({ ok: true, value: { id, ref: 'KEY_2', phase: 'creating', message: '创建中' } })
+    reply.resolve({ ok: true, value: { id, ref: 'KEY_2', phase: 'creating', messageKey: 'enrollmentCreating' } })
     await begin
     assert.deepEqual(opened, [])
     await until(() => polls >= 2)
@@ -344,7 +369,7 @@ test('真实 Cordis 远端接收器：共享同一个 Peer 的两页互不取消
 })
 test('页面控制器轮询完成即停止，待命名仍可接受已有名称', async () => {
   let polls = 0
-  const remote = clientRemote({ enrollmentStatus: async () => { polls++; return { ok: true, value: { id, ref: 'KEY_2', phase: 'naming', message: '待命名' } } }, enrollmentName: async () => ({ ok: true, value: { id, ref: 'KEY_2', phase: 'finished', message: '完成' } }) })
+  const remote = clientRemote({ enrollmentStatus: async () => { polls++; return { ok: true, value: { id, ref: 'KEY_2', phase: 'naming', messageKey: 'enrollmentNaming' } } }, enrollmentName: async () => ({ ok: true, value: { id, ref: 'KEY_2', phase: 'finished', messageKey: 'enrollmentFinished' } }) })
   const controller = new AccountEnrollmentController(() => remote, () => {}, 2, () => id)
   await controller.begin({ mode: 'browser', label: '账号', automaticName: true })
   await until(() => controller.store.getSnapshot().active?.phase === 'naming')
@@ -361,6 +386,7 @@ test('观察流未建立不会开始写入，失败后可重新尝试且页面�
   assert.equal(calls, 0)
   assert.equal(controller.store.getSnapshot().active, undefined)
   assert.ok(!JSON.stringify(controller.store.getSnapshot()).includes('synthetic-key'))
-  assert.ok(controller.store.getSnapshot().error?.includes('请求失败'))
+  // 观察流未建立时这一侧直接给出语义键，不再靠匹配中文子串来判断失败原因。
+  assert.equal(controller.store.getSnapshot().error, 'enrollmentBeginFailed')
   controller.dispose()
 })

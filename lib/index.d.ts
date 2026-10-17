@@ -953,11 +953,28 @@ interface EnrollmentInput {
   key?: string;
 }
 type EnrollmentPhase = 'creating' | 'waiting' | 'writing' | 'naming' | 'finished' | 'cancelling' | 'cancelled' | 'failed' | 'cleanup-needed';
+/**
+ * 账号开通状态的语义消息键。
+ *
+ * 状态消息传键而不是成品文案：界面语言由浏览器侧持有，宿主没有立场去猜；同一条状态
+ * 要在中文与英文界面下各自显示，而 `phase` 不足以唯一确定它——`naming` 既有「正在
+ * 保存名称」也有「名称保存失败」，`cleanup-needed` 既有「收尾未完成」也有「清理未
+ * 完成」，`cancelled` 既有「已取消」也有「已取消并清理」。客户端拿这些键走 `t()`
+ * 渲染，不必再匹配自由文本；`SettingsCommandCodeKey` 收录本类型，因此新增键漏写
+ * 中文或英文字典都会被类型检查拦下。
+ *
+ * 其中十五条由宿主产出（`src/enrollment.ts`），`enrollmentCleanupPending` 也在此列——
+ * 它在「收尾未完成」时由宿主与页面两侧共用同一个键；另外七条是浏览器侧控制器的专属键
+ * （`src/client/enrollment.ts`），只在传输失败或连接断开时由该侧自己产出。宿主抛出的
+ * 异常消息不在此列：它们不上屏，客户端在所有失败路径都用自己这一侧的文案覆盖。
+ */
+type EnrollmentMessageKey = 'enrollmentCreating' | 'enrollmentWaiting' | 'enrollmentWriting' | 'enrollmentNaming' | 'enrollmentNameFailed' | 'enrollmentFinished' | 'enrollmentCancelling' | 'enrollmentCancelled' | 'enrollmentCancelledCleaned' | 'enrollmentFailed' | 'enrollmentFailedCleaned' | 'enrollmentCleanupPending' | 'enrollmentCleanupFailed' | 'enrollmentRecordNaming' | 'enrollmentRecordCleanup' | 'enrollmentBeginFailed' | 'enrollmentCancelUnconfirmed' | 'enrollmentNameRequestFailed' | 'enrollmentCleanupRequestFailed' | 'enrollmentDisconnected' | 'enrollmentHostUnavailable' | 'enrollmentStatusUnavailable';
 interface EnrollmentState {
   id: string;
   ref: string;
   phase: EnrollmentPhase;
-  message: string;
+  /** 要显示的语义键；文案由浏览器侧按界面语言渲染，见 {@link EnrollmentMessageKey}。 */
+  messageKey: EnrollmentMessageKey;
   authUrl?: string;
   suggestedName?: string;
 }

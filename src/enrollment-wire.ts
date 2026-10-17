@@ -12,11 +12,67 @@ export interface EnrollmentInput {
   key?: string
 }
 export type EnrollmentPhase = 'creating' | 'waiting' | 'writing' | 'naming' | 'finished' | 'cancelling' | 'cancelled' | 'failed' | 'cleanup-needed'
+/**
+ * 账号开通状态的语义消息键。
+ *
+ * 状态消息传键而不是成品文案：界面语言由浏览器侧持有，宿主没有立场去猜；同一条状态
+ * 要在中文与英文界面下各自显示，而 `phase` 不足以唯一确定它——`naming` 既有「正在
+ * 保存名称」也有「名称保存失败」，`cleanup-needed` 既有「收尾未完成」也有「清理未
+ * 完成」，`cancelled` 既有「已取消」也有「已取消并清理」。客户端拿这些键走 `t()`
+ * 渲染，不必再匹配自由文本；`SettingsCommandCodeKey` 收录本类型，因此新增键漏写
+ * 中文或英文字典都会被类型检查拦下。
+ *
+ * 其中十五条由宿主产出（`src/enrollment.ts`），`enrollmentCleanupPending` 也在此列——
+ * 它在「收尾未完成」时由宿主与页面两侧共用同一个键；另外七条是浏览器侧控制器的专属键
+ * （`src/client/enrollment.ts`），只在传输失败或连接断开时由该侧自己产出。宿主抛出的
+ * 异常消息不在此列：它们不上屏，客户端在所有失败路径都用自己这一侧的文案覆盖。
+ */
+export type EnrollmentMessageKey =
+  | 'enrollmentCreating'
+  | 'enrollmentWaiting'
+  | 'enrollmentWriting'
+  | 'enrollmentNaming'
+  | 'enrollmentNameFailed'
+  | 'enrollmentFinished'
+  | 'enrollmentCancelling'
+  | 'enrollmentCancelled'
+  | 'enrollmentCancelledCleaned'
+  | 'enrollmentFailed'
+  | 'enrollmentFailedCleaned'
+  | 'enrollmentCleanupPending'
+  | 'enrollmentCleanupFailed'
+  | 'enrollmentRecordNaming'
+  | 'enrollmentRecordCleanup'
+  | 'enrollmentBeginFailed'
+  | 'enrollmentCancelUnconfirmed'
+  | 'enrollmentNameRequestFailed'
+  | 'enrollmentCleanupRequestFailed'
+  | 'enrollmentDisconnected'
+  | 'enrollmentHostUnavailable'
+  | 'enrollmentStatusUnavailable'
+export const ENROLLMENT_MESSAGE_KEYS = [
+  'enrollmentCreating', 'enrollmentWaiting', 'enrollmentWriting', 'enrollmentNaming', 'enrollmentNameFailed',
+  'enrollmentFinished', 'enrollmentCancelling', 'enrollmentCancelled', 'enrollmentCancelledCleaned', 'enrollmentFailed',
+  'enrollmentFailedCleaned', 'enrollmentCleanupPending', 'enrollmentCleanupFailed', 'enrollmentRecordNaming', 'enrollmentRecordCleanup',
+  'enrollmentBeginFailed', 'enrollmentCancelUnconfirmed', 'enrollmentNameRequestFailed', 'enrollmentCleanupRequestFailed',
+  'enrollmentDisconnected', 'enrollmentHostUnavailable', 'enrollmentStatusUnavailable',
+] as const satisfies readonly EnrollmentMessageKey[]
+/**
+ * 键表必须覆盖 {@link EnrollmentMessageKey} 的每一个成员。
+ *
+ * `satisfies` 只保证数组里不出现类型以外的键，**漏写一项它不会报错**——而漏写的后果
+ * 不是少一条文案：`parseEnrollmentState` 会拒绝该键，`enrollmentPending` 的整张表随之
+ * 被拒，对应的恢复记录从界面静默消失。所以补一个反方向的编译期断言：数组比类型少时
+ * `Exclude` 不为 `never`，这里的 `= true` 直接编译失败。
+ */
+export const ENROLLMENT_MESSAGE_KEYS_ARE_COMPLETE:
+  Exclude<EnrollmentMessageKey, (typeof ENROLLMENT_MESSAGE_KEYS)[number]> extends never ? true : never = true
 export interface EnrollmentState {
   id: string
   ref: string
   phase: EnrollmentPhase
-  message: string
+  /** 要显示的语义键；文案由浏览器侧按界面语言渲染，见 {@link EnrollmentMessageKey}。 */
+  messageKey: EnrollmentMessageKey
   authUrl?: string
   suggestedName?: string
 }
@@ -33,9 +89,11 @@ export function parseEnrollmentState(value: unknown): EnrollmentState {
   const source = guard.record(value, 'state')
   const phase = source.phase
   if (!phases.includes(phase as EnrollmentPhase)) return guard.reject('phase')
+  const messageKey = source.messageKey
+  if (!ENROLLMENT_MESSAGE_KEYS.includes(messageKey as EnrollmentMessageKey)) return guard.reject('messageKey')
   const state: EnrollmentState = {
     id: guard.stringField(source, 'id', 'id'), ref: guard.stringField(source, 'ref', 'ref'),
-    phase: phase as EnrollmentPhase, message: guard.stringField(source, 'message', 'message'),
+    phase: phase as EnrollmentPhase, messageKey: messageKey as EnrollmentMessageKey,
   }
   for (const field of ['authUrl', 'suggestedName'] as const) {
     if (source[field] !== undefined) state[field] = guard.stringField(source, field, field)
