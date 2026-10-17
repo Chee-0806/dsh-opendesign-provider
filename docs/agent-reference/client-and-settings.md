@@ -5,7 +5,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 - **账号开通**：两种新增方式统一使用 `src/enrollment.ts`；`src/client/enrollment.ts` 由每次设置页挂载持有，`AddAccountPanel` 只负责输入和意图。离开设置页取消未完成过程，已登录待命名则接受已有名称；命名失败保留账号，清理失败保留恢复记录并提供手动重试。默认或已有账号的 `login*` 契约继续使用原控制器。
 - **自动打开授权页**：新增、默认和已有账号登录均在首次收到宿主授权地址后通过 `src/client/login-page.ts` 打开新页面，不预先打开空白页；同一尝试的轮询不重复打开，已取消尝试或已卸载的新增账号面板不会因迟到地址打开页面。浏览器可能拦截异步打开，界面始终保留授权链接及手动打开提示；打开失败不取消宿主登录。使用 `noopener,noreferrer` 隔离来源页，不能根据返回 `null` 判断是否拦截。
 - **页面生命期**：`enrollmentWatch({ pageId })` 是持续远端流，先确认就绪再允许 `enrollmentBegin`。所有过程调用带页面身份；宿主将它与实际调用对端共同绑定。单次调用完成不结束过程；页面卸载主动取消并释放流，刷新或关闭由网关流取消信号触发收尾。DSH 的 `OperatorPeer` 是宿主共享作用域，不能用它冒充单个浏览器连接。载体断开不会自动重建原过程。
-- **开通远端契约**：双方共享 `src/enrollment-wire.ts` 的七个严格描述符：`enrollmentBegin`、`enrollmentStatus`、`enrollmentCancel`、`enrollmentName`、`enrollmentRetry`、`enrollmentPending` 和流式 `enrollmentWatch`。前六个返回状态或恢复列表，观察流返回就绪确认；所有输入、输出使用严格编解码器。密钥仅允许在手动开始输入中出现，不进入状态、日志或设置文档。旧宿主缺少该契约时明确提示更新，不回退到旧的页面副作用编排。
+- **开通远端契约**：双方共享 `src/enrollment-wire.ts` 的七个严格描述符：`enrollmentBegin`、`enrollmentStatus`、`enrollmentCancel`、`enrollmentName`、`enrollmentRetry`、`enrollmentPending` 和流式 `enrollmentWatch`。前六个返回状态或恢复列表，观察流返回就绪确认；所有输入、输出使用严格编解码器。密钥仅允许在手动开始输入中出现，不进入状态、日志或设置文档。旧宿主缺少该契约时明确提示更新，不回退到旧的页面副作用编排。**状态消息只传语义键**：`EnrollmentState.messageKey` 取 `EnrollmentMessageKey`（22 个：宿主 15 个、页面控制器 7 个），`parseEnrollmentState` 校验枚举成员并拒绝自由文本；文案集中在设置页词典、渲染时才按界面语言取，因此宿主与页面不会各写一份，`phase` 也不必再兼作文案判据（同一 `phase` 对应多种语义，如 `naming` 的「正在保存名称」与「名称保存失败」）。宿主抛出的异常消息不在此列：它们不上屏，页面在所有失败路径都用自己这一侧的键覆盖。
 
 - **登录总期限**：浏览器回调成功只关闭监听，不撤销登录计时器。身份验证带取消信号；超时、取消、替换尝试或销毁会中止验证，迟到结果不能开始存储或覆盖状态。期限同样约束等待存储的状态；宿主已发出的凭据写入不能凭空撤销，不能声称提供跨服务事务。
 - **秒制设置保留毫秒精度**：显示与输入最多三位小数，范围 0.001–3600 秒，存储仍为整数毫秒；已有范围外配置照实显示，不静默截断。超时字段使用小数键盘和秒制错误说明，重试次数仍为整数。

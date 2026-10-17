@@ -63,10 +63,11 @@ export class AccountEnrollmentManager {
     if (existing) return this.owned(owner, input.id).state
     if (this.closed) throw new Error('账号开通服务已关闭')
     if (this.records().some((record) => record.id === input.id)) throw new Error('已有未完成记录，请先处理')
-    const task: Task = { owner, cancelled: false, state: { id: input.id, ref: '', phase: 'creating', message: '正在创建账号' } }
+    // 状态只带语义键，文案由浏览器侧按界面语言渲染（见 `EnrollmentMessageKey`）。
+    const task: Task = { owner, cancelled: false, state: { id: input.id, ref: '', phase: 'creating', messageKey: 'enrollmentCreating' } }
     this.tasks.set(input.id, task)
     task.work = this.run(task, input).catch(() => {
-      task.state = { ...task.state, phase: 'cleanup-needed', message: '收尾未完成，请重试' }
+      task.state = { ...task.state, phase: 'cleanup-needed', messageKey: 'enrollmentCleanupPending' }
     })
     return task.state
   }
@@ -91,7 +92,7 @@ export class AccountEnrollmentManager {
     if (!task) {
       if (this.records().some((record) => record.id === id)) return this.retry(owner, id)
       // 取消先于 begin 到达时留下墓碑，不能随后创建账号。
-      task = { owner, cancelled: true, state: { id, ref: '', phase: 'cancelled', message: '已取消' } }
+      task = { owner, cancelled: true, state: { id, ref: '', phase: 'cancelled', messageKey: 'enrollmentCancelled' } }
       this.tasks.set(id, task)
       return task.state
     }
@@ -99,7 +100,7 @@ export class AccountEnrollmentManager {
     if (task.state.phase === 'naming') return this.name(owner, id)
     if (terminal(task.state)) return task.state
     task.cancelled = true
-    task.state = { ...task.state, phase: 'cancelling', message: '正在等待写入结束并清理' }
+    task.state = { ...task.state, phase: 'cancelling', messageKey: 'enrollmentCancelling' }
     await task.flow?.cancelAndDrain()
     await task.work
     return task.state
@@ -124,9 +125,9 @@ export class AccountEnrollmentManager {
           accountEnrollmentTasks: (value.accountEnrollmentTasks ?? []).filter((item) => item.id !== id),
         }
       })
-      return this.publish(task, { id, ref: record.ref, phase: 'finished', message: '账号开通完成' })
+      return this.publish(task, { id, ref: record.ref, phase: 'finished', messageKey: 'enrollmentFinished' })
     } catch {
-      return this.publish(task, { id, ref: record.ref, phase: 'naming', message: '账号已登录，名称保存失败，请重试或接受已有名称', ...(name ? { suggestedName: name } : {}) })
+      return this.publish(task, { id, ref: record.ref, phase: 'naming', messageKey: 'enrollmentNameFailed', ...(name ? { suggestedName: name } : {}) })
     }
   }
   async retry(owner: string, id: string, name?: string): Promise<EnrollmentState> {
@@ -141,7 +142,7 @@ export class AccountEnrollmentManager {
     if (record.phase === 'naming' || existing?.state.phase === 'naming') return this.name(owner, id, name)
     const task = existing ?? { owner, cancelled: true, writeStarted: true, state: this.recovered(record) }
     this.tasks.set(id, task)
-    task.work = this.cleanup(task).catch(() => { task.state = { ...task.state, phase: 'cleanup-needed', message: '清理未完成，请重试' } })
+    task.work = this.cleanup(task).catch(() => { task.state = { ...task.state, phase: 'cleanup-needed', messageKey: 'enrollmentCleanupFailed' } })
     await task.work
     return task.state
   }
@@ -185,7 +186,7 @@ export class AccountEnrollmentManager {
             if (status.state === 'success' || status.state === 'failed') { off(); resolve(status) }
           })
           void flow.begin(task.state.ref).then((status) => {
-            if (!task.cancelled && status.state === 'waiting') task.state = { ...task.state, phase: 'waiting', message: '等待浏览器登录', ...(status.authUrl ? { authUrl: status.authUrl } : {}) }
+            if (!task.cancelled && status.state === 'waiting') task.state = { ...task.state, phase: 'waiting', messageKey: 'enrollmentWaiting', ...(status.authUrl ? { authUrl: status.authUrl } : {}) }
             if (task.cancelled) void flow.cancelAndDrain()
           }, (error: unknown) => { off(); reject(error) })
         })
@@ -194,12 +195,12 @@ export class AccountEnrollmentManager {
       }
       if (task.cancelled) return await this.cleanup(task)
       // 先登记已登录事实，再尝试命名。命名失败绝不走删除凭据的补偿分支。
-      task.state = { ...task.state, phase: 'naming', message: '账号已登录，正在保存名称', ...(suggested ? { suggestedName: suggested } : {}) }
+      task.state = { ...task.state, phase: 'naming', messageKey: 'enrollmentNaming', ...(suggested ? { suggestedName: suggested } : {}) }
       try {
         await this.change((value) => ({ accountEnrollmentTasks: (value.accountEnrollmentTasks ?? []).map((item) => item.id === input.id ? { ...item, phase: 'naming', label: suggested || item.label } : item) }))
       } catch {
         if (task.state.phase === 'finished') return
-        task.state = { ...task.state, message: '账号已登录，名称保存失败，请重试或接受已有名称' }
+        task.state = { ...task.state, messageKey: 'enrollmentNameFailed' }
         return
       }
       await this.name(task.owner, input.id, suggested)
@@ -208,12 +209,12 @@ export class AccountEnrollmentManager {
       if (task.cleanupStarted) throw new Error('账号清理未完成')
       await task.flow?.cancelAndDrain()
       if (task.state.ref && this.records().some((item) => item.id === task.state.id)) await this.cleanup(task)
-      else task.state = { ...task.state, phase: task.cancelled ? 'cancelled' : 'failed', message: task.cancelled ? '已取消' : '账号开通失败，未创建账号' }
+      else task.state = { ...task.state, phase: task.cancelled ? 'cancelled' : 'failed', messageKey: task.cancelled ? 'enrollmentCancelled' : 'enrollmentFailed' }
     } finally { task.flow?.dispose() }
   }
   private async store(task: Task, key: string): Promise<void> {
     if (task.cancelled) throw new Error('已取消')
-    task.state = { ...task.state, phase: 'writing', message: '正在保存凭据' }
+    task.state = { ...task.state, phase: 'writing', messageKey: 'enrollmentWriting' }
     task.writeStarted = true
     await this.deps.set(task.state.ref, key)
     if (!(await this.deps.describe(task.state.ref)).configured) throw new Error('凭据写入未确认')
@@ -246,7 +247,7 @@ export class AccountEnrollmentManager {
       accountEnrollmentTasks: (current.accountEnrollmentTasks ?? []).filter((item) => item.id !== id),
       credentialCleanupRefs: (current.credentialCleanupRefs ?? []).filter((item) => item !== ref),
     }))
-    task.state = { id, ref, phase: task.cancelled ? 'cancelled' : 'failed', message: task.cancelled ? '已取消并清理' : '开通失败，已清理临时账号' }
+    task.state = { id, ref, phase: task.cancelled ? 'cancelled' : 'failed', messageKey: task.cancelled ? 'enrollmentCancelledCleaned' : 'enrollmentFailedCleaned' }
   }
   private settings(): EnrollmentSettings {
     const settings = this.deps.settings()
@@ -281,6 +282,6 @@ export class AccountEnrollmentManager {
     }
   }
   private recovered(record: EnrollmentRecord): EnrollmentState {
-    return { id: record.id, ref: record.ref, phase: record.phase === 'naming' ? 'naming' : 'cleanup-needed', message: record.phase === 'naming' ? '已登录账号等待确认名称' : '账号开通收尾未完成，请重试', ...(record.phase === 'naming' ? { suggestedName: record.label } : {}) }
+    return { id: record.id, ref: record.ref, phase: record.phase === 'naming' ? 'naming' : 'cleanup-needed', messageKey: record.phase === 'naming' ? 'enrollmentRecordNaming' : 'enrollmentRecordCleanup', ...(record.phase === 'naming' ? { suggestedName: record.label } : {}) }
   }
 }

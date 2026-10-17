@@ -1527,10 +1527,10 @@ function AddAccountPanel({ state, disabled, t, enrollment, snapshot, onClose }: 
       <span className="cc-panelTitle">{t('accountAdd')}</span>
       <input className="cc-input" type="text" aria-label={t('accountNamePlaceholder')} placeholder={t('accountNamePlaceholder')}
         value={label} disabled={disabled || busy} onChange={(event) => setLabel(event.target.value)} />
-      {active ? <p className="cc-hint" role="status">{active.message}</p> : null}
+      {active ? <p className="cc-hint" role="status">{t(active.messageKey)}</p> : null}
       {active?.authUrl && active.phase === 'waiting' ? <p className="cc-hint">{t('accountAddLinkHint')}</p> : null}
       {active?.authUrl && active.phase === 'waiting' ? <a className="cc-linkButton" href={active.authUrl} target="_blank" rel="noreferrer">{t('accountAddOpenLink')}</a> : null}
-      {snapshot.error ? <p className="cc-loginError" role="status">{snapshot.error}</p> : null}
+      {snapshot.error ? <p className="cc-loginError" role="status">{t(snapshot.error)}</p> : null}
       {active?.phase === 'naming' ? (
         <div className="cc-inlineActions">
           <Button variant="primary" size="sm" disabled={disabled} onClick={() => void enrollment.name(active.suggestedName || label || fallbackName)}>{t('accountNameSaveRetry')}</Button>
@@ -1610,7 +1610,7 @@ function AccountsCard({ t, state, usage, login, disabled, actions, onRefresh, cr
       ) : null}
       {settingsWriteNotice(state.accountResult, t) || state.accountFailed !== undefined ? <p className="cc-rowError" role="status">{settingsWriteNotice(state.accountResult, t) || t('accountOpFailed')}</p> : null}
       {state.credentialRefreshFailed || state.accountResult?.refreshFailed || state.saveResult?.refreshFailed ? <div className="cc-rowError" role="status"><p>{t('writeRefreshFailed')}</p><button type="button" className="cc-btn cc-btnSm" onClick={actions.refreshCredentials}>{t('writeRefreshRetry')}</button></div> : null}
-      {!adding && snapshot.error ? <p className="cc-rowError" role="status">{snapshot.error}</p> : null}
+      {!adding && snapshot.error ? <p className="cc-rowError" role="status">{t(snapshot.error)}</p> : null}
       {state.pendingCredentialCleanup.length > 0 ? (
         <div className="cc-rowError" role="status">
           <p>{t('accountCleanupPending')}</p>
@@ -1622,7 +1622,7 @@ function AccountsCard({ t, state, usage, login, disabled, actions, onRefresh, cr
       ) : null}
       {snapshot.pending.filter((record) => record.id !== snapshot.active?.id).map((record) => (
         <div className="cc-rowError" role="status" key={record.id}>
-          <p>{record.ref}{t('accountRefSeparator')}{record.message}</p>
+          <p>{record.ref}{t('accountRefSeparator')}{t(record.messageKey)}</p>
           {record.phase === 'naming' && record.suggestedName ? (
             <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.recover(record, record.suggestedName)}>{t('accountNameSaveRetry')}</Button>
           ) : null}
@@ -1633,7 +1633,7 @@ function AccountsCard({ t, state, usage, login, disabled, actions, onRefresh, cr
       ))}
       {snapshot.active?.phase === 'cleanup-needed' ? (
         <div className="cc-rowError" role="status">
-          <p>{snapshot.active.message}</p>
+          <p>{t(snapshot.active.messageKey)}</p>
           <Button variant="ghost" size="sm" disabled={disabled} onClick={() => void enrollment.recover(snapshot.active!)}>{t('accountEnrollmentCleanupRetry')}</Button>
         </div>
       ) : null}
