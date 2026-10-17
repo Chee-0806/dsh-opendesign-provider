@@ -12,7 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 
-- 问题 #74（第二半）：**7 处裸 `error instanceof Error ? error.message : String(error)` 收进统一的可读错误兜底函数**。抛出的值不是 `Error` 时 `String()` 会退化成 `[object Object]`，信息全丢；0.12.2 只在浏览器侧的 RPC 边界修了这一点，Host 侧的服务端路径（通用 HTTP 用量查询、`/commandcode` 命令、账号卡片用量读取、浏览器登录流程、终端设置页注册失败、网页搜索的请求与凭据解析）仍是裸写法。支撑 `readableErrorText()` 的实现移入 Host 与客户端共用的 `src/readable-error.ts`，浏览器侧五个调用点直接导入它（不再保留中间再导出模块），两侧不会再各自演化。
+- 问题 #74（第二半）：**7 处裸 `error instanceof Error ? error.message : String(error)` 收进统一的可读错误兜底函数**。抛出的值不是 `Error` 时 `String()` 会退化成 `[object Object]`，信息全丢；0.12.2 只在浏览器侧的 RPC 边界修了这一点，Host 侧的服务端路径（通用 HTTP 用量查询、`/commandcode` 命令、账号卡片用量读取、浏览器登录流程、终端设置页注册失败、网页搜索的请求与凭据解析）仍是裸写法。支撑 `readableErrorText()` 的实现移入 Host 与客户端共用的 `src/readable-error.ts`，Host 侧七个调用点与浏览器侧六个调用点（分布在五个文件）直接导入它（不再保留中间再导出模块），两侧不会再各自演化。
+
+- 问题 #90：**英文界面残留中文文案**。`en` 字典补齐 14 个 `write*` 设置写入提示与 `usagePeriodUnknown` 的英文翻译；`settingsWriteNotice()` 里硬编码的「（原引用：…）」改走本地化（新增 `writeCredentialRefNote` 键，中文输出与改动前逐字一致）。合并前另补齐**同一设置页界面层**漏掉的 9 处硬编码中文——`section.tsx` 的「若登录页面未自动打开，请点击下方链接。」「打开浏览器登录」「重试保存名称」「接受已有名称」「取消开通」「重试清理」，以及账号恢复行里硬编码的全角冒号分隔符；这些文案与 `settingsWriteNotice` 同页，此前在英文界面下仍显示中文。新增 7 个键（`accountAddLinkHint`、`accountAddOpenLink`、`accountAddCancel`、`accountNameSaveRetry`、`accountNameAcceptExisting`、`accountEnrollmentCleanupRetry`、`accountRefSeparator`），联合类型 / 中文 / 英文三处同步，全角冒号在英文侧改为半角加空格。新增**英文侧 CJK 守护测试**：`en` 字典出现任何中文字符即失败；`PANEL_COPY_EN` 只放行 `analytics-copy.ts` 声明的「错误、缺失与读取状态各语言统一中文」既定约定，并断言该约定仍在生效；三组变异测试确认守护会真正失败。`lib/client.js` 与 sourcemap 同步重建。**边界**：账号开通与恢复流程的状态消息（`active.message` / `record.message`）来自 `src/enrollment.ts` 与 `src/client/enrollment.ts` 的中文字面量，英文界面下该行仍为中文，不在本次范围内。
 
 ## [0.13.4] - 2026-10-16
 
