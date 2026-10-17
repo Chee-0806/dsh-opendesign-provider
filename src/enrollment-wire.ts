@@ -22,9 +22,10 @@ export type EnrollmentPhase = 'creating' | 'waiting' | 'writing' | 'naming' | 'f
  * 渲染，不必再匹配自由文本；`SettingsCommandCodeKey` 收录本类型，因此新增键漏写
  * 中文或英文字典都会被类型检查拦下。
  *
- * 前十五条由宿主产出（`src/enrollment.ts`），后七条由浏览器侧的控制器在传输失败时
- * 自己产出（`src/client/enrollment.ts`）。宿主抛出的异常消息不在此列：它们不上屏，
- * 客户端在所有失败路径都用自己这一侧的文案覆盖。
+ * 其中十五条由宿主产出（`src/enrollment.ts`），`enrollmentCleanupPending` 也在此列——
+ * 它在「收尾未完成」时由宿主与页面两侧共用同一个键；另外七条是浏览器侧控制器的专属键
+ * （`src/client/enrollment.ts`），只在传输失败或连接断开时由该侧自己产出。宿主抛出的
+ * 异常消息不在此列：它们不上屏，客户端在所有失败路径都用自己这一侧的文案覆盖。
  */
 export type EnrollmentMessageKey =
   | 'enrollmentCreating'
@@ -49,13 +50,23 @@ export type EnrollmentMessageKey =
   | 'enrollmentDisconnected'
   | 'enrollmentHostUnavailable'
   | 'enrollmentStatusUnavailable'
-export const ENROLLMENT_MESSAGE_KEYS: readonly EnrollmentMessageKey[] = [
+export const ENROLLMENT_MESSAGE_KEYS = [
   'enrollmentCreating', 'enrollmentWaiting', 'enrollmentWriting', 'enrollmentNaming', 'enrollmentNameFailed',
   'enrollmentFinished', 'enrollmentCancelling', 'enrollmentCancelled', 'enrollmentCancelledCleaned', 'enrollmentFailed',
   'enrollmentFailedCleaned', 'enrollmentCleanupPending', 'enrollmentCleanupFailed', 'enrollmentRecordNaming', 'enrollmentRecordCleanup',
   'enrollmentBeginFailed', 'enrollmentCancelUnconfirmed', 'enrollmentNameRequestFailed', 'enrollmentCleanupRequestFailed',
   'enrollmentDisconnected', 'enrollmentHostUnavailable', 'enrollmentStatusUnavailable',
-]
+] as const satisfies readonly EnrollmentMessageKey[]
+/**
+ * 键表必须覆盖 {@link EnrollmentMessageKey} 的每一个成员。
+ *
+ * `satisfies` 只保证数组里不出现类型以外的键，**漏写一项它不会报错**——而漏写的后果
+ * 不是少一条文案：`parseEnrollmentState` 会拒绝该键，`enrollmentPending` 的整张表随之
+ * 被拒，对应的恢复记录从界面静默消失。所以补一个反方向的编译期断言：数组比类型少时
+ * `Exclude` 不为 `never`，这里的 `= true` 直接编译失败。
+ */
+export const ENROLLMENT_MESSAGE_KEYS_ARE_COMPLETE:
+  Exclude<EnrollmentMessageKey, (typeof ENROLLMENT_MESSAGE_KEYS)[number]> extends never ? true : never = true
 export interface EnrollmentState {
   id: string
   ref: string

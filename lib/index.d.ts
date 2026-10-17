@@ -963,9 +963,10 @@ type EnrollmentPhase = 'creating' | 'waiting' | 'writing' | 'naming' | 'finished
  * 渲染，不必再匹配自由文本；`SettingsCommandCodeKey` 收录本类型，因此新增键漏写
  * 中文或英文字典都会被类型检查拦下。
  *
- * 前十五条由宿主产出（`src/enrollment.ts`），后七条由浏览器侧的控制器在传输失败时
- * 自己产出（`src/client/enrollment.ts`）。宿主抛出的异常消息不在此列：它们不上屏，
- * 客户端在所有失败路径都用自己这一侧的文案覆盖。
+ * 其中十五条由宿主产出（`src/enrollment.ts`），`enrollmentCleanupPending` 也在此列——
+ * 它在「收尾未完成」时由宿主与页面两侧共用同一个键；另外七条是浏览器侧控制器的专属键
+ * （`src/client/enrollment.ts`），只在传输失败或连接断开时由该侧自己产出。宿主抛出的
+ * 异常消息不在此列：它们不上屏，客户端在所有失败路径都用自己这一侧的文案覆盖。
  */
 type EnrollmentMessageKey = 'enrollmentCreating' | 'enrollmentWaiting' | 'enrollmentWriting' | 'enrollmentNaming' | 'enrollmentNameFailed' | 'enrollmentFinished' | 'enrollmentCancelling' | 'enrollmentCancelled' | 'enrollmentCancelledCleaned' | 'enrollmentFailed' | 'enrollmentFailedCleaned' | 'enrollmentCleanupPending' | 'enrollmentCleanupFailed' | 'enrollmentRecordNaming' | 'enrollmentRecordCleanup' | 'enrollmentBeginFailed' | 'enrollmentCancelUnconfirmed' | 'enrollmentNameRequestFailed' | 'enrollmentCleanupRequestFailed' | 'enrollmentDisconnected' | 'enrollmentHostUnavailable' | 'enrollmentStatusUnavailable';
 interface EnrollmentState {

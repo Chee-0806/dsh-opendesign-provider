@@ -267,6 +267,28 @@ test('开通双方契约严格校验并丢弃多余密钥字段', () => {
   assert.equal(new Set(ENROLLMENT_DESCRIPTORS.map((descriptor) => descriptor.method)).size, 7)
 })
 
+test('宿主产出的状态键与阶段语义一致，不依赖文案匹配', async () => {
+  const h = harness()
+  // begin 的同步返回值就是 creating：这一处若与阶段错配，界面会在刚发起时显示别的阶段的说明。
+  assert.equal(h.manager.begin(owner, input()).messageKey, 'enrollmentCreating')
+  // 写凭据之前必须已落到 writing，而不是仍停在 creating。
+  h.setHook(async () => { assert.equal(h.manager.status(owner, id).messageKey, 'enrollmentWriting') })
+  assert.equal((await settled(h)).messageKey, 'enrollmentFinished')
+})
+
+test('恢复记录的键按待命名与待收尾分开', () => {
+  // 两者共用同一个 phase 之外的语义：都靠各自的键区分，界面才不会把待命名说成待收尾。
+  const h = harness({
+    accountEnrollmentTasks: [
+      { id: '00000000-0000-4000-8000-0000000000a1', ref: 'KEY_2', phase: 'naming', label: '待命名' },
+      { id: '00000000-0000-4000-8000-0000000000a2', ref: 'KEY_3', phase: 'cleanup', label: '待收尾' },
+    ],
+  })
+  const pending = h.manager.pending(owner)
+  assert.equal(pending[0]?.messageKey, 'enrollmentRecordNaming')
+  assert.equal(pending[1]?.messageKey, 'enrollmentRecordCleanup')
+})
+
 function clientRemote(overrides: Partial<EnrollmentRemote> = {}): EnrollmentRemote {
   const state: EnrollmentState = { id, ref: 'KEY_2', phase: 'waiting', messageKey: 'enrollmentWaiting' }
   const result = async (): Promise<RemoteResult<EnrollmentState>> => ({ ok: true, value: state })
