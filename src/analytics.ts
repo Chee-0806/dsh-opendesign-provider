@@ -102,18 +102,18 @@ export function foldRequests(session: string, log: AnalyticsLog): RequestFact[] 
 
 /** The zeroed accumulator `aggregate` adds into. Internal: nothing outside this module reads it. */
 const emptyMetrics = (): AnalyticsMetrics => ({ sessions: 0, requests: 0, completed: 0, failed: 0, cancelled: 0, unknown: 0, retries: 0, usageSamples: 0, pricedRequests: 0, cost: 0, tokens: zeroCostTokens(), latencySamples: 0, latencyMs: 0, ttftSamples: 0, ttftMs: 0, decodeSamples: 0, decodeMs: 0, decodeTokens: 0 })
-function priceRequest(f: RequestFact, id: string, table: CommandCodePriceTable, prices: ReadonlyMap<string, CommandCodeModelPrice>, peakHours?: Map<number, boolean>): number | undefined {
+function priceRequest(f: RequestFact, id: string, table: CommandCodePriceTable, prices: ReadonlyMap<string, CommandCodeModelPrice>, peakHourCache?: Map<number, boolean>): number | undefined {
   if (!f.tokens) return undefined
   const price = prices.get(id)
   if (!price) return undefined
-  return requestCost(f.tokens, price, f.at, table, peakHours)
+  return requestCost(f.tokens, price, f.at, table, peakHourCache)
 }
-function aggregate(facts: RequestFact[], table: CommandCodePriceTable, prices: ReadonlyMap<string, CommandCodeModelPrice>, peakHours?: Map<number, boolean>): AnalyticsMetrics {
+function aggregate(facts: RequestFact[], table: CommandCodePriceTable, prices: ReadonlyMap<string, CommandCodeModelPrice>, peakHourCache?: Map<number, boolean>): AnalyticsMetrics {
   const m = emptyMetrics(); m.sessions = new Set(facts.map(f => f.session)).size
   for (const f of facts) {
     m.requests++; m[f.outcome]++; if (f.retry) m.retries++
     if (f.tokens) { m.usageSamples++; for (const k of COST_TOKEN_KEYS) m.tokens[k] += f.tokens[k] }
-    const cost = priceRequest(f, f.model, table, prices, peakHours)
+    const cost = priceRequest(f, f.model, table, prices, peakHourCache)
     if (cost !== undefined) { m.pricedRequests++; m.cost += cost }
     if (f.latencyMs !== undefined) { m.latencySamples++; m.latencyMs += f.latencyMs }
     if (f.ttftMs !== undefined) { m.ttftSamples++; m.ttftMs += f.ttftMs }
@@ -127,9 +127,10 @@ export function buildAnalytics(facts: RequestFact[], query: AnalyticsQuery, tabl
   const prices = new Map<string, CommandCodeModelPrice>()
   for (const p of table.models) for (const id of [p.id, p.slug]) if (!prices.has(id)) prices.set(id, p)
   // One memo shared by every pricing question this report asks: the peak-hour
-  // answer is a pure function of `at` and this one table.
-  const peakHours = new Map<number, boolean>()
-  const totals = aggregate(selected, table, prices, peakHours)
+  // answer is a pure function of `at` and this one table. Named `Cache` rather
+  // than `peakHours`, which is the table's own window list.
+  const peakHourCache = new Map<number, boolean>()
+  const totals = aggregate(selected, table, prices, peakHourCache)
   // Bucketing the selection once keeps the per-model totals linear. The previous
   // shape re-filtered the whole selection for every distinct model, which is
   // O(models x facts) — the dominant cost of a long session's report.
@@ -139,7 +140,7 @@ export function buildAnalytics(facts: RequestFact[], query: AnalyticsQuery, tabl
     if (bucket === undefined) byModel.set(f.model, [f])
     else bucket.push(f)
   }
-  const models = [...byModel].map(([id, bucket]) => ({ id, ...aggregate(bucket, table, prices, peakHours) })).sort((a, b) => b.cost - a.cost || a.id.localeCompare(b.id))
+  const models = [...byModel].map(([id, bucket]) => ({ id, ...aggregate(bucket, table, prices, peakHourCache) })).sort((a, b) => b.cost - a.cost || a.id.localeCompare(b.id))
   const scenarios: AnalyticsScenario[] = catalog.map(model => {
     let cost = 0, pricedRequests = 0, excludedRequests = 0, unknownRequests = 0
     // The candidate's price row is the same for every fact below.
@@ -149,7 +150,7 @@ export function buildAnalytics(facts: RequestFact[], query: AnalyticsQuery, tabl
       const context = f.tokens.uncachedInputTokens + f.tokens.cacheReadTokens + f.tokens.cacheWriteTokens
       // 输入和输出同时占据上下文；不适配的请求不得混进可比较的成本。
       if (model.contextWindow !== null && context + f.tokens.outputTokens > model.contextWindow) { excludedRequests++; continue }
-      const priced = price === undefined ? undefined : requestCost(f.tokens, price, f.at, table, peakHours)
+      const priced = price === undefined ? undefined : requestCost(f.tokens, price, f.at, table, peakHourCache)
       if (priced === undefined) unknownRequests++
       else { cost += priced; pricedRequests++ }
     }

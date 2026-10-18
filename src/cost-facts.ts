@@ -62,7 +62,7 @@ export function requestRates(
   at: number | null,
   contextTokens: number,
   table: CommandCodePriceTable,
-  peakHours?: Map<number, boolean>,
+  peakHourCache?: Map<number, boolean>,
 ): CommandCodeModelRates {
   // ORDER IS LOAD-BEARING: the generator refuses non-ascending bounds or a
   // bounded last band and the wire parser rejects the same shapes, so a
@@ -75,10 +75,11 @@ export function requestRates(
   // answer depends only on `at` and the table's windows — so a caller that is
   // pricing many candidates against one table can pass a memo to collapse the
   // repeated work. The memo is the caller's, so it can never outlive its table.
-  let peak = peakHours?.get(at)
+  // Named apart from `table.peakHours`, which is the window list itself.
+  let peak = peakHourCache?.get(at)
   if (peak === undefined) {
     peak = peakHour(at, table.peakHours)
-    peakHours?.set(at, peak)
+    peakHourCache?.set(at, peak)
   }
   return peak ? price.peak : price
 }
@@ -96,11 +97,11 @@ export function requestCost(
   price: CommandCodeModelPrice,
   at: number | null,
   table: CommandCodePriceTable,
-  peakHours?: Map<number, boolean>,
+  peakHourCache?: Map<number, boolean>,
 ): number | undefined {
   if (price.free === true) return 0
   const context = tokens.uncachedInputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens
-  const r = requestRates(price, at, context, table, peakHours)
+  const r = requestRates(price, at, context, table, peakHourCache)
   if (tokens.cacheWriteTokens > 0 && r.cacheWriteCost === undefined) return undefined
   return (tokens.uncachedInputTokens * r.inputCost + tokens.outputTokens * r.outputCost + tokens.cacheReadTokens * r.cacheReadCost + tokens.cacheWriteTokens * (r.cacheWriteCost ?? 0)) / 1e6
 }
