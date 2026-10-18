@@ -246,6 +246,15 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   be reconciled; unaccepted drafts remain. Successful saves clear only the captured draft versions,
   including a frozen visible-model selection. Account lists are rebuilt from raw stored entries so
   literal-key or unknown entries the page cannot name survive unrelated account edits.
+- **设置页折叠（issue #94）**：「模型与上下文」分组默认收起，点标题整行展开/收起；折叠头与「高级设置」共用
+  `DisclosureHead`／`CollapsibleGroup`（`src/client/section.tsx`）——整行可点、箭头在行尾、展开状态只活在
+  组件内 `useState`，既不跨刷新记忆也不进配置文档。折叠是**纯呈现层**开关：`filterModelsByPlan`／
+  `visibleModels`／`contextWindow`／`maxOutputTokens`／`contextWindowOverrides` 五个字段的暂存、校验与整批
+  提交路径一概不变，收起只决定组内 DOM 是否渲染。默认收起会把组内的无效数字一并藏起、而保存按钮随之禁用，
+  故折叠时标题行显示警告徽标（locale 键 `modelsInvalid`）；「组内是否有未填好的数字」抽成导出纯函数
+  `advancedGroupInvalid`／`modelsGroupInvalid`，由 React-free 用例固定（`tests/section.test.ts`）。
+  **已知取舍**：折叠头标题用 `span` 而非 `h3`（与「高级设置」一致，`button` 内不能放 heading），
+  该分组因此不在标题导航（heading navigation）里。
 - **自定义上下文长度（issue #86）**：`Config.contextWindow`（全局值）与 `Config.contextWindowOverrides`
   （按模型，键为目录 id）覆盖宣告给宿主的上下文窗口，解析顺序为按模型 → 全局 → 目录。页面上是
   「模型与上下文」分组内平铺的两段内容（`ContextCard` 渲染，直接排在「隐藏套餐外模型」开关与可见模型

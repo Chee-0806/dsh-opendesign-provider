@@ -15,6 +15,13 @@
  * below Accounts is a flat group of rows (title/description left, control
  * right) inside the staged form the floating save bar writes.
  *
+ * Two of those groups fold from their own heading — Models & context (issue
+ * #94) and Advanced — and both start collapsed on every visit, with no
+ * remembered state. While a group is collapsed its rows are not on screen, so
+ * anything inside it that blocks the save is reported on the heading itself
+ * (see `CollapsibleGroup`); the save bar alone would leave the disabled Save
+ * button unexplained.
+ *
  * Styles are injected once by the client entry (see src/client/index.ts) and
  * class-prefixed `cc-` to stay local.
  */
@@ -75,6 +82,37 @@ const ADVANCED_FIELDS: readonly AdvancedField[] = [
   'transportMaxRetries',
   'offloadSeenImagesForCache',
 ]
+
+/**
+ * The staged drafts the Models & context group owns. `filterModelsByPlan` is a
+ * switch and cannot fail through the page's own control, but it sits in the
+ * same staged plan the save guard walks and Advanced's equivalent switch is
+ * checked the same way — so the heading must not be able to disagree with it.
+ */
+type ModelsField = 'filterModelsByPlan' | 'contextWindow' | 'maxOutputTokens'
+const MODELS_FIELDS: readonly ModelsField[] = ['filterModelsByPlan', 'contextWindow', 'maxOutputTokens']
+
+/**
+ * Whether anything the collapsed Advanced card owns is blocking the save. The
+ * card is folded on arrival, so this drives the warning badge on its heading.
+ */
+export function advancedGroupInvalid(state: Pick<SettingsPageState, AdvancedField>): boolean {
+  return ADVANCED_FIELDS.some((field) => state[field].invalid)
+}
+
+/**
+ * Whether anything the collapsed Models & context group owns is blocking the
+ * save (issue #94). Besides its staged drafts — the plan switch and the two
+ * numbers — that group owns the per-model context rows, whose drafts are
+ * validated one by one: a bad row must surface on the heading just like a bad
+ * number, or Save would sit disabled with nothing on screen explaining why.
+ */
+export function modelsGroupInvalid(
+  state: Pick<SettingsPageState, ModelsField | 'contextWindowOverrides'>,
+): boolean {
+  return MODELS_FIELDS.some((field) => state[field].invalid)
+    || state.contextWindowOverrides.some((row) => row.invalid)
+}
 
 /** The "customized" tag and reset link a staged field shows once it differs from the default. */
 function FieldOverride({ label, state, disabled, t, onReset }: {
@@ -662,6 +700,73 @@ function SettingsGroup({ title, action, divided = false, children }: { title: st
   )
 }
 
+/**
+ * The heading of a foldable group: the whole row is the toggle and the chevron
+ * sits at its trailing edge. Shared by Models & context (issue #94: the
+ * reporter asked for it to fold "like Advanced below") and Advanced itself, so
+ * the two cannot drift apart in either markup or behaviour.
+ *
+ * The title is a `span`, not the `h3` a static group uses, because a heading
+ * element cannot sit inside a button — the same trade-off Advanced has always
+ * made on its own.
+ */
+function DisclosureHead({ title, bodyId, expanded, onToggle, badges }: {
+  title: string
+  /** Id of the body this head controls; the body is absent while collapsed. */
+  bodyId: string
+  expanded: boolean
+  onToggle(): void
+  /** Heading badges, given the current state so a badge can be collapse-only. */
+  badges?: ((expanded: boolean) => ReactNode) | undefined
+}) {
+  return (
+    <button
+      type="button"
+      className="cc-groupHead cc-disclosure"
+      aria-expanded={expanded}
+      aria-controls={bodyId}
+      onClick={onToggle}
+    >
+      <span className="cc-groupTitle">{title}</span>
+      {badges?.(expanded)}
+      <span className="cc-spacer" />
+      <span className={expanded ? 'cc-chevron cc-chevronUp' : 'cc-chevron'} aria-hidden="true" />
+    </button>
+  )
+}
+
+/**
+ * A titled group that folds from its own heading and starts collapsed. The
+ * state is deliberately component-local — not persisted, not lifted into the
+ * controller — so every visit opens at the same, predictable page length, and
+ * folding can never turn into a stored preference the settings document would
+ * have to carry.
+ */
+function CollapsibleGroup({ title, bodyId, divided = false, badges, footer, children }: {
+  title: string
+  bodyId: string
+  divided?: boolean
+  badges?: ((expanded: boolean) => ReactNode) | undefined
+  /** Rendered after the body while expanded — outside it, so it keeps the group's own spacing. */
+  footer?: ReactNode
+  children: ReactNode
+}) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <section className={divided ? 'cc-group cc-groupDivided' : 'cc-group'} aria-label={title}>
+      <DisclosureHead
+        title={title}
+        bodyId={bodyId}
+        expanded={expanded}
+        onToggle={() => setExpanded((value) => !value)}
+        badges={badges}
+      />
+      {expanded ? <div id={bodyId} className="cc-rows">{children}</div> : null}
+      {expanded ? footer : null}
+    </section>
+  )
+}
+
 /** The staged-field callbacks every form card shares. */
 interface FormCardProps {
   state: SettingsPageState
@@ -677,15 +782,29 @@ interface FormCardProps {
  * filter), and the context-length fields follow them because they are the same
  * subject seen from the other side — the window each listed model advertises.
  * Those fields carry no heading or divider of their own: they are rows of this
- * group, not a section inside it.
+ * group, not a section inside it. The group folds from its heading and starts
+ * collapsed (issue #94, "same as Advanced below"): it is the longest group on
+ * the page and its rows are set-and-forget, so folding keeps Accounts and the
+ * two switches below it reachable without scrolling past the allowlist.
  */
 function ModelsCard({ state, disabled, t, onEdit, onReset, onSelect, onClear, onOverrides }: FormCardProps & {
   onSelect(ids: string[]): void
   onClear(): void
   onOverrides(next: Record<string, string>): void
 }) {
+  const invalid = modelsGroupInvalid(state)
   return (
-    <SettingsGroup title={t('modelsTitle')} divided>
+    <CollapsibleGroup
+      title={t('modelsTitle')}
+      bodyId="cc-models-body"
+      divided
+      // Collapsed is the default, so an unfinished number must be reported on
+      // the heading — otherwise Save is disabled with nothing on screen
+      // explaining why.
+      badges={(expanded) => (!expanded && invalid
+        ? <span className="cc-badge cc-badgeWarn">{t('modelsInvalid')}</span>
+        : null)}
+    >
       <ToggleField
         id="cc-filter-models-by-plan"
         label={t('filterModelsByPlan')}
@@ -706,7 +825,7 @@ function ModelsCard({ state, disabled, t, onEdit, onReset, onSelect, onClear, on
         onReset={onReset}
         onOverrides={onOverrides}
       />
-    </SettingsGroup>
+    </CollapsibleGroup>
   )
 }
 
@@ -914,101 +1033,92 @@ function IntegrationsCard({ state, disabled, t, onEdit, onReset }: FormCardProps
 }
 
 /**
- * The collapsed "Advanced" card: the API base and the network limits. Starts
- * collapsed on every visit; while collapsed, a badge names the customized
+ * The collapsed "Advanced" card: the API base and the network limits. Folds
+ * through the same `CollapsibleGroup` the Models & context group uses, so the
+ * two disclosures stay identical; while collapsed, a badge names the customized
  * count and an invalid number (which blocks save) is surfaced on the header.
  */
 function AdvancedSection({ state, disabled, t, onEdit, onReset }: FormCardProps) {
-  const [expanded, setExpanded] = useState(false)
   const overridden = ADVANCED_FIELDS.filter((field) => state[field].overridden).length
-  const invalid = ADVANCED_FIELDS.some((field) => state[field].invalid)
+  const invalid = advancedGroupInvalid(state)
   return (
-    <section className="cc-group cc-groupDivided" aria-label={t('advancedSettings')}>
-      <button
-        type="button"
-        className="cc-groupHead cc-disclosure"
-        aria-expanded={expanded}
-        aria-controls="cc-advanced-body"
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <span className="cc-groupTitle">{t('advancedSettings')}</span>
-        {overridden > 0 ? (
-          <span className="cc-badge">
-            {overridden === 1 ? t('advancedOverriddenOne') : t('advancedOverriddenMany', { count: overridden })}
-          </span>
-        ) : null}
-        {!expanded && invalid ? (
-          <span className="cc-badge cc-badgeWarn">{t('advancedInvalid')}</span>
-        ) : null}
-        <span className="cc-spacer" />
-        <span className={expanded ? 'cc-chevron cc-chevronUp' : 'cc-chevron'} aria-hidden="true" />
-      </button>
-      {expanded ? (
-        <div id="cc-advanced-body" className="cc-rows">
-          <p className="cc-groupDesc">{t('advancedSettingsHint')}</p>
-          <Field
-            id="cc-api-base"
-            label={t('apiBase')}
-            hint={t('apiBaseHint')}
-            state={state.apiBase}
-            disabled={disabled}
-            wide
-            onEdit={(text) => onEdit('apiBase', text)}
-            onReset={() => onReset('apiBase')}
-            t={t}
-          />
-          <Field
-            id="cc-request-timeout"
-            label={t('requestTimeoutMs')}
-            hint={t('requestTimeoutMsHint')}
-            state={state.requestTimeoutMs}
-            disabled={disabled}
-            numeric
-            decimal
-            onEdit={(text) => onEdit('requestTimeoutMs', text)}
-            onReset={() => onReset('requestTimeoutMs')}
-            t={t}
-          />
-          <Field
-            id="cc-stream-idle-timeout"
-            label={t('streamIdleTimeoutMs')}
-            hint={t('streamIdleTimeoutMsHint')}
-            state={state.streamIdleTimeoutMs}
-            disabled={disabled}
-            numeric
-            decimal
-            onEdit={(text) => onEdit('streamIdleTimeoutMs', text)}
-            onReset={() => onReset('streamIdleTimeoutMs')}
-            t={t}
-          />
-          <Field
-            id="cc-transport-max-retries"
-            label={t('transportMaxRetries')}
-            hint={t('transportMaxRetriesHint')}
-            state={state.transportMaxRetries}
-            disabled={disabled}
-            numeric
-            onEdit={(text) => onEdit('transportMaxRetries', text)}
-            onReset={() => onReset('transportMaxRetries')}
-            t={t}
-          />
-          <ToggleField
-            id="cc-offload-seen-images-for-cache"
-            label={t('offloadSeenImagesForCache')}
-            hint={t('offloadSeenImagesForCacheHint')}
-            state={state.offloadSeenImagesForCache}
-            disabled={disabled}
-            defaultChecked={false}
-            onEdit={(text) => onEdit('offloadSeenImagesForCache', text)}
-            onReset={() => onReset('offloadSeenImagesForCache')}
-            t={t}
-          />
-        </div>
-      ) : null}
-      {expanded && invalid ? (
-        <p className="cc-rowError" role="status">{t('advancedInvalid')}</p>
-      ) : null}
-    </section>
+    <CollapsibleGroup
+      title={t('advancedSettings')}
+      bodyId="cc-advanced-body"
+      divided
+      badges={(expanded) => (
+        <>
+          {overridden > 0 ? (
+            <span className="cc-badge">
+              {overridden === 1 ? t('advancedOverriddenOne') : t('advancedOverriddenMany', { count: overridden })}
+            </span>
+          ) : null}
+          {!expanded && invalid ? (
+            <span className="cc-badge cc-badgeWarn">{t('advancedInvalid')}</span>
+          ) : null}
+        </>
+      )}
+      footer={invalid ? <p className="cc-rowError" role="status">{t('advancedInvalid')}</p> : null}
+    >
+      <p className="cc-groupDesc">{t('advancedSettingsHint')}</p>
+      <Field
+        id="cc-api-base"
+        label={t('apiBase')}
+        hint={t('apiBaseHint')}
+        state={state.apiBase}
+        disabled={disabled}
+        wide
+        onEdit={(text) => onEdit('apiBase', text)}
+        onReset={() => onReset('apiBase')}
+        t={t}
+      />
+      <Field
+        id="cc-request-timeout"
+        label={t('requestTimeoutMs')}
+        hint={t('requestTimeoutMsHint')}
+        state={state.requestTimeoutMs}
+        disabled={disabled}
+        numeric
+        decimal
+        onEdit={(text) => onEdit('requestTimeoutMs', text)}
+        onReset={() => onReset('requestTimeoutMs')}
+        t={t}
+      />
+      <Field
+        id="cc-stream-idle-timeout"
+        label={t('streamIdleTimeoutMs')}
+        hint={t('streamIdleTimeoutMsHint')}
+        state={state.streamIdleTimeoutMs}
+        disabled={disabled}
+        numeric
+        decimal
+        onEdit={(text) => onEdit('streamIdleTimeoutMs', text)}
+        onReset={() => onReset('streamIdleTimeoutMs')}
+        t={t}
+      />
+      <Field
+        id="cc-transport-max-retries"
+        label={t('transportMaxRetries')}
+        hint={t('transportMaxRetriesHint')}
+        state={state.transportMaxRetries}
+        disabled={disabled}
+        numeric
+        onEdit={(text) => onEdit('transportMaxRetries', text)}
+        onReset={() => onReset('transportMaxRetries')}
+        t={t}
+      />
+      <ToggleField
+        id="cc-offload-seen-images-for-cache"
+        label={t('offloadSeenImagesForCache')}
+        hint={t('offloadSeenImagesForCacheHint')}
+        state={state.offloadSeenImagesForCache}
+        disabled={disabled}
+        defaultChecked={false}
+        onEdit={(text) => onEdit('offloadSeenImagesForCache', text)}
+        onReset={() => onReset('offloadSeenImagesForCache')}
+        t={t}
+      />
+    </CollapsibleGroup>
   )
 }
 

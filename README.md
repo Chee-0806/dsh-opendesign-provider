@@ -210,7 +210,7 @@ llm-commandcode:
 
 ## Configure
 
-**Settings → Command Code** is organized as **Accounts** (keys, sign-in, live quota, pinning, dedicated models), **Models & context** (hide out-of-plan models, visible models, then the **Custom context length** field and the **Per-model overrides** rows right after the allowlist — global and per model, see below), **Privacy & security** (zero data retention, off by default, see below), **Integrations & display** (serve web search with Command Code, show the quota card in the sidebar, off by default), and a collapsed **Advanced** section (API base URL, request/stream timeouts, transport retries, cache-aware image offload). The working directory is no longer on the page; `workingDir` in config still works.
+**Settings → Command Code** is organized as **Accounts** (keys, sign-in, live quota, pinning, dedicated models), a collapsed **Models & context** group (click its heading to unfold: hide out-of-plan models, visible models, then the **Custom context length** field and the **Per-model overrides** rows right after the allowlist — global and per model, see below), **Privacy & security** (zero data retention, off by default, see below), **Integrations & display** (serve web search with Command Code, show the quota card in the sidebar, off by default), and a collapsed **Advanced** section (API base URL, request/stream timeouts, transport retries, cache-aware image offload). Both foldable groups toggle from their whole heading row, and neither remembers its expanded state across visits. The working directory is no longer on the page; `workingDir` in config still works.
 
 The same options live in `$DSH_HOME/settings.yaml` (changes apply immediately, no restart):
 

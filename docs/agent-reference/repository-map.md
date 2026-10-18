@@ -109,7 +109,12 @@ src/client/section.tsx  The settings page React component: the unified
                       (Models & context — plan filter, visible-model allowlist,
                       then the flat custom-context-length field and the
                       per-model override rows — Privacy & security,
-                      Integrations & display, Advanced).
+                      Integrations & display, Advanced). Models & context and
+                      Advanced fold from one shared `CollapsibleGroup` /
+                      `DisclosureHead` and start collapsed (issue #94); the
+                      pure `advancedGroupInvalid` / `modelsGroupInvalid`
+                      judgements behind their heading badges are exported for
+                      `tests/section.test.ts`.
 src/client/card.tsx   The Models-page provider card (keyed-slot component +
                       the SlotMap merge for `settings.models.provider-card` /
                       `settings.models.footer`, mirroring upstream).
@@ -200,6 +205,12 @@ tests/adapter.test.ts Core adapter unit tests (node:test + tsx), including the
 tests/accounts.test.ts Account-pool rotation tests.
 tests/commands.test.ts getUsage + command tests (stubbed fetch, no network).
 tests/settings.test.ts settings-page controller tests.
+tests/section.test.ts settings-page fold tests (issue #94): the pure judgements
+                      behind the collapsible groups' heading badges — a bad
+                      staged number (custom context length, output limit) and a
+                      bad per-model override row for Models & context, plus each
+                      Advanced draft. Imported through the CSS-module loader
+                      because the functions live beside the React tree.
 tests/settings-scope.test.ts the `remote.settings` scope lifecycle: derive,
                       revision-fenced writes, rejection recovery, queue
                       serialization, memory persistence, disposal, and the

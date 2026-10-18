@@ -218,6 +218,7 @@ export type SettingsCommandCodeKey =
   | 'modelAllowanceTitle'
   | 'modelCatalogFailed'
   | 'modelsTitle'
+  | 'modelsInvalid'
   | 'privacyTitle'
   | 'integrationsTitle'
   // 账号开通状态的语义键：宿主与浏览器侧控制器共同产出，见 `EnrollmentMessageKey`。
@@ -434,6 +435,7 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   modelCount: '已选 {count} 个模型',
   modelCatalogFailed: '模型目录获取失败，暂时无法选择模型；已保存的设置仍会生效。',
   modelsTitle: '模型与上下文',
+  modelsInvalid: '模型与上下文中有未填好的数字，请展开修正后再保存。',
   privacyTitle: '隐私与安全',
   integrationsTitle: '集成与显示',
   enrollmentCreating: '正在创建账号',
@@ -682,6 +684,7 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   modelCount: '{count} models selected',
   modelCatalogFailed: 'The model catalog could not be loaded; saved settings still apply.',
   modelsTitle: 'Models & context',
+  modelsInvalid: 'A number in Models & context is not ready to save; expand to fix it.',
   privacyTitle: 'Privacy & security',
   integrationsTitle: 'Integrations & display',
   enrollmentCreating: 'Creating the account',
