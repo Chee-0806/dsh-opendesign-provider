@@ -1004,6 +1004,29 @@ function priceRequestImage(
 }
 
 /**
+ * Base64 payloads keyed by the cached request version itself.
+ *
+ * `readImageRequest()` returns one codec object per (attachment, encoder
+ * target) and `requestImages()` reuses that same object for every occurrence in
+ * one generation, but a history that carries an image also replays it in every
+ * later message. Encoding per occurrence therefore re-base64s the same
+ * multi-megabyte buffer once per replay — the single most expensive
+ * per-occurrence step of an image request. Keying on the object makes an
+ * occurrence a map hit, and the WeakMap ties the copy's lifetime to the
+ * harness's own version cache rather than to this plugin.
+ */
+const encodedRequestImages = new WeakMap<RequestImageAttachment, { base64: string; dataUrl: string }>()
+function encodedRequestImage(version: RequestImageAttachment): { base64: string; dataUrl: string } {
+  let encoded = encodedRequestImages.get(version)
+  if (encoded === undefined) {
+    const base64 = Buffer.from(version.data).toString('base64')
+    encoded = { base64, dataUrl: `data:${version.mediaType};base64,${base64}` }
+    encodedRequestImages.set(version, encoded)
+  }
+  return encoded
+}
+
+/**
  * Convert one image reference to the final `/alpha/generate` wire format.
  * The official CLI accepts a base64 source internally, then toWireMessages()
  * sends a data URL plus mimeType. Use the request version's media type because
@@ -1016,7 +1039,7 @@ async function imageToCommandCode(
   const version = await readImage(ref)
   return {
     type: 'image',
-    image: `data:${version.mediaType};base64,${Buffer.from(version.data).toString('base64')}`,
+    image: encodedRequestImage(version).dataUrl,
     mimeType: version.mediaType,
   }
 }
@@ -1187,7 +1210,7 @@ async function imageToOpenAI(
   return {
     type: 'image_url',
     image_url: {
-      url: `data:${version.mediaType};base64,${Buffer.from(version.data).toString('base64')}`,
+      url: encodedRequestImage(version).dataUrl,
     },
   }
 }
@@ -1264,7 +1287,7 @@ async function imageToMessages(
   const version = await readImage(ref)
   return {
     type: 'image',
-    source: { type: 'base64', media_type: version.mediaType, data: Buffer.from(version.data).toString('base64') },
+    source: { type: 'base64', media_type: version.mediaType, data: encodedRequestImage(version).base64 },
   }
 }
 
