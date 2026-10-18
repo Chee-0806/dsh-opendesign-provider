@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.2] - 2026-10-18
 
 ### Changed
 
@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - 复核**无变化**的项：峰谷计价仍是 5 个 DeepSeek 模型、窗口 `01–04 & 06–10 UTC, Mon–Fri` 与本地常量逐值一致；订阅条目与每月额度零变化；`reflection/beam:free` 支持图像输入这一点未被目录宣告，图像能力表保持 70 条；effort 词汇表仍是 `off｜low｜medium｜high｜xhigh｜max`。
 
 - **证据边界**：本轮 `scripts/` 巡检工具的状态为 `incomplete`、`readyToApply=false`、`protocol=not-verified`；唯一一条 error 是 `reflection/beam:free: absent from CLI registry`——该模型只出现在两个目录视图里，`1.84.0` 产物注册表完全不认它，因此 `KNOWN_EFFORTS` 与 `KNOWN_NON_ZDR_MODELS` 里这一行属**目录侧单源证据**（与 `1.82.4` 时 `stealth/cat-jam:free` 的处境相同）。16 个数据源全部返回 HTTP 200。**未做**：真实账号登录、付费生成、浏览器渲染验证，也没有在真实账号上验证价格与订阅额度的页面读数；`?view=client` 与定价页均为公开数据采集。
+- **设置页「模型与上下文」分组改为可折叠，默认收起（issue #94）。**该分组是页面上最长的一组（套餐过滤开关 → 可见模型白名单 → 自定义上下文长度 → 按模型覆盖行），折起后「隐私与安全」与「集成与显示」两个分组不必翻过白名单即可到达。折叠头与「高级设置」共用同一实现（`DisclosureHead`／`CollapsibleGroup`），三条行为两边逐字一致：整行可点、箭头在行尾、状态不跨刷新记忆（组件内 `useState`，既不进配置文档也不进 localStorage——折叠是呈现偏好，不该由设置文档承载）。**「高级设置」呈现与交互零变化**，只是换成共用实现；`cc-groupHead`／`cc-disclosure`／`cc-chevron`／`cc-badgeWarn` 四个既有类原样复用，样式表零改动。**边界：纯呈现层开关**——`filterModelsByPlan`／`visibleModels`／`contextWindow`／`maxOutputTokens`／`contextWindowOverrides` 五个字段的暂存、校验、整批提交与写入所有权一律不变（沿用[《决策记录》第六章第1、2条](docs/决策记录.md#六设置写入所有权)），收起只决定组内 DOM 是否渲染，已暂存的编辑不会丢。**连带处理**：默认收起会把组内的无效数字一并藏起，而保存按钮会因此禁用，故折叠时在标题行显示警告徽标（新 locale 键 `modelsInvalid`，与「高级设置」的既有徽标同形）；不新增「已选 N 个模型」式摘要徽标——诉求只是可收起，「非默认」口径需要另行定义。**已知取舍**：折叠头的标题仍是 `span` 而非 `h3`（该分组在标题导航里不再是一个 heading），沿用「高级设置」的既有写法（`button` 内不能放 heading），以换取与它逐字一致的 DOM 与零 CSS 布局风险。新增 `tests/section.test.ts` 12 项 React-free 用例固定两个分组「组内是否有未填好的数字」的判定（含按模型覆盖行分支）；检查集与保存守卫走的**同一份 staged plan** 对齐——连 UI 上填不错的 `filterModelsByPlan` 开关也纳入，免得呈现判定比保存条件窄。两组变异对照（删 rows 分支、删 `filterModelsByPlan`）各自精准命中对应用例、恢复后 12／12 全通过，证明用例有判别力。
+
+- **设置页「自定义上下文长度」与「单轮输出上限」的界面说明精简约一半。**两段 hint 只留「填什么 → 会怎样」：中文 124 → 61 字、240 → 98 字，英文 325 → 228、686 → 223 字符；删掉的是机制叙述（为何影响压缩与选择器标注、`0` 的动机、二进制换算示例、宿主限定预算的辅助调用），这些在 README 的对应段落里原样保留（**用户选定：README 保持不动**）。**两个信息点不可删**——「影响上下文计量与自动压缩」与「`0` 只在 CLI 与 OpenAI 传输生效，Claude 的 Messages 端点必填该字段」；后者由 `tests/settings.test.ts` 的既有文案护栏守着：首轮精简把它删掉后护栏立即失败（`zh hint names the route that requires the field`），遂以精简措辞加回，同组英文断言随之从 `/sends no such field/` 改为 `/omits the field/`（断言语义不变：文案必须说明 `0` 不发送该字段）。顺带去掉 hint 里的反引号——它经 `.cc-rowDesc` 纯文本渲染，反引号会在界面上原样显示。
 
 ## [0.14.1] - 2026-10-18
 
@@ -93,10 +96,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `npm run test:engine` 新增**准入判定检查**：对每个已声明引擎真实调用该引擎自己的 `evaluatePluginCompatibility`（`checkEngineAdmission`）。该脚本此前的检查全都走「把发布面装进引擎的 peer 树再加载」，看不见宿主准入判定本身，正是这个盲区让上面那个破坏点在全绿的情况下依然存在。红绿对照已实测：alpha.4 通过，已退出兼容范围的 alpha.3 被拒并报出未满足项。
 
 - 设置页信息架构调整：原本独立成组的「上下文长度」并入「模型」分组，分组标题改为**「模型与上下文」**（英文 **Models & context**），顶级分组由 6 个减为 5 个：账户 → 模型与上下文 → 隐私与安全 → 集成与显示 → 高级设置（默认折叠）。组内顺序为隐藏套餐外模型开关 → 可见模型白名单 → **自定义上下文长度**字段 → **按模型覆盖**标题行与覆盖行列表；这些控件直接平铺，**不设子节标题、不画分隔线**——中间版本曾把它们做成带次级标题与细分隔线的子节（`SettingsSubGroup`、locale 键 `contextTitle`），用户在实际页面上查看后判定视觉冗余，随即改为平铺并删除该组件与键。**行为零变化**：`contextWindow` 与 `contextWindowOverrides` 两个配置项、解析优先级（按模型 → 全局 → 目录）与保存路径都没有改动，仅位置与呈现调整。
-
-- **设置页「模型与上下文」分组改为可折叠，默认收起（issue #94）。**该分组是页面上最长的一组（套餐过滤开关 → 可见模型白名单 → 自定义上下文长度 → 按模型覆盖行），折起后「隐私与安全」与「集成与显示」两个分组不必翻过白名单即可到达。折叠头与「高级设置」共用同一实现（`DisclosureHead`／`CollapsibleGroup`），三条行为两边逐字一致：整行可点、箭头在行尾、状态不跨刷新记忆（组件内 `useState`，既不进配置文档也不进 localStorage——折叠是呈现偏好，不该由设置文档承载）。**「高级设置」呈现与交互零变化**，只是换成共用实现；`cc-groupHead`／`cc-disclosure`／`cc-chevron`／`cc-badgeWarn` 四个既有类原样复用，样式表零改动。**边界：纯呈现层开关**——`filterModelsByPlan`／`visibleModels`／`contextWindow`／`maxOutputTokens`／`contextWindowOverrides` 五个字段的暂存、校验、整批提交与写入所有权一律不变（沿用[《决策记录》第六章第1、2条](docs/决策记录.md#六设置写入所有权)），收起只决定组内 DOM 是否渲染，已暂存的编辑不会丢。**连带处理**：默认收起会把组内的无效数字一并藏起，而保存按钮会因此禁用，故折叠时在标题行显示警告徽标（新 locale 键 `modelsInvalid`，与「高级设置」的既有徽标同形）；不新增「已选 N 个模型」式摘要徽标——诉求只是可收起，「非默认」口径需要另行定义。**已知取舍**：折叠头的标题仍是 `span` 而非 `h3`（该分组在标题导航里不再是一个 heading），沿用「高级设置」的既有写法（`button` 内不能放 heading），以换取与它逐字一致的 DOM 与零 CSS 布局风险。新增 `tests/section.test.ts` 12 项 React-free 用例固定两个分组「组内是否有未填好的数字」的判定（含按模型覆盖行分支）；检查集与保存守卫走的**同一份 staged plan** 对齐——连 UI 上填不错的 `filterModelsByPlan` 开关也纳入，免得呈现判定比保存条件窄。两组变异对照（删 rows 分支、删 `filterModelsByPlan`）各自精准命中对应用例、恢复后 12／12 全通过，证明用例有判别力。
-
-- **设置页「自定义上下文长度」与「单轮输出上限」的界面说明精简约一半。**两段 hint 只留「填什么 → 会怎样」：中文 124 → 61 字、240 → 98 字，英文 325 → 228、686 → 223 字符；删掉的是机制叙述（为何影响压缩与选择器标注、`0` 的动机、二进制换算示例、宿主限定预算的辅助调用），这些在 README 的对应段落里原样保留（**用户选定：README 保持不动**）。**两个信息点不可删**——「影响上下文计量与自动压缩」与「`0` 只在 CLI 与 OpenAI 传输生效，Claude 的 Messages 端点必填该字段」；后者由 `tests/settings.test.ts` 的既有文案护栏守着：首轮精简把它删掉后护栏立即失败（`zh hint names the route that requires the field`），遂以精简措辞加回，同组英文断言随之从 `/sends no such field/` 改为 `/omits the field/`（断言语义不变：文案必须说明 `0` 不发送该字段）。顺带去掉 hint 里的反引号——它经 `.cc-rowDesc` 纯文本渲染，反引号会在界面上原样显示。
 
 ### Fixed
 
