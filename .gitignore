@@ -5,7 +5,11 @@ node_modules.bak/
 .npm-cache/
 # DSH STORE reviews the fixed Git Commit, so the built runtime files ship in
 # git. `lib/` artifacts are committed explicitly with `git add -f`; the ignore
-# stays so map churn and stray local rebuilds do not show up as noise.
+# stays so stray local rebuilds do not show up as noise. Source maps are
+# deliberately outside both: nothing loads them, `files` keeps them out of the
+# tarball, and they are the one tsdown output that does not rebuild
+# byte-identically across machines, so tracking them only breaks the CI
+# `git diff --exit-code -- lib/` guard.
 lib/
 *.tgz
 .DS_Store

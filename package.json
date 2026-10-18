@@ -39,6 +39,7 @@
   },
   "files": [
     "lib",
+    "!lib/**/*.map",
     "assets",
     "icon.svg",
     "locale",
