@@ -224,7 +224,7 @@ tests/login.test.ts   browser-login flow integration tests (real loopback
 tests/login-wire.test.ts login descriptor uniformity + status parser.
 tests/login-client.test.ts login-panel controller poll lifecycle.
 tests/client-boot.test.ts client-boot integration tests (real apply() against a
-                      dsh 0.2.1-alpha.4-shaped client assembly; settings page +
+                      dsh declared-engine client assembly; settings page +
                       provider card, and the `remote.settings` scope path end to
                       end: directory read, invalidation re-read, a save over the
                       path-op wire, and the degraded profile without the
@@ -251,8 +251,8 @@ tests/cost-projection.test.ts  durable cost-fact fold tests against the real
                       restore, tier boundaries, free/unpriced subtotals).
 tests/prices-client.test.ts  price-table controller tests (cache, bounded
                       transient retries, a Host without the endpoint).
-tests/package.test.ts package-metadata contract (one Harness peer range, one
-                      dshReleases record, no dsh-client-runtime).
+tests/package.test.ts package-metadata contract (one Harness peer range,
+                      exactly two dshReleases records (one RC and one alpha), no dsh-client-runtime).
 tests/config-schema.test.ts Config credential contract: literal apiKey fields
                       carry role('secret') and are stripped by redactSecrets.
 tests/web-search.test.ts web-search provider tests (wire body, result mapping,

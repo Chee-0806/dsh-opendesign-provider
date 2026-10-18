@@ -32,7 +32,9 @@ import { join } from 'node:path'
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { RequestErrorAction } from '@deepseek-ai/dsh-agent'
-import type { WebRuntime } from '@deepseek-ai/dsh-web'
+// Type-only: pulls the `ctx.web` service merge into this program. The selection
+// itself is typed through `src/web-search.ts`.
+import type {} from '@deepseek-ai/dsh-web'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
@@ -53,7 +55,8 @@ import type { CommandCodeLoginCredentials } from './login.ts'
 import { AccountEnrollmentManager, type EnrollmentSettings } from './enrollment.ts'
 import type { EnrollmentRecord } from './enrollment-wire.ts'
 import { pickCommandLocale, type LocaleId } from './command-locales.ts'
-import { CommandCodeSearchProvider, applyCommandCodeSearchSelection, commandCodeSearchSelection } from './web-search.ts'
+import { CommandCodeSearchProvider, createCommandCodeSearchSelection } from './web-search.ts'
+import type { WebSearchSelectionHandle, WebSelectionLogger, WebSelectionSettings } from './web-search.ts'
 import { applyCommandCodeTuiSettings } from './tui-settings.ts'
 import {
   DEFAULT_TRANSPORT_MAX_RETRIES,
@@ -151,8 +154,8 @@ export type {
 } from './login.ts'
 export { CommandCodeAccountPool, accountUsable, selectActiveAccount, matchModelRule, selectAccountForModel } from './accounts.ts'
 export type { CommandCodeAccountConfig, CommandCodeAccountSlot, CommandCodeAccountState, CommandCodeModelAccountRule } from './accounts.ts'
-export { CommandCodeSearchProvider, COMMANDCODE_SEARCH_PROVIDER_ID, DEFAULT_WEB_SEARCH_PROVIDER_ID, applyCommandCodeSearchSelection, commandCodeSearchSelection } from './web-search.ts'
-export type { CommandCodeSearchSelection } from './web-search.ts'
+export { CommandCodeSearchProvider, COMMANDCODE_SEARCH_PROVIDER_ID, DEFAULT_WEB_SEARCH_PROVIDER_ID, WEB_SELECTION_NAMESPACE, createCommandCodeSearchSelection, commandCodeSearchSelection } from './web-search.ts'
+export type { CommandCodeSearchSelection, WebSearchSelectionHandle, WebSelectionSettings, WebSelectionLogger } from './web-search.ts'
 export type { CommandCodeSearchProviderDeps } from './web-search.ts'
 export { ACTIVE_ACCOUNT_AUTO, LANG_AUTO, applyCommandCodeTuiSettings, buildCommandCodeTuiSection } from './tui-settings.ts'
 export type {
@@ -286,12 +289,16 @@ export interface Config {
   /**
    * Whether to use Command Code as the backend for dsh's model-facing
    * `web_search` tool. Enabled registers a `commandcode` search provider on
-   * `ctx.web` AND selects it over the shipped `deepseek-official` (or a
-   * sibling plugin's pin), reusing the SAME key and apiBase as chat. Disabling
-   * hands the selection back to whichever backend was there before, so a
-   * sibling search plugin (e.g. modsearch) keeps working (issue #26). The
-   * write rides dsh's internal `searchProviderId`, read per search call, so a
-   * setting change lands on the next search without a restart. Defaults true.
+   * `ctx.web` AND selects it over the shipped `deepseek-official` (or a sibling
+   * plugin's pin), reusing the SAME key and apiBase as chat. Selection is the
+   * `web` profile entry's volatile `searchProvider`, written through the host
+   * settings service and read by `WebRuntime.search()` on the next call, so a
+   * toggle change lands without a restart or a remount. Disabling gives the
+   * field back to the deployment's composed value, so a sibling search plugin
+   * (e.g. modsearch) keeps working (issue #26) — EXCEPT when the user layer
+   * already carries someone else's explicit pin (the shipped web-search
+   * settings page writes `deepseek-search-api`): that choice is never
+   * displaced, and the provider stays registered but unselected. Defaults true.
    */
   webSearch?: boolean
   /**
@@ -848,22 +855,33 @@ export function apply(ctx: Context, config: Config): void {
   // model-facing web_search tool needs no separate key or endpoint config.
   //
   // Whether `commandcode` WINS over the shipped `deepseek-official` (or a
-  // sibling search plugin's pin, e.g. modsearch) is `Config.webSearch`. The
-  // seam has no public runtime selector, so the plugin writes its private
-  // `searchProviderId` field (read per call) via
-  // `applyCommandCodeSearchSelection`; see src/web-search.ts for why that
-  // write is safe. The tracked selection remembers whichever backend was
-  // displaced, so turning the toggle off — and disposing the fiber — hands the
-  // selection back to it (issue #26) instead of forcing the factory default.
-  const searchSelection = commandCodeSearchSelection()
-  const applySearchSelection = (enabled: boolean): void => {
-    if (webRuntime !== undefined) {
-      applyCommandCodeSearchSelection(webRuntime, searchSelection, enabled)
-    }
+  // sibling search plugin's pin, e.g. modsearch) is `Config.webSearch`. On
+  // 0.2.1-rc.2 that choice lives in the `web` profile entry's volatile
+  // `searchProvider`, so the seam writes it through `ctx.settings` — the same
+  // path the shipped web-search settings page uses — and keeps the whole
+  // policy (who is allowed to take over, what to give back, how to degrade) in
+  // `src/web-search.ts`. Two properties matter at this call site:
+  //
+  // - `settings` is resolved LAZILY, because it may activate after `web` (the
+  //   seam would otherwise capture `undefined` at boot and lose the disk write).
+  //   The settings inject below re-applies the selection for the opposite order.
+  // - Nothing here awaits: `apply()` only records the intent, and the seam's
+  //   own serialized writer performs the async write. A failure is logged, so
+  //   boot never depends on the settings document being writable.
+  const selectionLogger: WebSelectionLogger = {
+    warn: (message) => { ctx.logger.warn(message) },
+    info: (message) => { ctx.logger.info(message) },
   }
-  let webRuntime: WebRuntime | undefined
+  let searchSelection: WebSearchSelectionHandle | undefined
+  const applySearchSelection = (enabled: boolean): void => {
+    searchSelection?.apply(enabled)
+  }
   ctx.inject(['web'], (webCtx) => {
-    webRuntime = webCtx.web
+    searchSelection = createCommandCodeSearchSelection({
+      web: webCtx.web,
+      settings: () => ctx.get('settings') as unknown as WebSelectionSettings | undefined,
+      logger: selectionLogger,
+    })
     webCtx.web.registerSearchProvider(new CommandCodeSearchProvider({
       resolveKey: async (apiBase) => {
         const connection = options()
@@ -877,15 +895,17 @@ export function apply(ctx: Context, config: Config): void {
     // `searchProvider: commandcode` cordis patch still routes web search to
     // Command Code once this plugin loads (default `webSearch` on).
     applySearchSelection(current().webSearch ?? true)
-    // The fiber's disposer restores the displaced backend the same way the
-    // toggle-off path does (`webCtx.effect` registers the inner function as
-    // the fiber's teardown; a bare `return` from the inject callback would
-    // not). Without this, the stale `commandcode` pin would outlive its
-    // unregistered provider and every search would fail with
-    // WEB_PROVIDER_CONFIGURED_MISSING.
+    // The fiber's disposer releases the selection the same way the toggle-off
+    // path does (`webCtx.effect` registers the inner function as the fiber's
+    // teardown; a bare `return` from the inject callback would not). `release()`
+    // deliberately writes NO profile: unloading and shutdown must not race the
+    // config editor's active-fiber and HMR-lock requirements. It hands the
+    // RUNNING reference back instead, so the window where `commandcode` is
+    // selected but its provider is already unregistered — every search failing
+    // with WEB_PROVIDER_CONFIGURED_MISSING — stays closed.
     webCtx.effect(() => () => {
-      webRuntime = undefined
-      applyCommandCodeSearchSelection(webCtx.web, searchSelection, false)
+      searchSelection?.release()
+      searchSelection = undefined
     }, 'dsh-commandcode-provider: web search selection')
   })
 
@@ -941,13 +961,20 @@ export function apply(ctx: Context, config: Config): void {
         dispose()
       }
     }, 'dsh-commandcode-provider: settings auto-form policy')
+    // The selection needs settings and `web`, and the two injects settle in
+    // either order: when `settings` wins the race, the `web` inject's own call
+    // ran with no settings row to read, so re-align once here. The seam
+    // coalesces the duplicate intent, so this costs one extra read at most.
+    applySearchSelection(current().webSearch ?? true)
   })
 
   // The loader commits volatile config IN PLACE — no remount — and notifies the
   // OWNING fiber (`loader/volatile-update`, every value already committed
-  // before dispatch). The facts that are not re-derived from `current()` per
-  // use re-apply here: the web seam's selection (its private field is written,
-  // not read back from config) and the TUI section (its option lists are frozen
+  // before dispatch). That event is scoped to `llm-commandcode`'s OWN fiber, so
+  // it reports this entry's own `webSearch` flips and NOT a write to the `web`
+  // entry: this listener is the only place that learns the toggle moved, and it
+  // is why the selection re-applies here. The other fact that is not re-derived
+  // from `current()` per use is the TUI section (its option lists are frozen
   // into the declaration). Typed structurally because the event is declared by
   // `cordis-plugin-loader`, which is not a peer of this bundle.
   const loaderEvents = ctx as unknown as {

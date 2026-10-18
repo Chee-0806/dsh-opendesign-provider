@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] - 2026-10-18
 
 ### Added
 
@@ -17,6 +17,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - 问题 #90：**英文界面残留中文文案**。`en` 字典补齐 14 个 `write*` 设置写入提示与 `usagePeriodUnknown` 的英文翻译；`settingsWriteNotice()` 里硬编码的「（原引用：…）」改走本地化（新增 `writeCredentialRefNote` 键，中文输出与改动前逐字一致）。合并前另补齐**同一设置页界面层**漏掉的 9 处硬编码中文——`section.tsx` 的「若登录页面未自动打开，请点击下方链接。」「打开浏览器登录」「重试保存名称」「接受已有名称」「取消开通」「重试清理」，以及账号恢复行里硬编码的全角冒号分隔符；这些文案与 `settingsWriteNotice` 同页，此前在英文界面下仍显示中文。新增 7 个键（`accountAddLinkHint`、`accountAddOpenLink`、`accountAddCancel`、`accountNameSaveRetry`、`accountNameAcceptExisting`、`accountEnrollmentCleanupRetry`、`accountRefSeparator`），联合类型 / 中文 / 英文三处同步，全角冒号在英文侧改为半角加空格。新增**英文侧 CJK 守护测试**：`en` 字典出现任何中文字符即失败；`PANEL_COPY_EN` 只放行 `analytics-copy.ts` 声明的「错误、缺失与读取状态各语言统一中文」既定约定，并断言该约定仍在生效；三组变异测试确认守护会真正失败。`lib/client.js` 与 sourcemap 同步重建。**边界**：账号开通与恢复流程的状态消息此时仍由宿主产出的中文字面量构成，英文界面下那几行仍显示中文，已由下一条修复。
 
 - **英文界面残留中文（账号开通状态消息）**。账号开通的状态消息此前是宿主产出的中文字面量，经 `EnrollmentState.message` 直传页面后原样显示，英文界面下三处状态行（新增账号面板的状态行、待处理恢复记录行、`cleanup-needed` 行）与传输失败提示都仍是中文。现改为**语义键**：`EnrollmentState.message` 换成 `messageKey: EnrollmentMessageKey`，共 22 个键（宿主 15 个、页面控制器 7 个），键表与枚举校验单点放在 `src/enrollment-wire.ts`（`parseEnrollmentState` 拒绝自由文本），中英文案集中进设置页词典、渲染时才按界面语言取，两侧不会再各写一份；「正在创建账号」与「收尾未完成，请重试」这两条本来两侧各有独立文案的状态也就此合并为一处。**为什么不是按 `phase` 渲染**：同一 `phase` 对应多种语义——`naming` 既有「正在保存名称」也有「名称保存失败」，`cleanup-needed` 既有「收尾未完成」也有「清理未完成」，`cancelled` 既有「已取消」也有「已取消并清理」，按阶段渲染无法区分。**验证**：新增 wire 拒绝自由文本/非枚举键的用例，并把原按中文子串断言的三处改为断言语义键；英文侧 CJK 守护测试覆盖新键（变异测试确认把任一 `en` 值改回中文即变红）。**边界**：宿主侧约 20 处 `throw new Error('…')` 的中文不在本次改动内——它们不上屏，客户端在所有失败路径都用自己这一侧的键覆盖；登录流程（`src/login.ts`）的状态消息仍由宿主产出中文，同样未包含。
+
+### Changed
+
+- DSH 兼容矩阵收敛为**单一引擎 `0.2.1-rc.2`**：RC（候选发布版）通道由 `0.2.0-rc.2` 替换为 `0.2.1-rc.2`（2026-10-17 发布），alpha 通道自 `0.2.1-alpha.5` 之后没有新的已验证版本，随之退出支持矩阵。`dsh.compatibility.dshReleases` 只剩一条，`dsh.compatibility.dsh`、`engines.dsh`、15 个对等依赖与 19 个开发依赖的 `@deepseek-ai/dsh-*` 全部为裸版本 `0.2.1-rc.2`；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 由双通道时代的析取收紧为随该引擎配对的正式版范围 `~4.0.5`／`~3.18.5`（`maxSatisfying` 实测命中，不放行已无对应引擎的 `4.0.5-alpha.2`）。`tests/package.test.ts` 的「恰好两条通道」断言改为单版本契约。
+
+- **适配本轮唯一的运行代码破坏性变更**：`@deepseek-ai/dsh-web` 把搜索/抓取的选择契约改为易变引用（`WebRuntimeConfig.searchProvider`／`fetchProvider` 变为 `Volatile`），构造函数 `config` 由可选变必填，并删除了插件此前直写的私有实例字段 `searchProviderId`／`fetchProviderId`。旧写法在 rc.2 上会写到一个没有读取方的属性：不抛错、功能静默失效。本轮改按 rc.2 官方易变写入路径实现运行时选择（写入 profile 的易变字段，由 loader 原地提交进运行中的 `web` 条目，不重挂载），并同步改造测试夹具。该字段与官方「Web 搜索」卡片的新版 API 开关是同一个：**用户层已存在他人的显式选择时插件不夺取**，只在无人 pin 时接管，并把接管状态暴露出来（开关的中英双语提示，外加一行宿主日志说明「官方页面已选定其他后端，本提供方保持已注册但未被选中」）。除该接缝外，其余 16 个直接依赖包与 9 个 vendor 包源码零差异（`cordis` 4.0.4 → 4.0.5、`schemastery` 3.18.4 → 3.18.5 逐文件 diff 仅版本行），exports 漂移（7 个包新增 `./locale/*.json` 并删除 `./invariant`，`typert-protocol` 新增 `./remote-info`）插件均未引用。rc.2 首发的官方网页搜索后端与模型标签插槽不接入（后者是 `single` 单占类插槽，官方已占用，重复注册会抛错）。
+
+- DSH 升级技能、引擎兼容参考、[对接说明](docs/对接说明.md)、[审计清单](docs/DSH升级审计清单.md)与两份 README 同步到单引擎矩阵；保留历史条目作为历史证据，不删除既往诊断。本轮验证**全部通过**（本机静态与合成依赖验证）：`npm run typecheck` 退出码 0；`npm test` 退出码 0、**1038 项全绿 / 0 失败**（本轮开工前基线为 1009 项、其中 2 项失败，失败的正是网页搜索选择缺陷；与 `origin/main` 的 11 个提交合并后复跑）；`npm run build` 退出码 0（重建 `lib/index.js`、`lib/index.d.ts`、`lib/client.js`）；`npm run test:pack` 退出码 0（发布入口 18 个文件，版本 `0.14.0`）；`npm run test:engine` 退出码 0，矩阵 1/1 落在 `dsh 0.2.1-rc.2` 且宿主准入 preflight 通过；`npm run test:install` 退出码 0（pnpm `10.34.5`，`engine matrix verified: 0.2.1-rc.2`）。**未做**：真实浏览器渲染、官方网页搜索卡片与插件开关的并发双写、真实账号登录、付费生成、跨平台与长期稳定性；引擎内网络响应与凭据均为合成依赖。两条决策见[《决策记录》第八章第13条](docs/决策记录.md#八dsh-引擎兼容范围与验证边界)。
+
+- DSH 兼容范围的 alpha（早期测试版）通道由 `0.2.1-alpha.4` 替换为 `0.2.1-alpha.5`，保留 `0.2.0-rc.2`（候选发布版）。兼容声明、对等/开发依赖与锁文件同步；29 个宿主包采用官方发布元数据精准更新，第三方及 10 个平台可选依赖条目保持原值，锁文件根版本号对齐现有 `0.13.4`。完整源码与发布清单比对未发现插件运行代码或测试夹具必须改动的契约；新增模型名称插槽和官方账号通知不接入。类型检查、1009 项测试、构建、双引擎及双版本隔离安装均通过，隔离 `npm ci --dry-run`（仅检查安装）退出码为 0。浏览器与真实提供商未实测。详见[对接说明](docs/对接说明.md)及[审计清单](docs/DSH升级审计清单.md)。该轮次随后被上面的单引擎收敛取代：`0.2.1-alpha.5` 已退出兼容矩阵，其验证结论作为历史证据保留。
 
 ## [0.13.4] - 2026-10-16
 

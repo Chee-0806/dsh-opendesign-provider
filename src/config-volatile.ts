@@ -18,14 +18,20 @@
  * writes it — page and TUI both write keys through the credentials seam — so a
  * config-file edit to it reloading the fiber is correct for a secret literal.
  *
+ * `volatileWrite()` is the third helper and the only WRITE in this module: it
+ * commits into a reference that belongs to ANOTHER plugin entry (`ctx.web`'s
+ * `searchProvider`), which no host API addresses directly. It is the degraded
+ * path behind `ctx.settings.update()`; see its own note for why the disk-backed
+ * path is preferred.
+ *
  * @module dsh-commandcode-provider/config-volatile
  */
 
 /**
  * Mark one schema field volatile.
  *
- * `.volatile()` is unconditional: it is a schemastery 3.18.3 feature and every
- * supported engine ships `~3.18.4` or `~3.18.5-alpha.1`, so the
+ * `.volatile()` is unconditional: it is a schemastery 3.18.3 feature and the
+ * supported engine ships `~3.18.5`, so the
  * method is always present. It is reached through a structural member so the caller's
  * declared field type survives — the mark changes what the schema PARSES to (a
  * live reference), not the plugin-facing `Config` shape.
@@ -67,6 +73,52 @@ export function isVolatileRef(value: unknown): value is VolatileRef {
     && !Array.isArray(value)
     && Object.isFrozen(value)
     && typeof (value as VolatileRef).get === 'function'
+}
+
+/**
+ * The commit protocol cosmokit's `createVolatile` installs on every reference.
+ *
+ * `Symbol.for` — not a local `Symbol()` — because cosmokit registers it
+ * globally precisely so copies of the shared library loaded twice (ESM/CJS, two
+ * node_modules trees) still recognize each other's references. Reaching it
+ * through the global registry is what lets this bundle commit a value without
+ * taking `@deepseek-ai/cosmokit` as a dependency.
+ */
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+/**
+ * Commit a value into a RUNNING volatile reference and verify it landed.
+ *
+ * This is the DEGRADED write path, and it is deliberately second choice: the
+ * reference is the live config the owner reads per call, but the value never
+ * reaches the profile document, so the next loader commit for that entry (any
+ * `loader/volatile-update`, including one caused by an unrelated field of the
+ * same entry) re-resolves the raw config and overwrites it. The official
+ * `ctx.settings.update()` path exists to avoid exactly that; this one keeps the
+ * CURRENT process coherent when settings is unavailable or refuses the write.
+ *
+ * Reading back is not optional: the write method is an internal protocol, so a
+ * future cosmokit that renames the symbol, hides it, or changes the value shape
+ * must degrade to "not applied" instead of silently pretending success.
+ *
+ * @param ref - Candidate volatile reference; anything else returns `false`.
+ * @param value - Value to commit.
+ * @returns Whether the reference now reads back as `value`.
+ */
+export function volatileWrite(ref: unknown, value: unknown): boolean {
+  if (!isVolatileRef(ref)) return false
+  const write = (ref as unknown as Record<symbol, unknown>)[VOLATILE_WRITE]
+  if (typeof write !== 'function') return false
+  try {
+    ;(write as (this: unknown, next: unknown) => void).call(ref, value)
+  } catch {
+    return false
+  }
+  try {
+    return Object.is(ref.get(), value)
+  } catch {
+    return false
+  }
 }
 
 /**

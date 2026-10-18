@@ -1940,47 +1940,120 @@ declare const COMMANDCODE_SEARCH_PROVIDER_ID = "commandcode";
  */
 declare const DEFAULT_WEB_SEARCH_PROVIDER_ID = "deepseek-official";
 /**
- * Tracked web-search selection state for one mounted `WebRuntime`.
+ * Profile entry id whose volatile `searchProvider` selects the search backend.
  *
- * `owner` marks whether this plugin currently owns the selection. `displaced`
- * is the backend it took over — restored on disable or unload — and
- * `undefined` means "nothing was configured, leave auto-select" and must
- * round-trip untouched.
+ * The hosting profile declares it in `dsh-base`'s cordis patch as
+ * `- id: web` / `name: '@deepseek-ai/dsh-web'`, and the shipped web-search
+ * settings page addresses the very same namespace — that page and this plugin
+ * are therefore two writers of ONE field (see
+ * {@link createCommandCodeSearchSelection} for how they avoid fighting).
+ */
+declare const WEB_SELECTION_NAMESPACE = "web";
+/**
+ * Structural view of the host settings service.
  *
- * `preexisting` is the one fact `displaced` cannot carry: an `undefined`
- * `displaced` means EITHER "the field was unset when we took over" (give
- * `undefined` back) OR "the field already read `commandcode`" (touch
- * nothing). Collapsing the two is what turned a user's own
- * `searchProvider: commandcode` pin into an auto-select, and then into
- * `WEB_PROVIDER_AMBIGUOUS` on every search.
+ * Spelled structurally rather than imported: only these three members are used,
+ * and a narrower contract keeps the tests' double honest. Every member is
+ * called inside a `try`, because a host mounted without `configEditor` /
+ * `profileContext` throws from `describe()` rather than answering empty.
+ */
+interface WebSelectionSettings {
+  /** Every configurable entry's form view; the `web` row is absent when it has no volatile field. */
+  describe(): unknown;
+  /** Merge fields into that entry's live config (the official volatile write). */
+  update(ns: string, patch: object): Promise<void>;
+  /** Reset the entry's live fields, then set the supplied ones. */
+  replace(ns: string, section: object): Promise<void>;
+}
+/** Failure and visibility sink; implementations must never throw. */
+interface WebSelectionLogger {
+  warn(message: string): void;
+  info(message: string): void;
+}
+/**
+ * Tracked web-search selection state.
+ *
+ * `owner` is true while this plugin is the one asserting the selection: it
+ * wrote the value, or found it already equal to ours AND attributed it to a
+ * user-layer pin. Disabling only ever gives back what `owner` covers.
+ *
+ * `preexisting` marks the one case where the value is NOT ours to give back:
+ * the field already read `commandcode` while the USER LAYER held nothing, so
+ * the value came from the deployment's composed config or
+ * `$DSH_WEB_SEARCH_PROVIDER`. Restoring there would write over a pin this
+ * plugin never took.
+ *
+ * `foreign` is a non-`commandcode` pin found in the user layer — the shipped
+ * web-search settings page writes `deepseek-search-api`, and any sibling plugin
+ * may pin its own id. A foreign pin is never displaced; `foreign` keeps the
+ * value so the state (and the log line) can name who owns the backend.
+ *
+ * `displaced` is the config value at takeover time. It is what the DEGRADED
+ * (memory-only) restore writes back; the persisted path restores the composed
+ * base instead, because a copy of it in the user layer would outlive a later
+ * deployment change.
  */
 interface CommandCodeSearchSelection {
   owner: boolean;
-  displaced: string | undefined;
-  /** Whether the field already read `commandcode` when this plugin first took it over. */
   preexisting: boolean;
+  foreign: string | undefined;
+  displaced: string | undefined;
 }
 /** Fresh selection state: the plugin starts out not owning the selection. */
 declare function commandCodeSearchSelection(): CommandCodeSearchSelection;
+/** Dependencies {@link createCommandCodeSearchSelection} resolves per call. */
+interface WebSearchSelectionDeps {
+  /** The running `web` service whose volatile reference backs the degraded write. */
+  web: WebRuntime;
+  /** Host settings service, resolved per use because it may activate after `web`. */
+  settings: () => WebSelectionSettings | undefined;
+  /** Failure and visibility sink. */
+  logger: WebSelectionLogger;
+}
+/** The handle `src/index.ts` drives; every member is synchronous and non-throwing. */
+interface WebSearchSelectionHandle {
+  /** Live state, for callers that surface who currently owns the backend. */
+  readonly state: CommandCodeSearchSelection;
+  /** Align the selection with one end of the `webSearch` toggle. Never throws. */
+  apply(enable: boolean): void;
+  /** Resolve once every queued write has settled. */
+  settled(): Promise<void>;
+  /** Fiber release: drop queued writes and restore in memory ONLY — never on disk. */
+  release(): void;
+}
 /**
- * Reach one end of the `webSearch` toggle without trampling sibling search
- * providers (issue #26).
+ * The selection seam over `ctx.web`.
  *
- * - Enabling writes `commandcode` and remembers whatever it displaced. When
- *   the plugin already owns the selection, the original `displaced` is kept —
- *   the field currently holds our own id, which must never be mistaken for the
- *   user's backend.
- * - Disabling hands the selection back to the remembered backend only when
- *   this plugin actually took it over. A fresh boot straight into
- *   `webSearch: false`, or a `preexisting` field, leaves it ALONE: writing the
- *   empty memory back would clear the user's own `searchProvider: commandcode`
- *   pin and hand the selection to dsh-web's auto-select, where a second usable
- *   provider makes every later search throw `WEB_PROVIDER_AMBIGUOUS`.
+ * ## Why settings rather than the runtime instance
  *
- * Never throws: like the low-level rewrite, a hardened runtime shape degrades
- * to registered-but-unselected.
+ * 0.2.1-rc.2's `WebRuntime` reads `this.config.searchProvider.get()` on EVERY
+ * search and fetch, and the loader commits a settings write into that same
+ * reference in place (`Entry._commitVolatile`) without remounting the entry.
+ * Writing the reference directly therefore works, but leaves the value out of
+ * the profile: the next commit for that entry — including one caused by an
+ * unrelated field such as `fetchProvider` — re-resolves the raw config and
+ * overwrites it. `ctx.settings.update()` / `replace()` is the documented path
+ * and the one the shipped web-search settings page uses, so this plugin takes
+ * it first and falls back to the reference only when settings is unavailable or
+ * refuses (see `volatileWrite`).
+ *
+ * ## Two writers, one field
+ *
+ * The shipped web-search settings page writes `web.searchProvider` too
+ * (`deepseek-search-api` / `deepseek-official`). This seam never displaces a
+ * pin it did not write: a non-`commandcode` value in the USER LAYER stops the
+ * takeover, the value is recorded on {@link CommandCodeSearchSelection.foreign}
+ * and named in one `info` line, and the provider stays registered but
+ * unselected. A value the user layer does not carry is the deployment's own
+ * default, and taking it over is the toggle's whole purpose. A user-layer
+ * `commandcode` is treated as ours: nothing else writes that id, so it can only
+ * be a previous run of this plugin or a deliberate manual pin, and turning the
+ * toggle off restores the composed default in both cases.
+ *
+ * @param deps - the running `web` service, a settings resolver, and a log sink.
+ * @returns a synchronous handle; failures are logged, never thrown.
  */
-declare function applyCommandCodeSearchSelection(web: WebRuntime, state: CommandCodeSearchSelection, enable: boolean): void;
+declare function createCommandCodeSearchSelection(deps: WebSearchSelectionDeps): WebSearchSelectionHandle;
 /** Per-request facts the provider needs, all injected so the class stays cordis-free and testable. */
 interface CommandCodeSearchProviderDeps {
   /** 使用搜索已捕获的网关解析账号，探测不能在等待后转到另一个网关。 */
@@ -2280,12 +2353,16 @@ interface Config {
   /**
    * Whether to use Command Code as the backend for dsh's model-facing
    * `web_search` tool. Enabled registers a `commandcode` search provider on
-   * `ctx.web` AND selects it over the shipped `deepseek-official` (or a
-   * sibling plugin's pin), reusing the SAME key and apiBase as chat. Disabling
-   * hands the selection back to whichever backend was there before, so a
-   * sibling search plugin (e.g. modsearch) keeps working (issue #26). The
-   * write rides dsh's internal `searchProviderId`, read per search call, so a
-   * setting change lands on the next search without a restart. Defaults true.
+   * `ctx.web` AND selects it over the shipped `deepseek-official` (or a sibling
+   * plugin's pin), reusing the SAME key and apiBase as chat. Selection is the
+   * `web` profile entry's volatile `searchProvider`, written through the host
+   * settings service and read by `WebRuntime.search()` on the next call, so a
+   * toggle change lands without a restart or a remount. Disabling gives the
+   * field back to the deployment's composed value, so a sibling search plugin
+   * (e.g. modsearch) keeps working (issue #26) — EXCEPT when the user layer
+   * already carries someone else's explicit pin (the shipped web-search
+   * settings page writes `deepseek-search-api`): that choice is never
+   * displaced, and the provider stays registered but unselected. Defaults true.
    */
   webSearch?: boolean;
   /**
@@ -2345,5 +2422,5 @@ interface ResolvedCommandCodeOptions extends CommandCodeConnectionOptions {
 declare function resolveAdapterOptions(config: Config): ResolvedCommandCodeOptions;
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { ACTIVE_ACCOUNT_AUTO, type ApiKeyValidation, BILLING_ACCESS_TTL_MS, COMMANDCODE_SEARCH_PROVIDER_ID, COMMAND_CODE_CLI_VERSION, type CommandCodeAccountConfig, CommandCodeAccountPool, type CommandCodeAccountSlot, type CommandCodeAccountState, type CommandCodeAccountUsage, type CommandCodeAccountsReport, CommandCodeAdapter, type CommandCodeAdapterDeps, type CommandCodeBillingAccess, type CommandCodeCommandDeps, type CommandCodeConnectionOptions, type CommandCodeLoginCredentials, type CommandCodeLoginFailureReason, CommandCodeLoginFlow, type CommandCodeLoginFlowDeps, type CommandCodeLoginStatus, type CommandCodeModelAccountRule, CommandCodeSearchProvider, type CommandCodeSearchProviderDeps, type CommandCodeSearchSelection, type CommandCodeTuiSettingsDeps, type CommandCodeUsageDeps, type CommandCodeUsageReport, CommandCodeUsageService, Config, DEFAULT_API_BASE, DEFAULT_GENERATE_MAX_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_MODELS_CACHE_PATH, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_WEB_SEARCH_PROVIDER_ID, KNOWN_DEALS, KNOWN_EFFORTS, KNOWN_IMAGE_MODELS, KNOWN_NON_ZDR_MODELS, KNOWN_PEAK_PRICING, KNOWN_PLANS, KNOWN_SUBSCRIPTION_PLANS, KNOWN_THINKING_MODELS, LANG_AUTO, LOGIN_ALLOWED_ORIGINS, LOGIN_BEGIN_ENDPOINT, LOGIN_BODY_LIMIT_BYTES, LOGIN_CANCEL_ENDPOINT, LOGIN_MAX_PORT_ATTEMPTS, LOGIN_START_PORT, LOGIN_STATUS_ENDPOINT, LOGIN_TIMEOUT_MS, type LoginFlowFacade, PLAN_LABELS, PLAN_ORDER, PROVIDER, type ResolveAttachments, ResolvedCommandCodeOptions, type TuiSettingsField, type TuiSettingsFieldOption, type TuiSettingsFieldWrite, type TuiSettingsGroup, type TuiSettingsSection, type TuiSettingsSectionsService, USAGE_REPORT_ENDPOINT, accountUsable, apply, applyCommandCodeSearchSelection, applyCommandCodeTuiSettings, applyCommands, applyUsageRemote, buildCommandAuthUrl, buildCommandCodeTuiSection, capabilityDescription, commandCodeSearchSelection, commandDefinition, compareByPlan, dealLabel, formatContext, inject, loginStatusSchema, matchModelRule, modelVisibleInPlan, name, parseLoginStatus, peakPricingLabel, peakPricingState, planLabel, projectSlugFromPath, resolveAdapterOptions, resolveAuthFileApiKey, selectAccountForModel, selectActiveAccount, studioBaseForApiBase, subscriptionPlanInfo, supportsZeroDataRetention, usageReportSchema, validateCommandApiKey };
+export { ACTIVE_ACCOUNT_AUTO, type ApiKeyValidation, BILLING_ACCESS_TTL_MS, COMMANDCODE_SEARCH_PROVIDER_ID, COMMAND_CODE_CLI_VERSION, type CommandCodeAccountConfig, CommandCodeAccountPool, type CommandCodeAccountSlot, type CommandCodeAccountState, type CommandCodeAccountUsage, type CommandCodeAccountsReport, CommandCodeAdapter, type CommandCodeAdapterDeps, type CommandCodeBillingAccess, type CommandCodeCommandDeps, type CommandCodeConnectionOptions, type CommandCodeLoginCredentials, type CommandCodeLoginFailureReason, CommandCodeLoginFlow, type CommandCodeLoginFlowDeps, type CommandCodeLoginStatus, type CommandCodeModelAccountRule, CommandCodeSearchProvider, type CommandCodeSearchProviderDeps, type CommandCodeSearchSelection, type CommandCodeTuiSettingsDeps, type CommandCodeUsageDeps, type CommandCodeUsageReport, CommandCodeUsageService, Config, DEFAULT_API_BASE, DEFAULT_GENERATE_MAX_TOKENS, DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_MODELS_CACHE_PATH, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, DEFAULT_WEB_SEARCH_PROVIDER_ID, KNOWN_DEALS, KNOWN_EFFORTS, KNOWN_IMAGE_MODELS, KNOWN_NON_ZDR_MODELS, KNOWN_PEAK_PRICING, KNOWN_PLANS, KNOWN_SUBSCRIPTION_PLANS, KNOWN_THINKING_MODELS, LANG_AUTO, LOGIN_ALLOWED_ORIGINS, LOGIN_BEGIN_ENDPOINT, LOGIN_BODY_LIMIT_BYTES, LOGIN_CANCEL_ENDPOINT, LOGIN_MAX_PORT_ATTEMPTS, LOGIN_START_PORT, LOGIN_STATUS_ENDPOINT, LOGIN_TIMEOUT_MS, type LoginFlowFacade, PLAN_LABELS, PLAN_ORDER, PROVIDER, type ResolveAttachments, ResolvedCommandCodeOptions, type TuiSettingsField, type TuiSettingsFieldOption, type TuiSettingsFieldWrite, type TuiSettingsGroup, type TuiSettingsSection, type TuiSettingsSectionsService, USAGE_REPORT_ENDPOINT, WEB_SELECTION_NAMESPACE, type WebSearchSelectionHandle, type WebSelectionLogger, type WebSelectionSettings, accountUsable, apply, applyCommandCodeTuiSettings, applyCommands, applyUsageRemote, buildCommandAuthUrl, buildCommandCodeTuiSection, capabilityDescription, commandCodeSearchSelection, commandDefinition, compareByPlan, createCommandCodeSearchSelection, dealLabel, formatContext, inject, loginStatusSchema, matchModelRule, modelVisibleInPlan, name, parseLoginStatus, peakPricingLabel, peakPricingState, planLabel, projectSlugFromPath, resolveAdapterOptions, resolveAuthFileApiKey, selectAccountForModel, selectActiveAccount, studioBaseForApiBase, subscriptionPlanInfo, supportsZeroDataRetention, usageReportSchema, validateCommandApiKey };
 //# sourceMappingURL=index.d.ts.map

@@ -1,16 +1,36 @@
 /**
- * Web-search provider tests (node:test, zero deps). Run with `npm test`.
+ * Web-search provider tests (node:test). Run with `npm test`.
  *
- * Drive `CommandCodeSearchProvider` against a stubbed fetch, pinning the
- * `/alpha/web-search` wire contract (POST body, `Authorization: Bearer` +
- * `x-command-code-version` headers), the result mapping, the failure taxonomy
- * and the `searchProviderId` selection handoff.
+ * The first half drives `CommandCodeSearchProvider` against a stubbed fetch,
+ * pinning the `/alpha/web-search` wire contract (POST body, `Authorization:
+ * Bearer` + `x-command-code-version` headers), the result mapping and the
+ * failure taxonomy — no engine involved.
+ *
+ * The second half covers the SELECTION seam on the REAL 0.2.1-rc.2 engine:
+ * `boot()` mounts a real Loader over a throwaway profile directory with the
+ * real `@deepseek-ai/dsh-config-editor` and `@deepseek-ai/dsh-settings`, and a
+ * real `WebRuntime` that resolves `searchProvider` per call. Assertions read
+ * that runtime's `config.searchProvider.get()` — the value `search()` actually
+ * uses — plus the profile document the write lands in. Nothing here asserts
+ * against a hand-built object shaped like an older engine: a regression that
+ * writes a field nobody reads fails these tests, which is exactly what the
+ * 0.2.1-rc.2 breakage did under the previous fixture.
  */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-import { CommandCodeSearchProvider, applyCommandCodeSearchSelection, commandCodeSearchSelection, COMMANDCODE_SEARCH_PROVIDER_ID } from '../src/web-search.ts'
+import type { Context } from '@deepseek-ai/cordis'
+import type { WebRuntime } from '@deepseek-ai/dsh-web'
+import {
+  CommandCodeSearchProvider, createCommandCodeSearchSelection,
+} from '../src/web-search.ts'
+import type { WebSelectionSettings } from '../src/web-search.ts'
+import { volatileWrite } from '../src/config-volatile.ts'
 import { COMMAND_CODE_CLI_VERSION } from '../src/adapter.ts'
 
 test('搜索把已捕获的网关交给账号解析，等待后不读取新地址', async () => {
@@ -268,96 +288,157 @@ test('available() is false for a blank or non-parseable apiBase', async () => {
   assert.equal(good.available(), true)
 })
 
-test('applyCommandCodeSearchSelection restores a sibling pin (e.g. modsearch) on disable', () => {
-  // Issue #26: a sibling plugin pinned `searchProvider: modsearch`. Enabling
-  // must remember it; disabling must hand the selection back, never to the
-  // factory default.
-  const web = { searchProviderId: 'modsearch' } as unknown as Parameters<typeof applyCommandCodeSearchSelection>[0]
-  const state = commandCodeSearchSelection()
+// ───────────────────────────────────────────────────────────────────────────
+// 选择契约（0.2.1-rc.2）：真实 Loader + 真实 settings + 真实 WebRuntime
+// ───────────────────────────────────────────────────────────────────────────
 
-  applyCommandCodeSearchSelection(web, state, true)
-  assert.equal((web as unknown as { searchProviderId?: string }).searchProviderId, COMMANDCODE_SEARCH_PROVIDER_ID)
+/** 记录日志行的假 sink：「当前后端由官方设置接管」这类事实必须可断言。 */
+interface LogSink {
+  info: string[]
+  warn: string[]
+  logger: { info(message: string): void; warn(message: string): void }
+}
 
-  applyCommandCodeSearchSelection(web, state, false)
-  assert.equal((web as unknown as { searchProviderId?: string }).searchProviderId, 'modsearch')
-})
-
-test('applyCommandCodeSearchSelection leaves an unconfigured field alone when never enabled', () => {
-  // A fresh boot straight into `webSearch: false`: nothing displaced, nothing to
-  // restore — the runtime's own value already says what the user wants.
-  const pinned = { searchProviderId: 'modsearch' } as unknown as Parameters<typeof applyCommandCodeSearchSelection>[0]
-  applyCommandCodeSearchSelection(pinned, commandCodeSearchSelection(), false)
-  assert.equal((pinned as unknown as { searchProviderId?: string }).searchProviderId, 'modsearch')
-
-  const unset = {} as unknown as Parameters<typeof applyCommandCodeSearchSelection>[0]
-  applyCommandCodeSearchSelection(unset, commandCodeSearchSelection(), false)
-  assert.equal((unset as unknown as { searchProviderId?: string }).searchProviderId, undefined)
-})
-
-test('applyCommandCodeSearchSelection keeps the displaced backend across re-enables', () => {
-  // Settings saves re-apply while still on: the field currently holds our own
-  // id, which must never overwrite the remembered backend.
-  const web = { searchProviderId: 'modsearch' } as unknown as Parameters<typeof applyCommandCodeSearchSelection>[0]
-  const state = commandCodeSearchSelection()
-
-  applyCommandCodeSearchSelection(web, state, true)
-  applyCommandCodeSearchSelection(web, state, true)
-  applyCommandCodeSearchSelection(web, state, false)
-  assert.equal((web as unknown as { searchProviderId?: string }).searchProviderId, 'modsearch')
-})
-
-test('applyCommandCodeSearchSelection treats a pre-set commandcode pin as nothing to restore', () => {
-  // The field already read `commandcode` before we touched it: disabling is a
-  // no-op, because writing `undefined` back would hand the selection to
-  // dsh-web's auto-select, where a second usable provider turns every later
-  // search into `WEB_PROVIDER_AMBIGUOUS`.
-  const web = { searchProviderId: COMMANDCODE_SEARCH_PROVIDER_ID } as unknown as Parameters<typeof applyCommandCodeSearchSelection>[0]
-  const state = commandCodeSearchSelection()
-
-  applyCommandCodeSearchSelection(web, state, true)
-  applyCommandCodeSearchSelection(web, state, false)
-  assert.equal(
-    (web as unknown as { searchProviderId?: string }).searchProviderId,
-    COMMANDCODE_SEARCH_PROVIDER_ID,
-  )
-})
-
-test('applyCommandCodeSearchSelection still clears a field that never read our id', () => {
-  // The mirror image: the field was UNSET (auto-select) when we took over, so
-  // disabling must give that back.
-  const web = {} as unknown as Parameters<typeof applyCommandCodeSearchSelection>[0]
-  const state = commandCodeSearchSelection()
-
-  applyCommandCodeSearchSelection(web, state, true)
-  assert.equal((web as unknown as { searchProviderId?: string }).searchProviderId, COMMANDCODE_SEARCH_PROVIDER_ID)
-  applyCommandCodeSearchSelection(web, state, false)
-  assert.equal((web as unknown as { searchProviderId?: string }).searchProviderId, undefined)
-})
-
-test('applyCommandCodeSearchSelection never throws on a hardened runtime', () => {
-  const frozen = Object.freeze({}) as unknown as Parameters<typeof applyCommandCodeSearchSelection>[0]
-  const state = commandCodeSearchSelection()
-  // In strict-mode ESM assignment to a frozen object throws inside; the helper
-  // must swallow it and degrade to registered-but-unselected.
-  applyCommandCodeSearchSelection(frozen, state, true)
-  applyCommandCodeSearchSelection(frozen, state, false)
-})
-
-/**
- * Dispatch `loader/volatile-update`, the event `cordis-plugin-loader` raises on
- * the owning fiber after committing a settings write in place. Typed events do
- * not declare it (the loader is not a peer of this bundle), so the dispatch goes
- * through a structural view.
- */
-function emitVolatileUpdate(ctx: unknown): void {
-  (ctx as { emit(event: string, paths: readonly (readonly string[])[]): void })
-    .emit('loader/volatile-update', [['webSearch']])
+function logSink(): LogSink {
+  const info: string[] = []
+  const warn: string[] = []
+  return { info, warn, logger: { info: (message) => { info.push(message) }, warn: (message) => { warn.push(message) } } }
 }
 
 /**
- * A config object shaped the way dsh 0.1.7's loader hands it to `apply()`: every
- * marked field is a frozen `{ get() }` reference whose value the loader commits
- * in place, and `set()` stands in for a settings write.
+ * 一条 settings 描述行里本测试读到的字段。真实 `describe()` 返回宿主侧未脱敏
+ * 的完整描述符；这里只声明被断言到的成员。
+ */
+interface SelectionRow {
+  ns: string
+  value?: Record<string, unknown> | undefined
+  base?: Record<string, unknown> | undefined
+  user?: Record<string, unknown> | undefined
+  revision?: number | undefined
+}
+
+/**
+ * 运行中的 `WebRuntime` 面：0.2.1-rc.2 把选择存成构造参数属性 `config`，其中
+ * `searchProvider` 是每次 `search()` 都读一次的易变引用。这里按运行时形状读取，
+ * 断言落在 `search()` 真正会用的那个值上。
+ */
+function runtimeConfig(web: WebRuntime): { searchProvider: { get(): unknown } } {
+  return (web as unknown as { config: { searchProvider: { get(): unknown } } }).config
+}
+
+/** `search()` 会选中的后端 id；字段未设置时为 `undefined`。 */
+function runtimeSelection(web: WebRuntime): string | undefined {
+  const value: unknown = runtimeConfig(web).searchProvider.get()
+  return typeof value === 'string' ? value : undefined
+}
+
+/** 真实 rc.2 选择沙箱。 */
+interface SelectionSandbox {
+  ctx: Context
+  web: WebRuntime
+  /** 真实 settings 服务（结构性视图；测试可再包一层计数/故障）。 */
+  settings(): WebSelectionSettings
+  /** 真实 settings 服务的完整面，用来扮演「官方网页搜索设置页」的写入方。 */
+  admin: WebSelectionSettings & { describe(): SelectionRow[] }
+  /** profile patch 文档内容（`ConfigEditor` 写入的那个文件）。 */
+  patch(): Promise<string>
+  /** 载入的 `web` 条目 fiber 与易变引用，用于证明写入不会重挂载。 */
+  identity(): { fiber: unknown; ref: unknown }
+  dispose(): Promise<void>
+}
+
+/** 把一条 `- insert:` 行渲染成 YAML；值都是标量，够本测试用。 */
+function insertRow(id: string, name: string, config?: Record<string, unknown>): string {
+  const lines = ['- insert:', `    - id: ${id}`, `      name: "${name}"`]
+  if (config !== undefined && Object.keys(config).length > 0) {
+    lines.push('      config:')
+    for (const [key, value] of Object.entries(config)) lines.push(`        ${key}: ${String(value)}`)
+  }
+  return `${lines.join('\n')}\n`
+}
+
+/** 把一条 profile 用户层覆盖渲染成 YAML（`ConfigEditor` 写出来的形状）。 */
+function userPatch(id: string, name: string, config: Record<string, unknown>): string {
+  const lines = [`- id: ${id}`, `  name: "${name}"`, '  config:']
+  for (const [key, value] of Object.entries(config)) lines.push(`    ${key}: ${String(value)}`)
+  return `${lines.join('\n')}\n`
+}
+
+/**
+ * 起一个真实 0.2.1-rc.2 选择沙箱。
+ *
+ * 组成：真实 `boot()` + 真实 Loader（根 Include 上叠一层伪 bundle 补丁）+
+ * 真实 `@deepseek-ai/dsh-config-editor` + 真实 `@deepseek-ai/dsh-settings` +
+ * 真实 `WebRuntime`。伪 bundle 提供 `web` 条目的组合基值，等价于 `dsh-base`
+ * 里那一行；`cordis.patch.yml` 既是 `ConfigEditor` 写入的文档，也是
+ * `loadProfileDirectory` 读取的文件名，所以断言能直接看到用户层。
+ *
+ * @param options - `base` 是该条目的组合配置，默认即 `dsh-base` 出厂的那两个值；
+ * 显式传 `{}` 表示两层都没有配置。`user` 预置 profile 用户层覆盖（例如上一次运行
+ * 留下的 `commandcode`）。
+ */
+async function selectionSandbox(
+  options: { base?: Record<string, unknown>; user?: Record<string, unknown> } = {},
+): Promise<SelectionSandbox> {
+  const base = options.base ?? { searchProvider: 'deepseek-official', fetchProvider: 'http' }
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const { boot, readProfilePatches } = await import('@deepseek-ai/dsh-app-boot')
+  const ConfigEditor = (await import('@deepseek-ai/dsh-config-editor')).default
+  const SettingsForms = (await import('@deepseek-ai/dsh-settings')).default
+  const { WebRuntime } = await import('@deepseek-ai/dsh-web')
+
+  const home = await mkdtemp(join(tmpdir(), 'dsh-commandcode-selection-'))
+  const dir = join(home, 'profiles', 'probe')
+  const bundleDir = join(dir, 'node_modules', 'probe-base')
+  await mkdir(bundleDir, { recursive: true })
+  await writeFile(join(bundleDir, 'package.json'), JSON.stringify({
+    name: 'probe-base', version: '0.0.0', dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }))
+  await writeFile(join(bundleDir, 'cordis.patch.yml'), insertRow('web', 'cordis:web', base))
+  await writeFile(join(dir, 'package.json'), JSON.stringify({
+    name: 'dsh-profile-probe', dsh: { profile: { bundles: ['probe-base'] } },
+  }))
+  const patchPath = join(dir, 'cordis.patch.yml')
+  await writeFile(patchPath, options.user === undefined ? '[]\n' : userPatch('web', 'cordis:web', options.user))
+  const configPath = join(dir, 'cordis.yml')
+  await writeFile(configPath, '[]\n')
+
+  const profileContext = {
+    name: 'probe', dir, patchPath, installAnchor: join(root, 'package.json'), cwd: root, home,
+    startedBundles: ['probe-base'], overlays: [], telemetryDisabledEnv: undefined,
+  }
+  const ctx = await boot('probe', configPath, readProfilePatches('probe', profileContext as never), (inner: Context) => {
+    inner.loader.builtins.web = WebRuntime
+  })
+  ctx.provide('profileContext', profileContext as never)
+  // 插件声明 inject = ['llm']；这里只提供它 boot 期真正调用的两个入口。
+  ctx.provide('llm', { registerConfigurableProviders: () => {}, registerAdapter: () => {} } as never)
+  await ctx.plugin(ConfigEditor)
+  await ctx.plugin(SettingsForms)
+  await new Promise((resolve) => setImmediate(resolve))
+
+  const web = ctx.get('web') as WebRuntime
+  const admin = ctx.get('settings') as unknown as SelectionSandbox['admin']
+  const entry = [...ctx.loader.entries()].find(candidate => candidate.options.id === 'web')
+
+  return {
+    ctx,
+    web,
+    settings: () => admin,
+    admin,
+    patch: () => readFile(patchPath, 'utf8'),
+    identity: () => ({ fiber: entry?.fiber, ref: runtimeConfig(web).searchProvider }),
+    dispose: async () => {
+      await ctx.fiber.dispose()
+      await rm(home, { recursive: true, force: true })
+    },
+  }
+}
+
+/**
+ * A config object shaped the way the rc.2 loader hands it to `apply()`: every
+ * field marked volatile in the schema is a frozen `{ get() }` reference whose
+ * value the loader commits in place, and `set()` stands in for that commit.
  */
 function volatileProbeConfig(values: Record<string, unknown>): {
   plain: Record<string, unknown>
@@ -376,76 +457,396 @@ function volatileProbeConfig(values: Record<string, unknown>): {
   }
 }
 
-test('host apply() hands the selection back to the prior backend when webSearch turns off', async () => {
-  // End-to-end over the real plugin boot: the `web` service starts with a
-  // sibling's pin. Booting with webSearch on displaces it; flipping the volatile
-  // field and dispatching `loader/volatile-update` restores it — the issue #26
-  // flow.
-  const { Context } = await import('@deepseek-ai/cordis')
+/**
+ * 把真实插件挂到沙箱上：`apply()` 本身不变，只是挂在子 fiber 上，于是
+ * `fiber.dispose()` 就是生产里的卸载路径。
+ */
+async function mountHost(
+  sandbox: SelectionSandbox,
+  values: Record<string, unknown>,
+): Promise<{ fiber: { dispose(): Promise<void> | void }; config: { plain: Record<string, unknown>; set(field: string, value: unknown): void } }> {
   const { apply } = await import('../src/index.ts')
-  const { WebRuntime } = await import('@deepseek-ai/dsh-web')
-
-  const ctx = new Context()
-  ctx.provide('llm', {
-    registerConfigurableProviders: () => {},
-    registerAdapter: () => {},
-  })
-  await ctx.plugin(WebRuntime, { searchProvider: 'modsearch' })
-
-  // A settings service stub recording the auto-form policy declaration.
-  const policies: unknown[] = []
-  ctx.provide('settings', {
-    configure: (presentation: unknown) => {
-      policies.push(presentation)
-      return () => {}
+  const config = volatileProbeConfig(values)
+  const fiber = await sandbox.ctx.plugin({
+    name: 'probe-commandcode',
+    apply: (inner: Context) => {
+      apply(inner, config.plain as never)
     },
   })
+  return { fiber, config }
+}
 
-  const config = volatileProbeConfig({ webSearch: true })
-  apply(ctx, config.plain as never)
+/**
+ * 通知 `llm-commandcode` 自己的条目：loader 在易变提交后向 OWNING fiber 派发
+ * `loader/volatile-update`（`Context.filter` 只放行那一个 fiber）。
+ *
+ * 测试里的插件挂在手工 ctx 上、没有真实条目 fiber，因此在插件自己的 context 上
+ * 派发等价事件。这不覆盖「跨条目」方向：官方设置页改了 `web` 条目这件事一律用
+ * 真实 settings 写入构造（见沙箱的 `admin`），不靠伪造事件。
+ */
+function notifyOwnEntry(ctx: unknown): void {
+  (ctx as { emit(event: string, paths: readonly (readonly string[])[]): void })
+    .emit('loader/volatile-update', [['webSearch']])
+}
 
-  // The settings inject resolves on its own tick, so let the effect run.
-  await new Promise((resolve) => setImmediate(resolve))
-  const web = ctx.get('web') as unknown as { searchProviderId?: string }
-  assert.deepEqual(policies, [{ auto: false }])
-  assert.equal(web.searchProviderId, 'commandcode')
+/** 轮询等待异步写入落定（真实文件写入 + loader 提交跨多个 tick）。 */
+async function waitFor(predicate: () => boolean, message: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  assert.fail(message)
+}
 
-  // The loader notifies the owning fiber; the plugin re-applies what config
-  // alone cannot carry.
-  config.set('webSearch', false)
-  emitVolatileUpdate(ctx)
-  assert.equal(web.searchProviderId, 'modsearch')
+/** 给可能排队的异步写入一个落定窗口；只用于「不应发生」的断言。 */
+async function quietWindow(): Promise<void> {
+  for (let tick = 0; tick < 4; tick += 1) await new Promise((resolve) => setTimeout(resolve, 15))
+}
 
-  // And back on: the remembered backend is displaced again.
-  config.set('webSearch', true)
-  emitVolatileUpdate(ctx)
-  assert.equal(web.searchProviderId, 'commandcode')
+test('volatileWrite 直写运行中的易变引用，读回不符或协议缺失时报失败', async () => {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const { WebRuntime } = await import('@deepseek-ai/dsh-web')
+  const ctx = new Context()
+  try {
+    await ctx.plugin(WebRuntime, { searchProvider: 'modsearch' })
+    const ref: unknown = runtimeConfig(ctx.get('web') as WebRuntime).searchProvider
+    assert.equal(volatileWrite(ref, 'commandcode'), true)
+    assert.equal((ref as { get(): unknown }).get(), 'commandcode')
+    assert.equal(volatileWrite(ref, undefined), true)
+    assert.equal((ref as { get(): unknown }).get(), undefined)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+  // 非引用、以及「冻结但缺少写入协议」的引用：一律失败而不是假装写入成功。
+  assert.equal(volatileWrite({}, 'x'), false)
+  assert.equal(volatileWrite(null, 'x'), false)
+  assert.equal(volatileWrite(Object.freeze({ get: () => 'old' }), 'new'), false)
+  const hostile = Object.freeze({
+    get: () => 'old',
+    [Symbol.for('cosmokit.volatile.write')]: () => { throw new Error('协议拒绝写入') },
+  })
+  assert.equal(volatileWrite(hostile, 'new'), false)
 })
 
-test('host apply() leaves a pre-existing commandcode pin alone when webSearch turns off', async () => {
-  // The durable selection this repo documents: the profile pins
-  // `searchProvider: commandcode` itself. Clearing it hands the selection to
-  // dsh-web's auto-select, and with a second usable provider registered
-  // (`deepseek-official` is usable whenever a DeepSeek key resolves) EVERY later
-  // search throws `WEB_PROVIDER_AMBIGUOUS`.
+test('rc.2 契约自检：settings 写入直接改运行中的引用，且不重挂载 web 条目', async () => {
+  // 这条用例钉的是本插件依赖的上游机制本身：官方 settings 写盘 → loader 原地
+  // 提交易变引用（fiber 与引用标识都不变）→ 下次 search 读到新值。
+  const sandbox = await selectionSandbox()
+  try {
+    const runtime = runtimeConfig(sandbox.web)
+    const before = sandbox.identity()
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-official')
+
+    await sandbox.admin.update('web', { searchProvider: 'commandcode' })
+    assert.equal(runtime.searchProvider.get(), 'commandcode')
+    assert.equal(Object.is(sandbox.identity().fiber, before.fiber), true)
+    assert.equal(Object.is(sandbox.identity().ref, before.ref), true)
+    assert.match(await sandbox.patch(), /searchProvider: commandcode/)
+
+    // 归还为组合基值：覆盖整行被删除，而不是留一个等值副本。
+    await sandbox.admin.replace('web', { searchProvider: 'deepseek-official', fetchProvider: 'http' })
+    assert.equal(runtime.searchProvider.get(), 'deepseek-official')
+    assert.equal(await sandbox.patch(), '[]\n')
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('选择端口：夺取写盘、关闭归还组合基值、再打开重新夺取', async () => {
+  const sandbox = await selectionSandbox()
+  const sink = logSink()
+  try {
+    const handle = createCommandCodeSearchSelection({ web: sandbox.web, settings: () => sandbox.settings(), logger: sink.logger })
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-official')
+
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+    assert.match(await sandbox.patch(), /searchProvider: commandcode/)
+    assert.deepEqual(handle.state, {
+      owner: true, preexisting: false, foreign: undefined, displaced: 'deepseek-official',
+    })
+
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-official')
+    assert.equal(await sandbox.patch(), '[]\n')
+    assert.equal(handle.state.owner, false)
+
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+    assert.equal(sink.warn.length, 0)
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('他人显式 pin（官方设置页写的 deepseek-search-api）不被夺取，状态可读且只记一次 info', async () => {
+  const sandbox = await selectionSandbox()
+  const sink = logSink()
+  try {
+    // 官方「网页搜索」设置页写的就是这个字段、这个服务。
+    await sandbox.admin.update('web', { searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' })
+    const handle = createCommandCodeSearchSelection({ web: sandbox.web, settings: () => sandbox.settings(), logger: sink.logger })
+
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-search-api')
+    assert.equal(handle.state.owner, false)
+    assert.equal(handle.state.foreign, 'deepseek-search-api')
+    assert.equal(sink.warn.length, 0)
+    assert.equal(sink.info.length, 1)
+    assert.match(sink.info[0]!, /deepseek-search-api/)
+
+    // 关闭同样不能动它：这个选择从来不是本插件写进去的。
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-search-api')
+    assert.match(await sandbox.patch(), /searchProvider: deepseek-search-api/)
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('组合基值已经是 commandcode 时记作 preexisting：关闭既不写盘也不改运行值', async () => {
+  const sandbox = await selectionSandbox({ base: { searchProvider: 'commandcode', fetchProvider: 'http' } })
+  const sink = logSink()
+  try {
+    const handle = createCommandCodeSearchSelection({ web: sandbox.web, settings: () => sandbox.settings(), logger: sink.logger })
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(handle.state.owner, false)
+    assert.equal(handle.state.preexisting, true)
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+    assert.equal(await sandbox.patch(), '[]\n')
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('组合未设置 searchProvider 时，归还让字段回到未设置而不是写一个副本', async () => {
+  const sandbox = await selectionSandbox({ base: { fetchProvider: 'http' } })
+  try {
+    const handle = createCommandCodeSearchSelection({ web: sandbox.web, settings: () => sandbox.settings(), logger: logSink().logger })
+    assert.equal(runtimeSelection(sandbox.web), undefined)
+
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+    assert.equal(handle.state.displaced, undefined)
+
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), undefined)
+    assert.equal(await sandbox.patch(), '[]\n')
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('从未夺取时关闭是空操作', async () => {
+  const sandbox = await selectionSandbox()
+  try {
+    const before = await sandbox.patch()
+    const handle = createCommandCodeSearchSelection({ web: sandbox.web, settings: () => sandbox.settings(), logger: logSink().logger })
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-official')
+    assert.equal(await sandbox.patch(), before)
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('settings 写入抛错时降级到内存直写：不抛、记一条 warn、profile 不变', async () => {
+  const sandbox = await selectionSandbox()
+  const sink = logSink()
+  try {
+    const failing: WebSelectionSettings = {
+      describe: () => sandbox.admin.describe(),
+      update: () => Promise.reject(new Error('注入的设置写入失败')),
+      replace: () => Promise.reject(new Error('注入的设置写入失败')),
+    }
+    const handle = createCommandCodeSearchSelection({ web: sandbox.web, settings: () => failing, logger: sink.logger })
+
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+    assert.equal(await sandbox.patch(), '[]\n')
+    assert.equal(sink.warn.length, 1)
+    assert.match(sink.warn[0]!, /falling back to the running config/)
+
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-official')
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('settings 服务缺失时只走内存路径：夺取与归还都作用于运行中的引用', async () => {
   const { Context } = await import('@deepseek-ai/cordis')
-  const { apply } = await import('../src/index.ts')
   const { WebRuntime } = await import('@deepseek-ai/dsh-web')
-
   const ctx = new Context()
-  ctx.provide('llm', {
-    registerConfigurableProviders: () => {},
-    registerAdapter: () => {},
-  })
-  await ctx.plugin(WebRuntime, { searchProvider: 'commandcode' })
+  const sink = logSink()
+  try {
+    await ctx.plugin(WebRuntime, { searchProvider: 'modsearch', fetchProvider: 'http' })
+    const web = ctx.get('web') as WebRuntime
+    const handle = createCommandCodeSearchSelection({ web, settings: () => undefined, logger: sink.logger })
 
-  const config = volatileProbeConfig({ webSearch: true })
-  apply(ctx, config.plain as never)
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(runtimeSelection(web), 'commandcode')
 
-  const web = ctx.get('web') as unknown as { searchProviderId?: string }
-  assert.equal(web.searchProviderId, 'commandcode')
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(web), 'modsearch')
+    assert.equal(sink.warn.length, 0)
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
 
-  config.set('webSearch', false)
-  emitVolatileUpdate(ctx)
-  assert.equal(web.searchProviderId, 'commandcode')
+test('release() 不写盘：只把运行中的引用交还，profile 覆盖保持不动', async () => {
+  const sandbox = await selectionSandbox()
+  try {
+    const counters = { update: 0, replace: 0 }
+    const counting: WebSelectionSettings = {
+      describe: () => sandbox.admin.describe(),
+      update: (ns, patch) => { counters.update += 1; return sandbox.admin.update(ns, patch) },
+      replace: (ns, section) => { counters.replace += 1; return sandbox.admin.replace(ns, section) },
+    }
+    const handle = createCommandCodeSearchSelection({ web: sandbox.web, settings: () => counting, logger: logSink().logger })
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(counters.update, 1)
+    const persisted = await sandbox.patch()
+
+    handle.release()
+    await quietWindow()
+    // 卸载路径刻意不碰 profile：写盘需要 ACTIVE 的条目 fiber 和 HMR 独占锁。
+    // 代价是文档里的覆盖会留到下次启动，交由下次 boot 重新对齐。
+    assert.equal(counters.update, 1)
+    assert.equal(counters.replace, 0)
+    assert.equal(await sandbox.patch(), persisted)
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-official')
+
+    // 释放后的调用不再排任何写入。
+    handle.apply(true)
+    await quietWindow()
+    assert.equal(counters.update, 1)
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('重启后：用户层里的 commandcode 认作本插件的选择，关闭时整行归还组合基值', async () => {
+  // 只有本插件会写这个 id，所以用户层里的 `commandcode` 必然来自上一次运行或用户
+  // 手工 pin；两种情况下「关闭」都应当把字段交还给组合基值，否则 profile 会永远
+  // 钉着 Command Code（那条命令的注释承诺的正是「恢复原搜索后端」）。
+  const sandbox = await selectionSandbox({ user: { searchProvider: 'commandcode', fetchProvider: 'http' } })
+  try {
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+    const persisted = await sandbox.patch()
+
+    const handle = createCommandCodeSearchSelection({ web: sandbox.web, settings: () => sandbox.settings(), logger: logSink().logger })
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(handle.state.owner, true)
+    assert.equal(handle.state.preexisting, false)
+    assert.equal(handle.state.displaced, 'deepseek-official')
+    assert.equal(await sandbox.patch(), persisted)
+
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-official')
+    assert.equal(await sandbox.patch(), '[]\n')
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('host apply()：webSearch 开夺取、关归还、再开重新夺取', async () => {
+  const sandbox = await selectionSandbox()
+  try {
+    const { fiber, config } = await mountHost(sandbox, { webSearch: true })
+    await waitFor(() => runtimeSelection(sandbox.web) === 'commandcode', 'boot 时没有夺取 commandcode')
+    assert.match(await sandbox.patch(), /searchProvider: commandcode/)
+
+    config.set('webSearch', false)
+    notifyOwnEntry(sandbox.ctx)
+    await waitFor(() => runtimeSelection(sandbox.web) === 'deepseek-official', '关闭后没有归还组合基值')
+    assert.equal(await sandbox.patch(), '[]\n')
+
+    config.set('webSearch', true)
+    notifyOwnEntry(sandbox.ctx)
+    await waitFor(() => runtimeSelection(sandbox.web) === 'commandcode', '重新打开后没有再次夺取')
+
+    await fiber.dispose()
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('host apply()：组合已 pin commandcode 时，关闭不动它', async () => {
+  // 这条路径不能用 undefined 归还：dsh-web 会把「未设置」读成自动选择，而第二个
+  // 可用提供方一出现，之后每次搜索都是 WEB_PROVIDER_AMBIGUOUS（issue #26）。
+  const sandbox = await selectionSandbox({ base: { searchProvider: 'commandcode', fetchProvider: 'http' } })
+  try {
+    const { fiber, config } = await mountHost(sandbox, { webSearch: true })
+    await quietWindow()
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+
+    config.set('webSearch', false)
+    notifyOwnEntry(sandbox.ctx)
+    await quietWindow()
+    assert.equal(runtimeSelection(sandbox.web), 'commandcode')
+    assert.equal(await sandbox.patch(), '[]\n')
+
+    await fiber.dispose()
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('host apply()：官方设置页已 pin 时 boot 不夺取，也不动 profile', async () => {
+  const sandbox = await selectionSandbox()
+  try {
+    await sandbox.admin.update('web', { searchProvider: 'deepseek-search-api', fetchProvider: 'deepseek-fetch-api' })
+    const persisted = await sandbox.patch()
+
+    const { fiber } = await mountHost(sandbox, { webSearch: true })
+    await quietWindow()
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-search-api')
+    assert.equal(await sandbox.patch(), persisted)
+
+    await fiber.dispose()
+  } finally {
+    await sandbox.dispose()
+  }
+})
+
+test('host apply()：卸载只交还运行中的引用，不调用 settings', async () => {
+  const sandbox = await selectionSandbox()
+  try {
+    const { fiber } = await mountHost(sandbox, { webSearch: true })
+    await waitFor(() => runtimeSelection(sandbox.web) === 'commandcode', 'boot 时没有夺取 commandcode')
+    const persisted = await sandbox.patch()
+    assert.match(persisted, /searchProvider: commandcode/)
+
+    await fiber.dispose()
+    await quietWindow()
+    // 运行中的引用被交还（不然 commandcode 提供方注销后，每次搜索都会
+    // WEB_PROVIDER_CONFIGURED_MISSING），而 profile 覆盖保持不动 —— 归还写盘
+    // 会把整行删掉，所以这份文档本身就是「卸载不写盘」的证据。
+    assert.equal(runtimeSelection(sandbox.web), 'deepseek-official')
+    assert.equal(await sandbox.patch(), persisted)
+  } finally {
+    await sandbox.dispose()
+  }
 })

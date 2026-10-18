@@ -9,6 +9,12 @@
  * therefore reuses the plugin's existing credential chain and `apiBase`, so
  * the model-facing `web_search` tool needs no separate configuration.
  *
+ * The second half of this module is the SELECTION seam: which registered search
+ * backend `ctx.web` actually runs. dsh 0.2.1-rc.2 turned that choice into a
+ * per-call `Volatile` field of the `web` profile entry, so it is changed
+ * through the host settings service rather than by assigning a runtime field —
+ * see {@link createCommandCodeSearchSelection}.
+ *
  * @module dsh-commandcode-provider/web-search
  */
 
@@ -16,8 +22,9 @@ import { WebError, type WebSearchProvider, type WebSearchRequest, type WebSearch
 import type { WebRuntime } from '@deepseek-ai/dsh-web'
 import { attributionHeaders, type HarnessError } from '@deepseek-ai/dsh-llm'
 import { COMMAND_CODE_CLI_VERSION } from './adapter.ts'
-import { IDENTITY_ENCODING_HEADER } from './response-encoding.ts'
+import { isVolatileRef, volatileWrite } from './config-volatile.ts'
 import { readableErrorText } from './readable-error.ts'
+import { IDENTITY_ENCODING_HEADER } from './response-encoding.ts'
 
 /** Stable id this provider registers under in `ctx.web`. */
 export const COMMANDCODE_SEARCH_PROVIDER_ID = 'commandcode'
@@ -31,102 +38,383 @@ export const COMMANDCODE_SEARCH_PROVIDER_ID = 'commandcode'
 export const DEFAULT_WEB_SEARCH_PROVIDER_ID = 'deepseek-official'
 
 /**
- * A structurally-typed view of `WebRuntime`'s private selection field.
+ * Profile entry id whose volatile `searchProvider` selects the search backend.
  *
- * `searchProviderId` is declared `private readonly` on the class, but the
- * compiled runtime property is a plain writable field read per search call.
- * dsh offers no public API to change the selected search provider at runtime,
- * so this seam mutates the instance field directly — a deliberate, bounded
- * dependency on the runtime shape. If dsh ever makes the field `#private` or
- * caches it in a closure, this write silently stops applying and the plugin
- * falls back to its provider remaining registered-but-unselected (the
- * boot-time `searchProvider: commandcode` cordis patch is the durable
- * alternative).
+ * The hosting profile declares it in `dsh-base`'s cordis patch as
+ * `- id: web` / `name: '@deepseek-ai/dsh-web'`, and the shipped web-search
+ * settings page addresses the very same namespace — that page and this plugin
+ * are therefore two writers of ONE field (see
+ * {@link createCommandCodeSearchSelection} for how they avoid fighting).
  */
-interface WebRuntimeSearchField {
-  /** The selected search provider id; read per call by `search()`. */
-  searchProviderId: string | undefined
+export const WEB_SELECTION_NAMESPACE = 'web'
+
+/**
+ * Structural view of the host settings service.
+ *
+ * Spelled structurally rather than imported: only these three members are used,
+ * and a narrower contract keeps the tests' double honest. Every member is
+ * called inside a `try`, because a host mounted without `configEditor` /
+ * `profileContext` throws from `describe()` rather than answering empty.
+ */
+export interface WebSelectionSettings {
+  /** Every configurable entry's form view; the `web` row is absent when it has no volatile field. */
+  describe(): unknown
+  /** Merge fields into that entry's live config (the official volatile write). */
+  update(ns: string, patch: object): Promise<void>
+  /** Reset the entry's live fields, then set the supplied ones. */
+  replace(ns: string, section: object): Promise<void>
+}
+
+/** Failure and visibility sink; implementations must never throw. */
+export interface WebSelectionLogger {
+  warn(message: string): void
+  info(message: string): void
 }
 
 /**
- * Tracked web-search selection state for one mounted `WebRuntime`.
+ * Tracked web-search selection state.
  *
- * `owner` marks whether this plugin currently owns the selection. `displaced`
- * is the backend it took over — restored on disable or unload — and
- * `undefined` means "nothing was configured, leave auto-select" and must
- * round-trip untouched.
+ * `owner` is true while this plugin is the one asserting the selection: it
+ * wrote the value, or found it already equal to ours AND attributed it to a
+ * user-layer pin. Disabling only ever gives back what `owner` covers.
  *
- * `preexisting` is the one fact `displaced` cannot carry: an `undefined`
- * `displaced` means EITHER "the field was unset when we took over" (give
- * `undefined` back) OR "the field already read `commandcode`" (touch
- * nothing). Collapsing the two is what turned a user's own
- * `searchProvider: commandcode` pin into an auto-select, and then into
- * `WEB_PROVIDER_AMBIGUOUS` on every search.
+ * `preexisting` marks the one case where the value is NOT ours to give back:
+ * the field already read `commandcode` while the USER LAYER held nothing, so
+ * the value came from the deployment's composed config or
+ * `$DSH_WEB_SEARCH_PROVIDER`. Restoring there would write over a pin this
+ * plugin never took.
+ *
+ * `foreign` is a non-`commandcode` pin found in the user layer — the shipped
+ * web-search settings page writes `deepseek-search-api`, and any sibling plugin
+ * may pin its own id. A foreign pin is never displaced; `foreign` keeps the
+ * value so the state (and the log line) can name who owns the backend.
+ *
+ * `displaced` is the config value at takeover time. It is what the DEGRADED
+ * (memory-only) restore writes back; the persisted path restores the composed
+ * base instead, because a copy of it in the user layer would outlive a later
+ * deployment change.
  */
 export interface CommandCodeSearchSelection {
   owner: boolean
-  displaced: string | undefined
-  /** Whether the field already read `commandcode` when this plugin first took it over. */
   preexisting: boolean
+  foreign: string | undefined
+  displaced: string | undefined
 }
 
 /** Fresh selection state: the plugin starts out not owning the selection. */
 export function commandCodeSearchSelection(): CommandCodeSearchSelection {
-  return { owner: false, displaced: undefined, preexisting: false }
+  return { owner: false, preexisting: false, foreign: undefined, displaced: undefined }
+}
+
+/** What one observation of the live selection reports. */
+interface SelectionView {
+  /** Config-level value of `web.searchProvider`; `undefined` = the field is unset. */
+  configured: string | undefined
+  /** The user layer's explicit value, when one exists. */
+  pinned: string | undefined
+  /** The composed (inherited) value the user layer falls back to. */
+  base: string | undefined
+  /** Raw user-layer section, so a restore can preserve unrelated fields. */
+  user: Record<string, unknown>
+  /** Whether the official, disk-backed write path is available. */
+  persistent: boolean
+}
+
+/** One queued write; a later intent replaces an earlier queued one. */
+interface SelectionIntent {
+  kind: 'take' | 'restore'
+  displaced: string | undefined
+}
+
+/** Dependencies {@link createCommandCodeSearchSelection} resolves per call. */
+export interface WebSearchSelectionDeps {
+  /** The running `web` service whose volatile reference backs the degraded write. */
+  web: WebRuntime
+  /** Host settings service, resolved per use because it may activate after `web`. */
+  settings: () => WebSelectionSettings | undefined
+  /** Failure and visibility sink. */
+  logger: WebSelectionLogger
+}
+
+/** The handle `src/index.ts` drives; every member is synchronous and non-throwing. */
+export interface WebSearchSelectionHandle {
+  /** Live state, for callers that surface who currently owns the backend. */
+  readonly state: CommandCodeSearchSelection
+  /** Align the selection with one end of the `webSearch` toggle. Never throws. */
+  apply(enable: boolean): void
+  /** Resolve once every queued write has settled. */
+  settled(): Promise<void>
+  /** Fiber release: drop queued writes and restore in memory ONLY — never on disk. */
+  release(): void
+}
+
+/** Read one member of a plain object or array without trusting its shape. */
+function member(value: unknown, key: string): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
+  return (value as Record<string, unknown>)[key]
+}
+
+/** A string member, or `undefined` for anything else (including `null`). */
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+/** The settings row describing the `web` entry, when the host serves one. */
+function selectionRow(settings: WebSelectionSettings): unknown {
+  let rows: unknown
+  try {
+    rows = settings.describe()
+  } catch {
+    return undefined
+  }
+  if (!Array.isArray(rows)) return undefined
+  return rows.find(row => text(member(row, 'ns')) === WEB_SELECTION_NAMESPACE)
 }
 
 /**
- * Reach one end of the `webSearch` toggle without trampling sibling search
- * providers (issue #26).
+ * The volatile reference backing `web.searchProvider`.
  *
- * - Enabling writes `commandcode` and remembers whatever it displaced. When
- *   the plugin already owns the selection, the original `displaced` is kept —
- *   the field currently holds our own id, which must never be mistaken for the
- *   user's backend.
- * - Disabling hands the selection back to the remembered backend only when
- *   this plugin actually took it over. A fresh boot straight into
- *   `webSearch: false`, or a `preexisting` field, leaves it ALONE: writing the
- *   empty memory back would clear the user's own `searchProvider: commandcode`
- *   pin and hand the selection to dsh-web's auto-select, where a second usable
- *   provider makes every later search throw `WEB_PROVIDER_AMBIGUOUS`.
- *
- * Never throws: like the low-level rewrite, a hardened runtime shape degrades
- * to registered-but-unselected.
+ * `config` is a TypeScript-private parameter property on `WebRuntime`, so at
+ * runtime it is an ordinary own field — the only handle to a reference the host
+ * exposes no public accessor for. Reading it structurally means a hardened
+ * runtime degrades to "not writable" instead of throwing.
  */
-export function applyCommandCodeSearchSelection(
-  web: WebRuntime,
-  state: CommandCodeSearchSelection,
-  enable: boolean,
-): void {
+function searchProviderRef(web: WebRuntime): unknown {
+  return member(member(web, 'config'), 'searchProvider')
+}
+
+/** Observe the live selection; `undefined` when nothing can be observed. */
+function readView(deps: WebSearchSelectionDeps): SelectionView | undefined {
+  const settings = deps.settings()
+  if (settings !== undefined) {
+    const row = selectionRow(settings)
+    if (row !== undefined) {
+      const user = member(row, 'user')
+      return {
+        configured: text(member(member(row, 'value'), 'searchProvider')),
+        pinned: text(member(user, 'searchProvider')),
+        base: text(member(member(row, 'base'), 'searchProvider')),
+        user: typeof user === 'object' && user !== null && !Array.isArray(user)
+          ? { ...user as Record<string, unknown> }
+          : {},
+        persistent: true,
+      }
+    }
+  }
+  // Settings is absent, or serves no row for `web`: only the running reference
+  // is observable, so a foreign pin cannot be seen and `base` is unknown.
+  const ref = searchProviderRef(deps.web)
+  if (!isVolatileRef(ref)) return undefined
+  let current: unknown
   try {
-    const field = web as unknown as WebRuntimeSearchField
-    if (enable) {
-      if (state.owner) {
-        // Still on across a re-apply: re-assert without forgetting whom we displaced.
-        field.searchProviderId = COMMANDCODE_SEARCH_PROVIDER_ID
+    current = ref.get()
+  } catch {
+    return undefined
+  }
+  if (current !== undefined && typeof current !== 'string') return undefined
+  return { configured: current, pinned: undefined, base: undefined, user: {}, persistent: false }
+}
+
+/**
+ * The selection seam over `ctx.web`.
+ *
+ * ## Why settings rather than the runtime instance
+ *
+ * 0.2.1-rc.2's `WebRuntime` reads `this.config.searchProvider.get()` on EVERY
+ * search and fetch, and the loader commits a settings write into that same
+ * reference in place (`Entry._commitVolatile`) without remounting the entry.
+ * Writing the reference directly therefore works, but leaves the value out of
+ * the profile: the next commit for that entry — including one caused by an
+ * unrelated field such as `fetchProvider` — re-resolves the raw config and
+ * overwrites it. `ctx.settings.update()` / `replace()` is the documented path
+ * and the one the shipped web-search settings page uses, so this plugin takes
+ * it first and falls back to the reference only when settings is unavailable or
+ * refuses (see `volatileWrite`).
+ *
+ * ## Two writers, one field
+ *
+ * The shipped web-search settings page writes `web.searchProvider` too
+ * (`deepseek-search-api` / `deepseek-official`). This seam never displaces a
+ * pin it did not write: a non-`commandcode` value in the USER LAYER stops the
+ * takeover, the value is recorded on {@link CommandCodeSearchSelection.foreign}
+ * and named in one `info` line, and the provider stays registered but
+ * unselected. A value the user layer does not carry is the deployment's own
+ * default, and taking it over is the toggle's whole purpose. A user-layer
+ * `commandcode` is treated as ours: nothing else writes that id, so it can only
+ * be a previous run of this plugin or a deliberate manual pin, and turning the
+ * toggle off restores the composed default in both cases.
+ *
+ * @param deps - the running `web` service, a settings resolver, and a log sink.
+ * @returns a synchronous handle; failures are logged, never thrown.
+ */
+export function createCommandCodeSearchSelection(deps: WebSearchSelectionDeps): WebSearchSelectionHandle {
+  const state = commandCodeSearchSelection()
+  let pending: { key: string; intent: SelectionIntent } | undefined
+  let activeKey: string | undefined
+  let running = false
+  let closed = false
+  let waiters: Array<() => void> = []
+
+  const warn = (message: string): void => {
+    try {
+      deps.logger.warn(message)
+    } catch { /* a broken sink must not break selection */ }
+  }
+  const info = (message: string): void => {
+    try {
+      deps.logger.info(message)
+    } catch { /* a broken sink must not break selection */ }
+  }
+
+  /** Commit `commandcode` in memory; the last resort before giving up. */
+  const memoryWrite = (value: string | undefined): boolean => {
+    const written = volatileWrite(searchProviderRef(deps.web), value)
+    if (!written) {
+      warn('llm-commandcode: web search selection could not be applied (settings refused the write and the running web config is not writable); the provider stays registered but unselected')
+    }
+    return written
+  }
+
+  /** Run one intent against a FRESH observation; never throws. */
+  const perform = async (intent: SelectionIntent): Promise<void> => {
+    let view: SelectionView | undefined
+    try {
+      view = readView(deps)
+    } catch {
+      view = undefined
+    }
+    if (view === undefined) return
+    const settings = view.persistent ? deps.settings() : undefined
+    if (intent.kind === 'take') {
+      // Re-check the precondition at the last moment: the settings page may have
+      // pinned a backend between the decision and this write.
+      if (view.pinned !== undefined && view.pinned !== COMMANDCODE_SEARCH_PROVIDER_ID) return
+      if (settings !== undefined) {
+        try {
+          await settings.update(WEB_SELECTION_NAMESPACE, { searchProvider: COMMANDCODE_SEARCH_PROVIDER_ID })
+          return
+        } catch (error) {
+          warn(`llm-commandcode: writing web.searchProvider through settings failed (${error instanceof Error ? error.message : String(error)}); falling back to the running config`)
+        }
+      }
+      memoryWrite(COMMANDCODE_SEARCH_PROVIDER_ID)
+      return
+    }
+    // Restore. A foreign pin written while our take was in flight owns the field
+    // now, and putting our old value back would silently revert the user.
+    if (view.pinned !== undefined && view.pinned !== COMMANDCODE_SEARCH_PROVIDER_ID) return
+    if (settings !== undefined) {
+      // `replace` resets the whole section, so the user's other fields must ride
+      // along; the composed base supplies ours, and omitting it drops the key
+      // entirely when the deployment composes no default.
+      const section = { ...view.user }
+      delete section.searchProvider
+      if (view.base !== undefined) section.searchProvider = view.base
+      try {
+        await settings.replace(WEB_SELECTION_NAMESPACE, section)
+        return
+      } catch (error) {
+        warn(`llm-commandcode: restoring web.searchProvider through settings failed (${error instanceof Error ? error.message : String(error)}); falling back to the running config`)
+      }
+    }
+    memoryWrite(intent.displaced)
+  }
+
+  const flush = (): void => {
+    const done = waiters
+    waiters = []
+    for (const resolve of done) resolve()
+  }
+
+  const drain = async (): Promise<void> => {
+    running = true
+    try {
+      while (pending !== undefined && !closed) {
+        const item = pending
+        pending = undefined
+        activeKey = item.key
+        await perform(item.intent)
+      }
+    } finally {
+      running = false
+      activeKey = undefined
+      flush()
+    }
+  }
+
+  /**
+   * Queue one intent, skipping an identical one already queued or in flight. A
+   * later DIFFERENT intent replaces the queued one: the toggle is a state, not a
+   * log, so only the newest position has to land.
+   */
+  const submit = (key: string, intent: SelectionIntent): void => {
+    if (closed) return
+    if (key === activeKey && pending === undefined) return
+    if (pending?.key === key) return
+    pending = { key, intent }
+    if (!running) void drain()
+  }
+
+  const apply = (enable: boolean): void => {
+    try {
+      const view = readView(deps)
+      if (view === undefined) return
+      if (!enable) {
+        if (!state.owner) return
+        state.owner = false
+        if (state.preexisting) {
+          // The value was never ours: it came from the composed config or the
+          // environment, and writing our memory of it back would clear a pin we
+          // did not take.
+          state.preexisting = false
+          return
+        }
+        submit('restore', { kind: 'restore', displaced: state.displaced })
         return
       }
-      const prior = field.searchProviderId
-      // Three cases, and `displaced` alone cannot tell the last two apart:
-      // a sibling's id (restore it), the field was unset (restore `undefined`),
-      // or the field already read OUR id (touch nothing).
-      state.preexisting = prior === COMMANDCODE_SEARCH_PROVIDER_ID
-      state.displaced = state.preexisting ? undefined : prior
-      field.searchProviderId = COMMANDCODE_SEARCH_PROVIDER_ID
-      state.owner = true
-      return
-    }
-    if (state.owner) {
-      state.owner = false
-      // Restore ONLY a selection this plugin actually took over — see the
-      // `preexisting` note on {@link CommandCodeSearchSelection}.
-      if (!state.preexisting) field.searchProviderId = state.displaced
+      if (view.pinned !== undefined && view.pinned !== COMMANDCODE_SEARCH_PROVIDER_ID) {
+        if (state.foreign !== view.pinned) {
+          state.foreign = view.pinned
+          info(`llm-commandcode: web search backend "${view.pinned}" was chosen in the web-search settings page; leaving that explicit choice in place, so the commandcode provider stays registered but unselected`)
+        }
+        state.owner = false
+        state.preexisting = false
+        return
+      }
+      state.foreign = undefined
+      if (view.configured === COMMANDCODE_SEARCH_PROVIDER_ID) {
+        // Already at the target: only a user-layer pin makes it ours to give back.
+        state.owner = view.pinned === COMMANDCODE_SEARCH_PROVIDER_ID
+        state.preexisting = !state.owner
+        if (state.owner && state.displaced === undefined) state.displaced = view.base
+        return
+      }
+      state.displaced = view.configured
       state.preexisting = false
-      return
+      state.owner = true
+      submit('take', { kind: 'take', displaced: view.configured })
+    } catch (error) {
+      warn(`llm-commandcode: aligning the web search selection failed (${error instanceof Error ? error.message : String(error)})`)
     }
-    // Off without ever having taken over: nothing of ours to give back.
-  } catch {
-    // Hardened/frozen runtime: stay registered-but-unselected.
+  }
+
+  return {
+    state,
+    apply,
+    settled: () => (running || pending !== undefined
+      ? new Promise<void>(resolve => { waiters.push(resolve) })
+      : Promise.resolve()),
+    release: () => {
+      // Fiber release runs on unload and on shutdown. A disk write there would
+      // need an ACTIVE entry fiber and the HMR exclusive lock, so the profile is
+      // left alone: only the running reference is handed back, best effort.
+      closed = true
+      pending = undefined
+      if (state.owner && !state.preexisting) memoryWrite(state.displaced)
+      state.owner = false
+      state.preexisting = false
+      if (!running) flush()
+    },
   }
 }
 

@@ -35,7 +35,7 @@
 
 ## 安装
 
-本版本**只支持 dsh 0.2.0-rc.2（RC，候选发布版）与 dsh 0.2.1-alpha.4（alpha，早期测试版）**。维护策略为每条通道只保留官方最新且经过验证的一个版本；2026-10-15 核对时分别对应 npm 的 `latest` 与 `alpha` 发布标签。peer（对等依赖）范围和兼容记录只列这两个精确版本。注意 **dsh 0.2.1-alpha.4 判定插件兼容性时只读 `engines.dsh`**，dsh 对等依赖范围仅在该字段缺失时才被参考，因此 `engines.dsh` 声明错误会被直接拒绝。使用 `0.2.1-alpha.3` 及更早的配置需先升级引擎，再安装本构建：
+本版本**只支持 dsh 0.2.1-rc.2**。兼容矩阵已收敛为单一已验证引擎：RC（候选发布版）通道于 2026-10-17 由 `0.2.0-rc.2` 替换为 `0.2.1-rc.2`，alpha（早期测试版）通道自 `0.2.1-alpha.5` 之后没有新的已验证版本，本轮退出支持矩阵。peer（对等依赖）范围和兼容记录只列这一个精确版本；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 固定为该引擎配对的正式版范围 `~4.0.5`／`~3.18.5`。注意 **dsh 0.2.1-rc.2 判定插件兼容性时只读 `engines.dsh`**，dsh 对等依赖范围仅在该字段缺失时才被参考，因此 `engines.dsh` 声明错误会被直接拒绝。使用 `0.2.0-rc.2`、`0.2.1-alpha.5` 或更早版本的配置需先升级引擎，再安装本构建：
 
 ```sh
 dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@latest
@@ -57,14 +57,14 @@ dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@0.11.15
 
 这一点对每个 profile 都成立，包括下面的终端界面。
 
-插件可直接在 pnpm 10 的全新插件市场 generation 中安装。所有 Harness 包都由插件声明为 Host peer，由当前 dsh profile 统一管理，不要另行添加 dependency。其中 `@deepseek-ai/dsh-*` 共用同一个精确版本析取；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 则分别写成配对范围 `~4.0.4 || ~4.0.5-alpha.1` 与 `~3.18.4 || ~3.18.5-alpha.1`——上游每次发引擎都会把这两个包重写成随引擎发布的版本。上游曾在 `0.2.1-alpha.1` 删除 `@deepseek-ai/dsh-invariants` 这个包，因此插件不再声明它。
+插件可直接在 pnpm 10 的全新插件市场 generation 中安装。所有 Harness 包都由插件声明为 Host peer，由当前 dsh profile 统一管理，不要另行添加 dependency。其中 `@deepseek-ai/dsh-*` 全部声明同一个精确版本；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 则写成该引擎配对的范围 `~4.0.5` 与 `~3.18.5`——上游每次发引擎都会把这两个包重写成随引擎发布的版本。上游曾在 `0.2.1-alpha.1` 删除 `@deepseek-ai/dsh-invariants` 这个包，因此插件不再声明它。
 
 ## 更新
 
 用与安装时相同的 tag 更新：
 
 ```sh
-dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 或 0.2.1-alpha.4
+dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.1-rc.2
 dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@0.9.1      # 更早的 dsh（0.5.0 线，不再维护）
 ```
 
@@ -143,7 +143,7 @@ cmd login                               # 写入 ~/.commandcode/auth.json
         cwd: !!js process.cwd()
 ```
 
-**引擎版本要求。** 插件维护两个引擎：**dsh 0.2.0-rc.2** 与 **dsh 0.2.1-alpha.4**。`@deepseek-ai/dsh-*` 的 peer（对等依赖）为 `0.2.0-rc.2 || 0.2.1-alpha.4`；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 仍使用随引擎配对的范围 `~4.0.4 || ~4.0.5-alpha.1` 与 `~3.18.4 || ~3.18.5-alpha.1`（alpha.4 与 alpha.3 配对同两个版本，因此范围不动）。兼容记录恰好包含两个版本，同通道升级验证后替换旧版，不累加已支持版本、不放行未验证的邻近版本。`npm run test:engine` 与 `npm run test:install` 均逐版本验证，前者还会用该引擎自己的 `evaluatePluginCompatibility` 对发布清单求值——自 alpha.4 起该判定只读 `engines.dsh`，因此引擎声明写错会在这一步失败，而不是拖到安装时才暴露。旧引擎安装说明见[安装](#安装)。
+**引擎版本要求。** 插件只维护**一个已验证引擎：dsh 0.2.1-rc.2**。`@deepseek-ai/dsh-*` 的 peer（对等依赖）为精确版本 `0.2.1-rc.2`；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 使用该引擎配对的正式版范围 `~4.0.5` 与 `~3.18.5`（两者在 alpha 时期是预发布，随本批次转为正式版）。兼容记录恰好包含这一个版本，同通道升级验证后替换旧版，不累加已支持版本、不放行未验证的邻近版本；某条通道没有新的已验证版本时，直接退出矩阵而不保留。`npm run test:engine` 与 `npm run test:install` 对保留的引擎执行验证，前者还会用该引擎自己的 `evaluatePluginCompatibility` 对发布清单求值——自 alpha.4 起该判定只读 `engines.dsh`，因此引擎声明写错会在这一步失败，而不是拖到安装时才暴露。旧引擎安装说明见[安装](#安装)。
 
 ## 用量面板
 
@@ -241,10 +241,10 @@ llm-commandcode:
 
 当你的 dsh 部署加载了 web 能力（`@deepseek-ai/dsh-web` + `@deepseek-ai/dsh-tool-web`）时，模型所用的 `web_search` 工具会由本插件的 `commandcode` 搜索 provider 承载——它用**与聊天相同的 API key 与 base URL** 调用 Command Code Provider API 的 `/alpha/web-search` 端点。你无需另外配置搜索 key、端点或模型。
 
-**默认开启。** 插件的 **设置 → Command Code** 页里有一个「用 Command Code 承载联网搜索」开关（`webSearch`，默认开）。开启时插件会自动把 `commandcode` 选为当前搜索后端；关闭则把选择权交还给之前的后端（比如 modsearch 等其他搜索插件可继续工作——不会被强制回退到 dsh 自带的 DeepSeek 搜索）。该开关在**下一次搜索时生效**，无需重启。
+**默认开启。** 插件的 **设置 → Command Code** 页里有一个「用 Command Code 承载联网搜索」开关（`webSearch`，默认开）。开启时插件会自动把 `commandcode` 选为当前搜索后端；关闭则把选择权交还给之前的后端（比如 modsearch 等其他搜索插件可继续工作——不会被强制回退到 dsh 自带的 DeepSeek 搜索）。该开关在**下一次搜索时生效**，无需重启；在 dsh 0.2.1-rc.2 上它走官方易变设置写入路径，改动原地提交进运行中的 `web` 条目，而不是重挂载该条目。**若官方「网页搜索」设置里已显式选择其他后端，本开关不生效**——那个显式选择优先。
 
 - 该 provider 仅在 web 服务存在时以 `commandcode` 注册进 `ctx.web`；没有它，本插件仍是纯聊天插件。
-- 开关通过启动时与每次设置变更时在 web 接缝里选中 `commandcode` 来实现，同时记住被顶掉的后端；关闭开关（或卸载插件）时会恢复那个后端。若你想更稳妥地固定，可设置 `searchProvider: commandcode`（或 `$DSH_WEB_SEARCH_PROVIDER=commandcode`）；即使本插件的运行时选中不可用，该配置仍然生效。
+- 开关通过引擎的易变设置写入路径选中 `commandcode`（写的就是官方「Web 搜索」卡片里「启用新版 Web 搜索 API」开关所用的同一个 `web.searchProvider` 字段，该开关还会一并写 `fetchProvider`）。插件**尊重用户层已有的显式选择**：当「网页搜索」设置已 pin 其他后端时，它让 `commandcode` 保持已注册但未被选中，并把这一状态报出来（开关的提示文案，外加一行宿主日志），而不是覆盖对方；只有在没人 pin 该字段时才接管，并记住被顶掉的后端，在关闭开关或卸载插件时恢复。若你想更稳妥地固定，可设置 `searchProvider: commandcode`（或 `$DSH_WEB_SEARCH_PROVIDER=commandcode`）；即使运行时选择无法提交，该配置仍然生效。
 - dsh 工具的 `numResults` 会被收敛到 Command Code 的取值范围（1–10，默认 5）；结果映射为 dsh 的 `WebSearchSource` 结构（`url`/`title`/`snippet`）。
 
 > 这里直接使用 Command Code Provider API（与官方 CLI 内置的 `web_search` 相同），因此与 DeepSeek 原生搜索后端不同。

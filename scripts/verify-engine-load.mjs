@@ -56,7 +56,7 @@
  *   node scripts/verify-engine-load.mjs                     # matrix: install + check every declared release
  *   node scripts/verify-engine-load.mjs --engine /path/to/dsh-install
  *   node scripts/verify-engine-load.mjs --engine ~/.dsh/profiles/web
- *   node scripts/verify-engine-load.mjs --version 0.2.0-rc.2
+ *   node scripts/verify-engine-load.mjs --version 0.2.1-rc.2
  *
  * Exit codes: 0 the bundle loads on the engine; 1 a check failed; 2 the engine
  * could not be resolved or installed, so "could not run" never reads as

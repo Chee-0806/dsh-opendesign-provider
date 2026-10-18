@@ -25,8 +25,8 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   `@tanstack/react-virtual`, `@deepseek-ai/dsh-client-store`,
   `@deepseek-ai/dsh-client-ui-slots`,
   `@deepseek-ai/dsh-client-ui-primitives` and
-  `@deepseek-ai/dsh-client-ui-dockkit` (re-read out of the 0.2.1-alpha.4 engine;
-  unchanged from 0.2.1-alpha.3, 0.2.1-alpha.2, 0.2.1-alpha.1, 0.2.0-rc.2 and
+  `@deepseek-ai/dsh-client-ui-dockkit` (re-read out of the 0.2.1-rc.2 engine;
+  unchanged from 0.2.1-alpha.5, 0.2.1-alpha.4, 0.2.1-alpha.3, 0.2.1-alpha.2, 0.2.1-alpha.1, 0.2.0-rc.2 and
   0.1.7-rc.2 — `zod` and `@tanstack/react-virtual` were seeded all along but
   missing from this list until the alpha.4 audit). Any other import
   must be type-only or bundled — `dsh-client-web-react`, `dsh-client-schema-form`
@@ -94,7 +94,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     Never rename one without the other: a mismatch strands existing users' non-secret settings in
     `settings.yaml.imported` (logged, not applied). Pinned by `tests/volatile-config.test.ts` (the helpers),
     `tests/settings-scope.test.ts` (the client scope), `tests/package.test.ts` (four-way range sync + the
-    single `dshReleases` record) and `npm run test:engine`.
+    two `dshReleases` records) and `npm run test:engine`.
   (6) **On the browser side the namespace object must be captured from an INJECT-SCOPED context — never read
     off `ctx.remote`** (`createSettingsScope(ctx, ns, resolveRemote)` in `src/client/settings-scope.ts`,
     wired by the `ctx.inject(['remote.settings'], …)` block in `src/client/index.ts`; the 0.1.7
