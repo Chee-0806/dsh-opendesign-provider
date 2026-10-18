@@ -102,7 +102,8 @@ export const DEFAULT_API_BASE = 'https://api.commandcode.ai'
  */
 export const DEFAULT_GENERATE_MAX_TOKENS = MAX_OUTPUT_TOKEN_LIMIT
 
-export const MODELS_TIMEOUT_MS = 10_000
+/** Catalog fetch budget. Internal: both call sites are in this module. */
+const MODELS_TIMEOUT_MS = 10_000
 /** How long the picker's plan-filter billing facts stay cached before refetching. */
 export const BILLING_ACCESS_TTL_MS = 5 * 60_000
 /**
@@ -110,7 +111,7 @@ export const BILLING_ACCESS_TTL_MS = 5 * 60_000
  * After this TTL a request may probe Provider API again, so an upgraded Go
  * account can recover without a restart.
  */
-export const PROTOCOL_CACHE_TTL_MS = 15 * 60_000
+const PROTOCOL_CACHE_TTL_MS = 15 * 60_000
 
 /** The entry-plan tier weight (`individual-go` in KNOWN_SUBSCRIPTION_PLANS). */
 const GO_TIER_WEIGHT = 0
@@ -1474,8 +1475,14 @@ export interface CommandCodeConnectionOptions {
  */
 export type ResolveAttachments = () => AttachmentStore | undefined
 
-/** What the rotation hook knows about the request it is rotating within. */
-export interface AccountRotationContext {
+/**
+ * What the rotation hook knows about the request it is rotating within.
+ *
+ * Not exported: the only consumer is the `rotateApiKey` shape below, so the
+ * name never reaches the published `.d.ts` and the package's `exports` map
+ * leaves no deep-import path to it.
+ */
+interface AccountRotationContext {
   /** Every API key this request has already used, just-rejected key included. */
   tried: readonly string[]
   /** The provider's own reset time for a `rate-limit` rejection, in millis. */
@@ -1540,15 +1547,15 @@ export interface CommandCodeAdapterDeps<C extends CommandCodeConnectionOptions =
   imageOffload?: SurfaceImagePolicy
 }
 
-/** Account identity from `/alpha/whoami`. */
-export interface CommandCodeAccount {
+/** Account identity from `/alpha/whoami`; reached only through `CommandCodeUsageReport`. */
+interface CommandCodeAccount {
   id: string
   name: string
   userName: string
 }
 
-/** Usage summary from `/alpha/usage/summary`. */
-export interface CommandCodeUsage {
+/** Usage summary from `/alpha/usage/summary`; reached only through `CommandCodeUsageReport`. */
+interface CommandCodeUsage {
   totalCount: number
   totalCost: number
   successRate: number
@@ -1594,8 +1601,8 @@ export interface CommandCodeCredits {
   weekly?: { used: number; cap: number; exceeded: boolean; resetAt: number }
 }
 
-/** Subscription plan state from `/alpha/billing/subscriptions`. */
-export interface CommandCodePlan {
+/** Subscription plan state from `/alpha/billing/subscriptions`; reached only through `CommandCodeUsageReport`. */
+interface CommandCodePlan {
   /** Raw subscription plan id (e.g. `individual-pro`); empty when unreported. */
   planId: string
   /** Display name (e.g. `Pro`); falls back to the raw id for unknown plans. */
