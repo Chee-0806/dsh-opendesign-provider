@@ -17,7 +17,7 @@ import {
   supportsZeroDataRetention,
 } from '../src/capabilities.ts'
 
-test('the ZDR exception list is the live catalog zdr verdict (command-code@1.82.4)', () => {
+test('the ZDR exception list is the live catalog zdr verdict (command-code@1.84.0)', () => {
   // command-code@1.82.4 moved the authority for this verdict out of the CLI
   // artifact: `knownModelSupportsZdr` no longer negates a bundled Set, it reads
   // `resolveKnownCatalogModel({model,catalog})?.zdr ?? false`. So this list is
@@ -36,11 +36,25 @@ test('the ZDR exception list is the live catalog zdr verdict (command-code@1.82.
   // 1.80.0 added `meta/muse-wonder-1.0`, bringing the set to 22. 1.82.4 then
   // adds `stealth/cat-jam:free` (the second live stealth preview), for 24
   // members: LongCat + cat-jam with nothing removed.
+  //
+  // 1.84.0 re-keys LongCat instead of widening coverage, so the set grows by a
+  // net one and 25 is the membership to pin. The catalog flipped the `:free`
+  // row the other way — it now serves `zdr:true` for `meituan/LongCat-2.0:free`
+  // — while the paid `meituan/LongCat-2.0` id, the one a request can still name,
+  // took that slot with `zdr:false`. Both ids therefore crossed this snapshot in
+  // opposite directions, which is why the `:free` row is absent below and the
+  // bare id is present: only the pair together tells the story, and dropping
+  // just one of them would read as a coverage change rather than a re-key.
+  //
+  // 1.84.0 also adds `reflection/beam:free`, a catalog-only row: the artifact's
+  // embedded model snapshot does not carry it, so `?view=client` is the sole
+  // evidence for its `zdr:false` verdict — the same position `stealth/cat-jam:free`
+  // was in at 1.82.4.
   assert.deepEqual([...KNOWN_NON_ZDR_MODELS].sort(), [
     'MiniMaxAI/MiniMax-M3',
     'Qwen/Qwen3.8-Max-0902',
     'deepseek/deepseek-v4.1-flash-fast',
-    'meituan/LongCat-2.0:free',
+    'meituan/LongCat-2.0',
     'meta/muse-spark-1.1',
     'meta/muse-spark-1.2',
     'meta/muse-spark-1.2-contributor',
@@ -49,6 +63,7 @@ test('the ZDR exception list is the live catalog zdr verdict (command-code@1.82.
     'meta/muse-wonder-1.0',
     'minimax/minimax-m3-free',
     'poolside/laguna-s-2.1-free',
+    'reflection/beam:free',
     'sakana/fugu-ultra',
     'stealth/cat-jam:free',
     'stealth/glyph-cluster:free',
@@ -70,14 +85,15 @@ test('supportsZeroDataRetention answers false for every listed model and true ot
   }
   // One per family served through the Provider API, plus unseen ids: the table
   // only shrinks the answer for listed ids, and the header rides either way.
-  // `meituan/LongCat-2.0:free` is NOT in this group any more: command-code@1.82.4
-  // serves `zdr:false` for it in the live catalog, so it moved back into the
-  // exception set above. Both retired stealth previews left the CLI's exclusion
-  // sets in 1.77.0, so the snapshot still answers true for them.
+  // `meituan/LongCat-2.0` left this group in 1.84.0: the live catalog serves
+  // `zdr:false` for the paid id, so it now sits in the exception set above —
+  // exactly the reverse of 1.82.4, when the `:free` row held that slot and this
+  // id was still ZDR covered. Both retired stealth previews stay here on
+  // purpose: they left the CLI's exclusion sets in 1.77.0, so the snapshot
+  // still answers true for them.
   for (const id of [
     'deepseek/deepseek-v4.1-flash',
     'deepseek/deepseek-v4-flash',
-    'meituan/LongCat-2.0',
     'stealth/pixel-canary',
     'stealth/space-bunny-alpha',
     'claude-opus-5',

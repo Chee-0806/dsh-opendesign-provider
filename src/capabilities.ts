@@ -4,7 +4,7 @@
  * subscription-plan labels, deals, and hourly (peak/off-peak) pricing.
  *
  * Everything here is synced from official sources — the command-code CLI
- * bundle's model table (`dist/cli.mjs`, re-verified at command-code@1.82.5) and
+ * bundle's model table (`dist/cli.mjs`, re-verified at command-code@1.84.0) and
  * the official plan/pricing/model docs; see the dsh-commandcode-upstream skill
  * for the extraction procedures. Keeping the snapshot in its own module
  * confines those frequent sync diffs here: src/adapter.ts holds only the stable
@@ -19,7 +19,7 @@ import { PLAN_LABELS, PLAN_ORDER } from './plan-tiers.ts'
 export { PLAN_LABELS, PLAN_ORDER } from './plan-tiers.ts'
 
 export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  // Re-verified against the authoritative command-code@1.82.5 model table. From
+  // Re-verified against the authoritative command-code@1.84.0 model table. From
   // 1.82.4 the CLI no longer keeps this map bundled: `getSupportedEfforts()`
   // resolves it through the model catalog (`reasoningEfforts`), served live at
   // `GET /provider/v1/models?view=client` and falling back to an embedded
@@ -96,6 +96,11 @@ export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'moonshotai/Kimi-K3': ['low', 'high', 'max'],
   // command-code@1.43.0.
   'google/gemini-3.8-flash': ['low', 'medium', 'high'],
+  // 2026-10-16, first seen at the 1.84.0 sync: the live `?view=client` catalog
+  // serves five levels for Reflection's free Beam preview, and it is the only
+  // row this map gained in that train. Catalog-only evidence — the 1.84.0
+  // artifact registry does not name the model at all (see KNOWN_NON_ZDR_MODELS).
+  'reflection/beam:free': ['low', 'medium', 'high', 'xhigh', 'max'],
   'sakana/fugu-ultra': ['high', 'xhigh'],
   // command-code@1.60.0; same three-level set as its Step 3.x Flash siblings,
   // which still reason automatically with no levels and stay out of this map.
@@ -370,9 +375,13 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
  * what the current CLI says.
  *
  * 1.82.4 then reversed 1.74.1's removal of `meituan/LongCat-2.0:free` and added
- * the `stealth/cat-jam:free` preview, taking this set to 24 members — the size
- * of the live catalog's `zdr:false` list. The canonical helper set still carries
- * 23 because `cat-jam:free` postdates the artifact's embedded snapshot.
+ * the `stealth/cat-jam:free` preview, taking this set to 24 members. The 1.84.0
+ * sync (2026-10-16) moves it to 25 with no verdict flip: LongCat's exclusion
+ * followed its rename to the paid id, and the free `reflection/beam:free`
+ * preview joined on catalog evidence alone. The authoritative membership is the
+ * UNION of the artifact's exclusion set and the catalog's `zdr:false` list —
+ * neither source alone is complete, which is why this set is not simply "what
+ * the CLI says".
  */
 export const KNOWN_NON_ZDR_MODELS: ReadonlySet<string> = new Set([
   'MiniMaxAI/MiniMax-M3',
@@ -392,16 +401,21 @@ export const KNOWN_NON_ZDR_MODELS: ReadonlySet<string> = new Set([
   // artifact is the evidence. 22 members as of 1.82.1 — Gemini 4 Argon, the
   // only registry addition in the 1.81.0 -> 1.82.1 train, is NOT in the set.
   'meta/muse-wonder-1.0',
-  // command-code@1.82.4. LongCat returns to this list as a deliberate reversal
-  // of 1.74.1: that release dropped it from the anchor `knownModelSupportsZdr`
-  // read, while the canonical helper `modelSupportsZdr2` kept it, so the two
-  // anchor sets disagreed by exactly this one id (22 vs 23) for eight releases.
-  // 1.82.4 ends the disagreement by making both read the catalog's per-model
-  // `zdr` field, which serves `zdr:false` for this row. The plugin now follows
-  // the catalog verdict rather than the older 22-member anchor.
-  'meituan/LongCat-2.0:free',
+  // 2026-10-16 (1.84.0 sync). LongCat's verdict followed the id, not the other
+  // way round: the catalog now serves `zdr:false` for the paid
+  // `meituan/LongCat-2.0` and `zdr:true` for the `:free` row that 1.82.4 had
+  // listed. Both sources agree — the artifact's exclusion set names the paid id
+  // too — so this is a plain rename with a positive counter-example for the old
+  // alias, never a removal on missing evidence.
+  'meituan/LongCat-2.0',
   'minimax/minimax-m3-free',
   'poolside/laguna-s-2.1-free',
+  // 2026-10-16 (1.84.0 sync). Catalog-only evidence: `?view=client` serves
+  // `zdr:false` for Reflection's free Beam preview while the 1.84.0 artifact's
+  // exclusion set never names it (that gap is the audit's single error). This
+  // snapshot is the UNION of both sources, so the catalog verdict alone admits
+  // it — the same path `stealth/cat-jam:free` took at 1.82.4.
+  'reflection/beam:free',
   'sakana/fugu-ultra',
   // command-code@1.79.0. The free Glyph Cluster preview is the ONE entry here
   // whose exclusion the official pricing page states in prose rather than
@@ -594,6 +608,8 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['claude-sonnet-5-5', 128000],
   // deepseek
   ['deepseek/deepseek-v4-flash', 393216],
+  // 1 provider(s), unanimous
+  ['deepseek/deepseek-v4-flash-fast', 384000],
   // deepseek
   ['deepseek/deepseek-v4-flash-vision-exp', 393216],
   // deepseek
@@ -680,6 +696,8 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['Qwen/Qwen3.8-Flash', 131072],
   // alibaba
   ['Qwen/Qwen3.8-Max', 131072],
+  // 1 provider(s), unanimous
+  ['Qwen/Qwen3.8-Max-0902', 131072],
   // alibaba
   ['Qwen/Qwen3.8-Omni-Flash', 131072],
   // sakana
@@ -690,6 +708,8 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['stepfun/Step-3.7-Flash', 256000],
   // stepfun
   ['stepfun/Step-5-Preview', 65536],
+  // 1 provider(s), unanimous
+  ['tencent/hy3-paid', 128000],
   // thinkingmachines
   ['thinkingmachines/inkling', 65536],
   // xai
@@ -836,6 +856,12 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   // the open-weight Nemotron family.
   'nvidia/nemotron-3.5-super-vl': 'go',
   'poolside/laguna-s-2.1-free': 'go',
+  // 2026-10-16, first seen at the 1.84.0 sync: the free Beam preview is the one
+  // new id the DEFAULT catalog view serves (93 ids), so it lands here. This map
+  // tracks that view: the eight `hidden:true` rows of `?view=client` do not
+  // belong here, unlike `KNOWN_NON_ZDR_MODELS`, which carries their union (see
+  // the decision record, chapter 7).
+  'reflection/beam:free': 'go',
   'stepfun/Step-3.5-Flash': 'go',
   'stepfun/Step-3.7-Flash': 'go',
   // command-code@1.60.0; every tier, and listed by the Go/GOAT/Pro/Max plan
@@ -1106,6 +1132,13 @@ export const KNOWN_DEALS: Readonly<Record<string, KnownDeal>> = {
   'xiaomi/mimo-v2.5-pro': { label: '99% off' },
   'xiaomi/mimo-v2.5': { label: '98% off' },
   'poolside/laguna-s-2.1-free': { label: 'FREE', free: true },
+  // 2026-10-16 (1.84.0 sync); the third live free preview in this map.
+  // "Free while capacity lasts", no daily request limit, and — unlike its Glyph
+  // Cluster sibling — the page states outright that it is "Not routed under
+  // ZDR", which matches the catalog verdict in `KNOWN_NON_ZDR_MODELS`. The page
+  // publishes it at a literal zero, so it gets no row in the vendored price
+  // table either.
+  'reflection/beam:free': { label: 'FREE', free: true },
   // 2026-10-15; the second live stealth preview, "Free while the stealth
   // preview lasts" with no published end date — the same permanent-style deal
   // as Glyph Cluster above, and likewise served at a literal zero by the page.

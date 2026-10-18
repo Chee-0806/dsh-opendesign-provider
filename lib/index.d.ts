@@ -61,7 +61,7 @@ type CommandCodeProtocol = 'cli' | 'openai' | 'messages';
 declare const DEFAULT_MAX_OUTPUT_TOKENS = 131072;
 //#endregion
 //#region src/adapter.d.ts
-declare const COMMAND_CODE_CLI_VERSION = "1.82.5";
+declare const COMMAND_CODE_CLI_VERSION = "1.84.0";
 declare const DEFAULT_API_BASE = "https://api.commandcode.ai";
 /**
  * The output budget this bundle asks for, and the ceiling it will never exceed.
@@ -1073,9 +1073,13 @@ declare const KNOWN_IMAGE_MODELS: ReadonlySet<string>;
  * what the current CLI says.
  *
  * 1.82.4 then reversed 1.74.1's removal of `meituan/LongCat-2.0:free` and added
- * the `stealth/cat-jam:free` preview, taking this set to 24 members — the size
- * of the live catalog's `zdr:false` list. The canonical helper set still carries
- * 23 because `cat-jam:free` postdates the artifact's embedded snapshot.
+ * the `stealth/cat-jam:free` preview, taking this set to 24 members. The 1.84.0
+ * sync (2026-10-16) moves it to 25 with no verdict flip: LongCat's exclusion
+ * followed its rename to the paid id, and the free `reflection/beam:free`
+ * preview joined on catalog evidence alone. The authoritative membership is the
+ * UNION of the artifact's exclusion set and the catalog's `zdr:false` list —
+ * neither source alone is complete, which is why this set is not simply "what
+ * the CLI says".
  */
 declare const KNOWN_NON_ZDR_MODELS: ReadonlySet<string>;
 /**

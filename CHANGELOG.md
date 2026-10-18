@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- 同步 Command Code CLI `1.82.5` → `1.84.0`：请求版本标识（`x-command-code-version`）随之上调。这是**纯请求头同步**，不伴随运行时行为变更。官方日志两版共 8 条：`1.83.0`（2026-10-16）7 条**全部为 FEAT（新功能）**，集中在 CLI 的 mods 扩展体系——`panes`／`widgets`／`toasts`、mods 热重载、权限应答、会话记录脱敏、按请求路由模型、注入面 `{cmd.state,cmd.store,cmd.clock,cmd.model,cmd.prompt}` 与子代理类型、`/mods` 命令与 `cmd mods inspect`、`--safe-mode`（安全模式）、`hooks.transformTextDelta`、`cmd.process.spawn`、`cmd.ui.override`，另有一条「Planning and Implementation models follow the live model catalog」；`1.84.0` 仅 1 条，新增 `/statusline`。**四类关切（推理强度／ZDR／套餐与定价／协议）在官方条目中零命中**，且新增的 `/mods` 与 `/statusline` 都是本地 TUI（终端界面）命令而不是 API 路径，因此插件侧的协议面与数据面本身没有跟着变化。
+
+- **产物级对照：`1.82.5` 与 `1.84.0` 的能力数据逐项相等。**两版 CLI 产物的模型注册表 100 条、efforts（推理档位）66 条、subscriptions（订阅表）9 条、ZDR 例外 24 条逐项相同，内嵌 `catalogVersion` 两版同为 `d6177bab…`；端点主机集合与自定义请求头集合零差异，因此版本号之外没有任何需要跟随的改动——`1.82.4` → `1.82.5` 那一轮把实时目录结果折回内嵌快照之后，`1.84.0` 没有再动这份快照。该结论来自产物级静态比对：官方日志的 8 条覆盖不到数据面，只有逐项比对才能排除"日志没写但数据动了"。
+
+- 实时目录漂移与快照同步（`?view=client` 101 条，`catalogVersion` `e6fe850d…`；默认视图 93 条）：`KNOWN_PLANS` 92 → 93、`KNOWN_EFFORTS` 64 → 65，两处新增的都是 `reflection/beam:free`（免费预览、Go 档、仅文本、五档 `low`／`medium`／`high`／`xhigh`／`max`）；`KNOWN_NON_ZDR_MODELS` 24 → 25，撤出 `meituan/LongCat-2.0:free`、补入 `meituan/LongCat-2.0` 与 `reflection/beam:free`（目录对付费 id 判 `zdr:false`、对被撤下的 `:free` 行改判 `zdr:true`，属同一位置的改名而非覆盖变化）；`KNOWN_DEALS` 6 → 7，新增 `reflection/beam:free` 免费促销。`KNOWN_IMAGE_MODELS` 保持 70 条不变——新模型只支持文本输入。目录 `catalogVersion` 由 `d6177bab…` 推进到 `e6fe850d…`，与产物内嵌快照之间的差距继续拉大，再次印证第七章第 9 条：内嵌快照发布后约两天即过期，同步一律以实时目录为准。
+
+- 三张 id 表与 ZDR 例外表的收录口径本轮写进[《决策记录》第七章第 12 条](docs/决策记录.md#七上游快照同步边界)：`KNOWN_PLANS`／`KNOWN_EFFORTS`／`KNOWN_IMAGE_MODELS` 只收**默认目录视图**（`GET /provider/v1/models`，本轮 93 个 id）里的 id，该视图不返回 `hidden` 字段、也没有隐藏行，8 个 `hidden:true` 行只存在于 `?view=client`，故天然不进入这三张表；`KNOWN_NON_ZDR_MODELS` 收 **artifact 排除集与 `?view=client` 目录 `zdr:false` 行的并集**（单源不完整，`reflection/beam:free` 就是只有目录侧提名的一例）。本轮 `reflection/beam:free` 在默认视图可见，因此 92 → 93 与口径自洽，不需要任何"CLI 注册表未认的行例外收录"式说明。
+
+- 价格表与输出上限表重新生成：`deepseek-v4.1-flash` 与 `glm-5.3-flash` 两行的每月额度由 Go $10／GOAT $100／Pro $100 下调为 **Go $10／GOAT $80／Pro $90**，两行的费率不变（前者 $0.15／$0.6／$0.003，后者 $0.15／$0.5／$0.03）。`MODEL_OUTPUT_TOKEN_LIMITS` 新增 3 行（`deepseek/deepseek-v4-flash-fast` 384 000、`Qwen/Qwen3.8-Max-0902` 131 072、`tencent/hy3-paid` 128 000），写入数 75 → **78**。`reflection/beam:free` 按页面发布的字面零价，不进价格表。
+
+- 复核**无变化**的项：峰谷计价仍是 5 个 DeepSeek 模型、窗口 `01–04 & 06–10 UTC, Mon–Fri` 与本地常量逐值一致；订阅条目与每月额度零变化；`reflection/beam:free` 支持图像输入这一点未被目录宣告，图像能力表保持 70 条；effort 词汇表仍是 `off｜low｜medium｜high｜xhigh｜max`。
+
+- **证据边界**：本轮 `scripts/` 巡检工具的状态为 `incomplete`、`readyToApply=false`、`protocol=not-verified`；唯一一条 error 是 `reflection/beam:free: absent from CLI registry`——该模型只出现在两个目录视图里，`1.84.0` 产物注册表完全不认它，因此 `KNOWN_EFFORTS` 与 `KNOWN_NON_ZDR_MODELS` 里这一行属**目录侧单源证据**（与 `1.82.4` 时 `stealth/cat-jam:free` 的处境相同）。16 个数据源全部返回 HTTP 200。**未做**：真实账号登录、付费生成、浏览器渲染验证，也没有在真实账号上验证价格与订阅额度的页面读数；`?view=client` 与定价页均为公开数据采集。
+
 ## [0.14.0] - 2026-10-18
 
 ### Added
