@@ -163,15 +163,21 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   benefits from the same multi-account selection; the search endpoint is account-independent so no
   mid-flight rotation happens. **Selection**: whether the `commandcode` provider WINS over the shipped
   `deepseek-official` (or a sibling search plugin's pin, e.g. modsearch's `searchProvider: modsearch`) is
-  `Config.webSearch` (default on). dsh 0.2.1-rc.2 turned that choice into a per-call `Volatile` field —
+  `Config.webSearch` (default on). **The seam has two engine shapes, resolved per observation, and both are
+  supported.** On dsh 0.2.1-rc.2 the choice is a per-call `Volatile` field —
   `WebRuntime.search()`/`fetch()` read `this.config.searchProvider.get() ?? this.searchProviderEnv` on EVERY
-  call, and the removed `searchProviderId` field no longer exists — so the plugin no longer assigns a runtime
-  property. `createCommandCodeSearchSelection()` in `src/web-search.ts` owns the whole policy and writes
-  through the host settings service: `ctx.settings.update('web', { searchProvider: 'commandcode' })` to take
+  call, and the removed `searchProviderId` field no longer exists — so the plugin never assigns a runtime
+  property there. On pre-rc.2 engines (`0.2.0-rc.2` and the 0.2.1 alphas) there is neither that reference nor a
+  `web` settings row: the selection IS the runtime's own writable `searchProviderId` field, assigned in memory.
+  `createCommandCodeSearchSelection()` in `src/web-search.ts` owns the whole policy: on the rc.2 shape it writes
+  through the host settings service — `ctx.settings.update('web', { searchProvider: 'commandcode' })` to take
   the backend, `ctx.settings.replace('web', …)` (with the user's other fields carried along and the composed
   base supplying ours) to give it back. Both land in the `web` profile entry's user layer, and the loader
   commits the value into the RUNNING reference of that entry in place — no remount, and the next search sees
-  it. Two writers share the field: the shipped web-search settings page writes `deepseek-search-api` /
+  it. The pre-rc.2 shape has no profile representation at all: the assignment lives and dies with the instance,
+  the toggle is simply re-applied on the next boot, and the user layer is unreadable, so the takeover/restore
+  semantics are the ones this plugin shipped before rc.2 — remember the displaced backend, hand back only what
+  was taken. Two writers share that field on the rc.2 shape: the shipped web-search settings page writes `deepseek-search-api` /
   `deepseek-official` there. **This plugin never displaces a pin it did not write**: a non-`commandcode` value
   in the user layer stops the takeover, is recorded on `CommandCodeSearchSelection.foreign`, and is reported
   in one `info` line — the provider then stays registered but unselected. A value the user layer does not
@@ -182,10 +188,11 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   restores. That degraded path exists because the write can be unavailable: with no settings service, no
   `web` row, or a refused write, the seam commits straight into the running reference via
   `volatileWrite()` (`Symbol.for('cosmokit.volatile.write')`, read back to verify) and finally degrades to
-  registered-but-unselected — logging, never throwing. A direct reference write is second choice on purpose:
-  it never reaches the profile, so the next commit for that entry re-resolves the raw config and overwrites
-  it. Writes are serialized by a small queue that coalesces duplicate intents and lets a later one replace a
-  queued one, because the toggle is a state rather than a log. `release()` on fiber unload deliberately
+  registered-but-unselected — logging, never throwing. A direct reference write is second choice on purpose
+  for the rc.2 shape: it never reaches the profile, so the next commit for that entry re-resolves the raw
+  config and overwrites it. The pre-rc.2 instance field is not a fallback there but the only seam that exists,
+  and its value is memory-only by construction. Writes are serialized by a small queue that coalesces
+  duplicate intents and lets a later one replace a queued one, because the toggle is a state rather than a log. `release()` on fiber unload deliberately
   writes NO profile — `config-editor` needs an ACTIVE entry fiber and the HMR exclusive lock — and only hands
   the running reference back, so the window where `commandcode` is selected while its provider is already
   unregistered (every search failing with `WEB_PROVIDER_CONFIGURED_MISSING`) stays closed; the persisted
@@ -194,12 +201,16 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   plugin and a deliberate manual pin. The deprecated `selectCommandCodeSearchProvider()` (which forced the
   factory default on disable) was DELETED with the rest of the generation bridge, and with it
   `applyCommandCodeSearchSelection()` — `createCommandCodeSearchSelection()` is the only entry point. `dsh-web`
-  is a peer at `0.2.1-rc.2` (kept external in tsdown); `tests/web-search.test.ts` pins the wire body, header,
-  result mapping and the `WEB_ABORTED`/`WEB_PROVIDER_CREDENTIAL_MISSING`/`WEB_PROVIDER_ERROR` taxonomy, and
+  is a peer at `0.2.0-rc.2 || 0.2.1-rc.2` (kept external in tsdown); `tests/web-search.test.ts` pins the
+  wire body, header, result mapping and the `WEB_ABORTED`/`WEB_PROVIDER_CREDENTIAL_MISSING`/`WEB_PROVIDER_ERROR`
+  taxonomy, and
   drives the selection against the REAL engine — `boot()` plus real Loader, `config-editor` and `settings`
   over a throwaway profile — asserting on `WebRuntime.config.searchProvider.get()`, the value `search()`
   actually reads (take/restore/re-take, foreign pin, `preexisting`, refused write → memory fallback, a missing
-  settings service, and unload not writing).
+  settings service, and unload not writing). The pre-rc.2 shape is covered against a `web` double whose OWN
+  `searchProviderId` field is the seam: take, hand back a displaced backend, never write `undefined` over a
+  preexisting `commandcode`, round-trip an unset field, re-take without losing the displaced id, and a frozen
+  instance that must neither throw nor change anything.
 - **`TRANSPORT` carries its own bounded budget, and the route policy cannot express it**
   (`src/transport-retry.ts` + the `agent/request-error` listener in `src/index.ts`; issue #39's second
   report). `providerRetryPolicy()` is captured once per route, so every code in its whitelist shares one

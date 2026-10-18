@@ -252,7 +252,8 @@ tests/cost-projection.test.ts  durable cost-fact fold tests against the real
 tests/prices-client.test.ts  price-table controller tests (cache, bounded
                       transient retries, a Host without the endpoint).
 tests/package.test.ts package-metadata contract (one Harness peer range,
-                      exactly two dshReleases records (one RC and one alpha), no dsh-client-runtime).
+                      exactly two RC dshReleases records (0.2.0-rc.2 and
+                      0.2.1-rc.2), no dsh-client-runtime).
 tests/config-schema.test.ts Config credential contract: literal apiKey fields
                       carry role('secret') and are stripped by redactSecrets.
 tests/web-search.test.ts web-search provider tests (wire body, result mapping,

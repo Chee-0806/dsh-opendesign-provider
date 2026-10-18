@@ -2,9 +2,11 @@
 
 Task-specific reference moved from the former root `AGENTS.md`. All source and test paths are relative to the repository root. Consult the relevant source and tests before changing behavior.
 
-- **2026-10-17 rc.2 升级核验（本轮）**：支持矩阵收敛为**单一引擎 `0.2.1-rc.2`**——`dsh.compatibility.dshReleases` 只剩 1 条，`dsh.compatibility.dsh`、`engines.dsh` 与 15 个 peer／19 个开发依赖的 `@deepseek-ai/dsh-*` 全部是裸版本 `0.2.1-rc.2`；Cordis 与 Schemastery 随之收紧为 `~4.0.5` / `~3.18.5`（rc.2 配对的正式版，node semver 实测 `maxSatisfying` 命中）。**唯一的运行代码破坏点**是 `@deepseek-ai/dsh-web`（网页能力缝）的选择契约：`WebRuntimeConfig.searchProvider`／`fetchProvider` 改为 `Volatile`（易变引用）、构造函数 `config` 由可选变必填、插件此前直写的私有字段 `searchProviderId` 被整体删除。插件改按 rc.2 官方易变写入路径修复（写入 profile 的易变字段，由 loader 原地提交、不重挂载条目），细节与冲突边界见[账号与重试](accounts-and-retry.md)的网页搜索段、[对接说明](../对接说明.md)第二章。其余 16 个直接依赖包与 9 个 vendor 包源码零差异（`cordis` 4.0.4 → 4.0.5、`schemastery` 3.18.4 → 3.18.5 逐文件 diff 仅版本行），Web（网页）预置模块表、五个既用插槽与准入规则均未变。rc.2 首发两个官方包（`dsh-web-deepseek-api`、`dsh-client-ui-deepseek-model-label-1017`）与本插件无行 id／插槽冲突；其中 `conversation.input.model.label` 是 `single`（单占）类插槽且官方已占用，**不得**重复注册。本轮验证证据与尚缺边界见[对接说明](../对接说明.md)第四章。下文 alpha.5 及更早的记录属于历史证据，不能当作本轮新增变化。
+- **2026-10-18 兼容声明反转（本轮）**：矩阵由上一轮的单一 `0.2.1-rc.2` 改回**两个已验证引擎 `0.2.0-rc.2 || 0.2.1-rc.2`**——`dsh.compatibility.dshReleases` 两条记录（**两条都是 RC，没有 alpha 通道**），`dsh.compatibility.dsh`、`engines.dsh` 与 15 个 peer／19 个开发依赖同为裸版本析取式；`@deepseek-ai/cordis`／`@deepseek-ai/schemastery` 按多引擎规则恢复为按引擎配对的析取式 `~4.0.4 || ~4.0.5`／`~3.18.4 || ~3.18.5`（判据见下文「写法随支持矩阵走」）。**判据**：官方 npm `latest` 至今仍是 `0.2.0-rc.2`（2026-10-18 复核，`0.2.1-rc.2` 在 `next`），而宿主准入只读 `engines.dsh`，只声明 rc.2 会让走默认安装路径的用户被拒（下文的三条后果）。**同一轮补上旧引擎的写入形状**：`createCommandCodeSearchSelection()` 按每次观察到的形状分派——rc.2 走官方易变写入面（settings 写入、不夺取他人显式选择、写回校验），pre-rc.2（含 `0.2.0-rc.2`）直写实例自有字段 `searchProviderId`（仅内存、无设置面），细节见[账号与重试](accounts-and-retry.md)的网页搜索段。`tests/package.test.ts` 的断言回到「恰好两条且逐字等于 `{0.2.0-rc.2, 0.2.1-rc.2}`」；`test:engine` 与 `test:install` 矩阵回到 2 个引擎、逐引擎各跑一遍。决策、判据与 PR #93 评审结论见[《决策记录》第八章第14条](../决策记录.md#八dsh-引擎兼容范围与验证边界)。下文 rc.2 及更早的记录属于历史证据。**已修（2026-10-18）**：`.agents/skills/dsh-release-upgrade/` 已同步双引擎——`SKILL.md` 的维护策略改为「官方默认安装版本（npm `latest`）必须可用 + 通道最新，不保留 alpha 通道」，`scripts/collect.py` 的隐式 baseline 从「必须恰好一条 `dshReleases`」改为取其中 semver 最大者并在 stderr 打印选用值（空记录仍退出 2）。
 
-- **2026-10-17 alpha.5 升级核验（历史轮次，已被本轮 rc.2 取代）**：当轮支持的矩阵是 `0.2.0-rc.2 || 0.2.1-alpha.5`。19 个直接 DSH 依赖源码及发布契约除版本串外未变，Web（网页）预置模块、五个既用插槽与准入规则均未变；当轮 Cordis/Schemastery 配 `4.0.5-alpha.2` / `3.18.5-alpha.2`，双通道范围可覆盖（本轮已随单引擎矩阵收紧为 `~4.0.5` / `~3.18.5`）。当轮插件运行源码与测试夹具无需改动，类型检查、1009 项测试、构建、双引擎、双版本隔离安装和隔离锁文件检查均通过；浏览器与真实提供商未实测。下文 alpha.3/alpha.4 的诊断同属历史证据，不能当作本轮新增变化。
+- **2026-10-17 rc.2 升级核验（历史轮次；其单引擎收敛已被本轮反转替代，破坏点与逐包结论仍然有效）**：当轮把支持矩阵收敛为**单一引擎 `0.2.1-rc.2`**——`dsh.compatibility.dshReleases` 只剩 1 条，`dsh.compatibility.dsh`、`engines.dsh` 与 15 个 peer／19 个开发依赖的 `@deepseek-ai/dsh-*` 全部是裸版本 `0.2.1-rc.2`；Cordis 与 Schemastery 随之收紧为 `~4.0.5` / `~3.18.5`（rc.2 配对的正式版，node semver 实测 `maxSatisfying` 命中）。**唯一的运行代码破坏点**是 `@deepseek-ai/dsh-web`（网页能力缝）的选择契约：`WebRuntimeConfig.searchProvider`／`fetchProvider` 改为 `Volatile`（易变引用）、构造函数 `config` 由可选变必填、插件此前直写的私有字段 `searchProviderId` 被整体删除。插件改按 rc.2 官方易变写入路径修复（写入 profile 的易变字段，由 loader 原地提交、不重挂载条目），细节与冲突边界见[账号与重试](accounts-and-retry.md)的网页搜索段、[对接说明](../对接说明.md)第二章。其余 16 个直接依赖包与 9 个 vendor 包源码零差异（`cordis` 4.0.4 → 4.0.5、`schemastery` 3.18.4 → 3.18.5 逐文件 diff 仅版本行），Web（网页）预置模块表、五个既用插槽与准入规则均未变。rc.2 首发两个官方包（`dsh-web-deepseek-api`、`dsh-client-ui-deepseek-model-label-1017`）与本插件无行 id／插槽冲突；其中 `conversation.input.model.label` 是 `single`（单占）类插槽且官方已占用，**不得**重复注册。本轮验证证据与尚缺边界见[对接说明](../对接说明.md)第四章。下文 alpha.5 及更早的记录属于历史证据，不能当作本轮新增变化。
+
+- **2026-10-17 alpha.5 升级核验（历史轮次，已被 rc.2 轮次取代）**：当轮支持的矩阵是 `0.2.0-rc.2 || 0.2.1-alpha.5`。19 个直接 DSH 依赖源码及发布契约除版本串外未变，Web（网页）预置模块、五个既用插槽与准入规则均未变；当轮 Cordis/Schemastery 配 `4.0.5-alpha.2` / `3.18.5-alpha.2`，双通道范围可覆盖（rc.2 轮次收紧为 `~4.0.5` / `~3.18.5`，本轮沿用未改）。当轮插件运行源码与测试夹具无需改动，类型检查、1009 项测试、构建、双引擎、双版本隔离安装和隔离锁文件检查均通过；浏览器与真实提供商未实测。下文 alpha.3/alpha.4 的诊断同属历史证据，不能当作本轮新增变化。
 
 - **网关事实宿主回归**：`scripts/verify-engine-load.mjs` 使用真实插件入口、DSH 易变配置引用与更新函数、账号池及用量接收者，验证凭据等待和轮换期间切网关后旧调用及探测仍使用原地址，新调用使用新账号配置，用量报告只读取入口捕获的来源并展示恢复后的标记。网络响应和凭据为合成依赖，不证明真实网关或凭据持久化行为。
 
@@ -81,12 +83,19 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   still be re-read (not assumed) at every engine bump. **`0.2.1-rc.2` is the
   first engine whose batch carries the STABLE pair — `cordis 4.0.5` and
   `schemastery 3.18.5` (npm `latest` for both; no `dsh-0-2-1-rc-*` dist-tag
-  exists, so the rc batch published no separate prerelease) — and with a single
-  supported engine the declared ranges are tightened to one branch each:
-  `~4.0.5` / `~3.18.5`.** The old disjunction also admitted `4.0.5-alpha.2` /
-  `3.18.5-alpha.2`, which no longer matches any supported engine; the lock file
-  already resolved both to the stable pair, so tightening changed no installed
-  version. Leaving this
+  exists, so the rc batch published no separate prerelease) — and the rc.2 round
+  tightened the declared ranges to that one branch each: `~4.0.5` / `~3.18.5`,
+  which fits a SINGLE-engine matrix. The old disjunction also admitted
+  `4.0.5-alpha.2` / `3.18.5-alpha.2`, which matches no supported engine; the lock
+  file already resolved both to the stable pair, so tightening changed no
+  installed version. **The OLDER supported engine pairs differently**:
+  `@deepseek-ai/dsh-web@0.2.0-rc.2` peers `cordis ~4.0.4` and depends on
+  `schemastery ~3.18.4`, so the single branch `~4.0.5` / `~3.18.5` cannot cover that
+  engine's own pairing — with two engines declared the ranges are therefore the
+  paired disjunction `~4.0.4 || ~4.0.5` / `~3.18.4 || ~3.18.5` (decided
+  2026-10-18, [《决策记录》第八章第14条](../决策记录.md#八dsh-引擎兼容范围与验证边界)).
+  These two names are not read by the host admission verdict
+  （见下），差异只在 pnpm 解析层生效。**范围写窄不是无害的**：Leaving this
   plugin's previous `^4.0.2` / `~3.18.4` in place is an
   immediate `ERESOLVE`, not a silent mismatch: `dsh-agent@0.2.1-alpha.1` demands
   `cordis ~4.0.5-alpha.1` and `dsh-settings@0.2.1-alpha.1` demands
@@ -94,9 +103,12 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   admits the `-alpha.1` prerelease nor excludes the neighbour.
   `react ^18.2.0` is unchanged by the bump and stays as it is.
   **写法随支持矩阵走：多引擎并存时按配对写成析取，单引擎时收敛为单分支。**
-  本轮矩阵只剩 `0.2.1-rc.2`，因此两者都是单分支 `~4.0.5` / `~3.18.5`；
-  历史上的 `~4.0.4 || ~4.0.5-alpha.1` / `~3.18.4 || ~3.18.5-alpha.1` 是双通道
-  时代的写法，己退出。无论几个分支，都必须用 `~` 且逐字对应同批发布的引擎配对，
+  本轮矩阵是两个引擎（`0.2.0-rc.2 || 0.2.1-rc.2`），因此两处声明就是按配对写出的
+  析取式 `~4.0.4 || ~4.0.5` / `~3.18.4 || ~3.18.5`（见上一条）；单分支
+  `~4.0.5` / `~3.18.5` 只属于 rc.2 轮次的单引擎矩阵，它解析不到旧引擎的配对。
+  双通道时代的 `~4.0.4 || ~4.0.5-alpha.1` / `~3.18.4 || ~3.18.5-alpha.1` 属历史写法
+  （`-alpha` 分支随正式版配对退出）。
+  无论几个分支，都必须用 `~` 且逐字对应同批发布的引擎配对，
   不可写成 `^`（会放行 `4.1.x` / `3.19.x` 这些未验证邻居）。
   注意这两个名字**不**匹配 `@deepseek-ai/dsh` /
   `@deepseek-ai/dsh-*` 前缀，宿主 `evaluatePluginCompatibility` 根本不检查它们
@@ -108,30 +120,35 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   bump that should resolve cleanly still reports `ERESOLVE` against stale rc-era
   packages until the tree is rebuilt; `rm -rf node_modules` before judging a
   genuine conflict.
-- **兼容范围只保留已验证版本，本轮收敛为单一 `0.2.1-rc.2`。** 用户于
+- **兼容范围只保留已验证版本，本轮为两个 RC 引擎 `0.2.0-rc.2 || 0.2.1-rc.2`。** 用户于
   2026-10-11 曾确认维护一个 RC（候选发布版）与一个 alpha（早期测试版）两条通道；
-  2026-10-17 的 rc.2 发布使 RC 通道首次走到 npm `next` 上的正式 rc（`0.2.1-rc.2`
-  取代长期未动的 `0.2.0-rc.2`），而 alpha 通道没有更新的已验证版本，因此矩阵
-  **收敛为单引擎**：`dsh.compatibility.dshReleases` 只剩
-  `{"0.2.1-rc.2": "compatible"}` 一条，`dsh.compatibility.dsh`、`engines.dsh` 与全部
-  `@deepseek-ai/dsh-*` peer／开发依赖同为裸版本 `0.2.1-rc.2`。
+  2026-10-17 的 rc.2 发布使 RC 通道首次走到 npm `next` 上的正式 rc，当轮曾把矩阵
+  **收敛为单引擎 `0.2.1-rc.2`**（[《决策记录》第八章第13条 (a)](../决策记录.md#八dsh-引擎兼容范围与验证边界)）；
+  2026-10-18 用户拍板反转为**两引擎向下兼容**：`dsh.compatibility.dshReleases` 为
+  `{"0.2.0-rc.2": "compatible", "0.2.1-rc.2": "compatible"}` **两条记录，两条都是 RC**，
+  `dsh.compatibility.dsh`、`engines.dsh` 与全部
+  `@deepseek-ai/dsh-*` peer／开发依赖同为裸版本析取式 `0.2.0-rc.2 || 0.2.1-rc.2`。
+  **判据**：npm `latest` 至今仍是 `0.2.0-rc.2`（2026-10-18 复核，`0.2.1-rc.2` 在 `next`），
+  宿主准入只读 `engines.dsh`，因此只声明 rc.2 会让默认安装路径的用户被直接拒绝。
+  **alpha 通道不保留**：自 `0.2.1-alpha.5` 之后没有新的已验证版本，与本次诉求无关。
   rc.2 发布于北京时间 2026-10-17 16:16:33，标签 SHA 为
-  `687f282e8625c6b8d11ff58211a90524be2e4317`；本轮基线 `dsh-v0.2.0-rc.2` 的标签 SHA 为
-  `639ed015397290b3745d163aafe02ffee4aa3f84`。同日更早的 `0.2.1-rc.1` 已被 rc.2 取代，
-  不作为保留分支。同一通道升级在核对官方发布、接口及验证结果后替换旧版，不累加历史分支。
-  `0.2.0-rc.2`、`0.2.1-alpha.1` 至 `0.2.1-alpha.5` 均已退出当前兼容范围，其配置需升级引擎。
+  `687f282e8625c6b8d11ff58211a90524be2e4317`；rc.2 轮次基线 `dsh-v0.2.0-rc.2` 的标签 SHA 为
+  `639ed015397290b3745d163aafe02ffee4aa3f84`。同日更早的 `0.2.1-rc.1` 与
+  `0.2.1-alpha.1` 至 `0.2.1-alpha.5` 均不在当前兼容范围，其配置需升级引擎。
   `@deepseek-ai/dsh-*` 的 `peerDependencies`、`devDependencies`、
   `dsh.compatibility.dsh`、`engines.dsh` 及锁文件同批同步。
-  每条声明必须为裸版本号，不能用 `^`、`~` 或 `>=` 放行未验证的相邻版本。
-  `tests/package.test.ts` 约束版本数量、通道与声明一致性（单引擎时期断言**恰好一条**
-  兼容记录）；它不联网判断哪个版本最新，
-  该事实由升级审计核对。两个配套的 Cordis、Schemastery 范围随矩阵一同收敛，
-  单引擎时为单分支 `~4.0.5` / `~3.18.5`（见上一条）。
+  每条声明的每个分支都必须是裸版本号，不能用 `^`、`~` 或 `>=` 放行未验证的相邻版本
+  （`0.2.0-rc.1`、`0.2.1-rc.1`、`0.3.0-alpha.1` 等继续被拒）。
+  `tests/package.test.ts` 约束版本数量、通道与声明一致性（本轮断言**恰好两条**
+  兼容记录，且逐字等于 `{0.2.0-rc.2, 0.2.1-rc.2}`）；它不联网判断哪个版本最新，
+  该事实由升级审计核对。两个配套的 Cordis、Schemastery 范围随矩阵写成按引擎配对的
+  析取式 `~4.0.4 || ~4.0.5` / `~3.18.4 || ~3.18.5`（见上一条）。
   **自 `0.2.1-alpha.4` 起，宿主判定插件兼容性时只读 `engines.dsh`**
   （`apps/.../boot/app-boot/src/plugin-compatibility.ts` 的
   `unmetRequirements`）：只要包自带 `engines.dsh` 字符串，`@deepseek-ai/dsh*`
   的 `peerDependencies` 就**完全不参与**判定，只有缺少该字段时才回落到 peer
-  规则；`engines.dsh` 写成 `workspace:` 一律判不兼容，`engines` 非对象或
+  规则——`0.2.0-rc.2` 正属于后者，两处声明必须都覆盖它；`engines.dsh` 写成
+  `workspace:` 一律判不兼容，`engines` 非对象或
   `engines.dsh` 非字符串会让清单不可读而被拒绝。四种声明因此必须逐字相同，
   而 `engines.dsh` 是唯一真正被宿主动的那一处：判定不通过时插件行被禁用、
   bundle 层被**静默跳过**（只有 stderr 一行 `skipping profile bundle`）、
@@ -141,9 +158,9 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   结构，故只需同步文档。每条保留声明都须通过 `npm run test:engine` 与
   `npm run test:install`，后者覆盖不到准入判定，故 `test:engine` 增加
   `checkEngineAdmission` 直接调用该引擎自己的 `evaluatePluginCompatibility`；
-  单引擎矩阵下这两项退化为对该唯一引擎的一次验证（红绿对照的判据不变：
+  矩阵下这两项对**每个**已声明引擎各跑一遍（红绿对照的判据不变：
   兼容范围内的版本必须被接受，范围外的版本必须被拒）。
-  决策见[《决策记录》第八章第6、12、13条](../决策记录.md#八dsh-引擎兼容范围与验证边界)。
+  决策见[《决策记录》第八章第6、12、13、14条](../决策记录.md#八dsh-引擎兼容范围与验证边界)。
 - **`npm run test:engine` is the only check that can see a bundle which cannot
   load on its engine** (issue #43): by default it resolves EVERY release the
   manifest declares compatible, installs each one and checks them in turn
@@ -175,7 +192,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 
 ## 二、流响应的宿主验证
 
-1. `npm run test:engine` 使用真实 DSH 的 `LlmRuntime`（模型运行时）及 `BlockAssembler`（响应块装配器），对每个已声明引擎（本轮为唯一引擎 `0.2.1-rc.2`）各跑一遍：加载发布产物并交付合成响应。22 个场景覆盖三协议成功、正文截断、纯思考达到上限、工具断流、正文及工具取消、最终标记后多余内容，以及 OpenAI 尾部错误；确认唯一终态、失败关联标识、最终用量和中断工具快照。
+1. `npm run test:engine` 使用真实 DSH 的 `LlmRuntime`（模型运行时）及 `BlockAssembler`（响应块装配器），对每个已声明引擎（本轮为 `0.2.0-rc.2` 与 `0.2.1-rc.2`）各跑一遍：加载发布产物并交付合成响应。22 个场景覆盖三协议成功、正文截断、纯思考达到上限、工具断流、正文及工具取消、最终标记后多余内容，以及 OpenAI 尾部错误；确认唯一终态、失败关联标识、最终用量和中断工具快照。
 2. 宿主源码在失败或取消终态走请求错误分支，不进入工具执行；验证没有运行完整代理工具链。适配器本地锁和待读释放由回归测试覆盖；真实提供商异常、收费记录及远端连接实际关闭时间尚未实测。
 
 3. 问题 #88 的标题用途通过两个已声明引擎的真实 `LlmRuntime`（模型运行时）传递到发布产物：CLI（命令行协议）与 OpenAI（开放接口协议）均发送 `off`（关闭思考），保留 64 词元预算并交付标题正文。提供商响应为合成数据；本轮 987 项本地测试、类型检查、构建及双引擎验证通过，不代表真实提供商标题质量或完整标题生成插件已验收。
@@ -187,7 +204,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 3. **区分「运行时零改动」与「夹具适配」**：本轮 alpha.2 → alpha.3 的破坏性变化只落在测试采集脚本上，插件 `src/` 与 `lib/` 运行时未改一行即可工作；夹具的引擎感知改动只是让这套检查能在新引擎上走到被测代码，不代表插件运行时依赖了 alpha.3 的新接口。审计证据：`npm run typecheck`、948 项测试、`npm run build`、`npm run test:engine`（双引擎矩阵）与 `npm run test:install` 全部通过。
 4. **alpha.4 轮次相反：夹具零改动，破坏点恰在本脚本的盲区。**`0.2.1-alpha.3` → `0.2.1-alpha.4` 中，本插件直接依赖的 14 个包 `src/` 逐字节未变（唯一有源码变化的 `@deepseek-ai/dsh-api-remotes` 是纯增量：新增 plugin-market 远端贡献，且该导入在发布产物里已被内联），Web 静态种子表与四个在用插槽的名字、owner props、outlet 渲染调用全部未变，因此既有夹具**一行未改**即全绿。真正的破坏落在宿主准入判定上（见本章前文）：`engines.dsh` 成为唯一判据后，旧声明在新引擎上会让 `test:engine` 全绿而真实安装、行加载与 bundle 装配三条路径全部被拒。处置一是替换 alpha 通道，二是补 `checkEngineAdmission`。红绿对照可复现：`--engine <alpha.4 安装树>` 通过，`--version 0.2.1-alpha.3` 被拒（该版已退出兼容范围）。
 
-5. **rc.2 轮次：破坏点回到插件自己的可选接缝，引擎夹具无必须改动。**`0.2.0-rc.2` → `0.2.1-rc.2` 中，直接依赖的 19 个包只有 `@deepseek-ai/dsh-web` 存在源码级破坏（搜索／抓取的选择契约改为易变引用 `Volatile`，并删除插件此前直写的私有字段 `searchProviderId`／`fetchProviderId`），其余 16 个包与 9 个 vendor 包源码零差异，引擎夹具依赖的 Web 预置模块表、五个既用插槽声明、远端注入契约与宿主准入规则全部未变。因此本轮的适配落在插件自身的网页搜索选择路径（`src/web-search.ts` 及配套测试夹具）而非 `scripts/verify-engine-load.mjs`；运行期验证在单引擎矩阵下退化为对该引擎的一次执行，结论见[对接说明](../对接说明.md)第四章。rc.2 首发两个官方包（`dsh-web-deepseek-api`、`dsh-client-ui-deepseek-model-label-1017`）与本插件无行 id／插槽冲突，其中 `single`（单占）类插槽 `conversation.input.model.label` 已由官方占用，插件不得注册。
+5. **rc.2 轮次：破坏点回到插件自己的可选接缝，引擎夹具无必须改动。**`0.2.0-rc.2` → `0.2.1-rc.2` 中，直接依赖的 19 个包只有 `@deepseek-ai/dsh-web` 存在源码级破坏（搜索／抓取的选择契约改为易变引用 `Volatile`，并删除插件此前直写的私有字段 `searchProviderId`／`fetchProviderId`），其余 16 个包与 9 个 vendor 包源码零差异，引擎夹具依赖的 Web 预置模块表、五个既用插槽声明、远端注入契约与宿主准入规则全部未变。因此本轮的适配落在插件自身的网页搜索选择路径（`src/web-search.ts` 及配套测试夹具）而非 `scripts/verify-engine-load.mjs`——该路径现同时支持 rc.2 的易变引用与 pre-rc.2（含 `0.2.0-rc.2`）的实例字段两种形状；运行期验证对两个引擎各跑一遍，结论见[对接说明](../对接说明.md)第四章。rc.2 首发两个官方包（`dsh-web-deepseek-api`、`dsh-client-ui-deepseek-model-label-1017`）与本插件无行 id／插槽冲突，其中 `single`（单占）类插槽 `conversation.input.model.label` 已由官方占用，插件不得注册。
 
 
 ## 四、自定义上下文长度的宿主验证

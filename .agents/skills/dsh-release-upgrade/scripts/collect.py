@@ -36,6 +36,29 @@ RISK_ROOTS = (
     "apps/cli/",
 )
 IMPORT_RE = re.compile(r"(?:from|import)\s*['\"]([^'\"]+)['\"]")
+SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
+
+
+def semver_key(version: str) -> tuple[int, int, int, int, tuple[tuple[int, int, str], ...]]:
+    """Ordering key for a bare semver version: a release outranks its prereleases."""
+    match = SEMVER_RE.match(version.strip())
+    if match is None:
+        raise ValueError(f"not a bare semver version: {version!r}")
+    major, minor, patch, prerelease = match.groups()
+    if prerelease is None:
+        return (int(major), int(minor), int(patch), 1, ())
+    identifiers = tuple(
+        (0, int(identifier), "") if identifier.isdigit() else (1, 0, identifier)
+        for identifier in prerelease.split(".")
+    )
+    return (int(major), int(minor), int(patch), 0, identifiers)
+
+
+def highest_release(releases: dict[str, Any]) -> str:
+    """Newest declared engine release; an empty record is an error, not a default."""
+    if not releases:
+        raise ValueError("package.json declares no dsh.compatibility.dshReleases record; pass --baseline")
+    return max(releases, key=semver_key)
 
 
 def run(args: list[str], cwd: Path) -> str:
@@ -163,8 +186,8 @@ def risk_paths(rows: list[str]) -> list[str]:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", required=True, help="target DSH tag, e.g. dsh-v0.1.7-rc.2")
-    parser.add_argument("--baseline", help="baseline DSH tag; defaults to package.json's sole dshReleases record")
+    parser.add_argument("--target", required=True, help="target DSH tag, e.g. dsh-v0.2.1-rc.2")
+    parser.add_argument("--baseline", help="baseline DSH tag; defaults to the newest dshReleases record in package.json")
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--out", required=True, help="new output directory")
     args = parser.parse_args(argv)
@@ -176,11 +199,17 @@ def main(argv: list[str]) -> int:
     if baseline_tag is None:
         try:
             manifest = json.loads((Path.cwd() / "package.json").read_text(encoding="utf-8"))
-            releases = manifest.get("dsh", {}).get("compatibility", {}).get("dshReleases", {})
-            if len(releases) != 1:
-                raise ValueError("package.json must declare exactly one dshReleases record; pass --baseline")
-            baseline_tag = f"dsh-v{next(iter(releases))}"
-        except (OSError, json.JSONDecodeError, ValueError, StopIteration) as error:
+            compatibility = (manifest.get("dsh") or {}).get("compatibility") or {}
+            releases = compatibility.get("dshReleases") or {}
+            # An upgrade audit always starts FROM the newest verified engine, so a
+            # multi-engine matrix resolves to its semver maximum instead of an error.
+            baseline_tag = f"dsh-v{highest_release(releases)}"
+            print(
+                f"baseline not given: using {baseline_tag} "
+                f"(newest of {len(releases)} dshReleases records: {', '.join(sorted(releases, key=semver_key))})",
+                file=sys.stderr,
+            )
+        except (OSError, json.JSONDecodeError, ValueError, TypeError, AttributeError) as error:
             print(f"cannot determine baseline: {error}", file=sys.stderr)
             return 2
 

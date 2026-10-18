@@ -94,7 +94,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     Never rename one without the other: a mismatch strands existing users' non-secret settings in
     `settings.yaml.imported` (logged, not applied). Pinned by `tests/volatile-config.test.ts` (the helpers),
     `tests/settings-scope.test.ts` (the client scope), `tests/package.test.ts` (four-way range sync + the
-    two `dshReleases` records) and `npm run test:engine`.
+    two RC `dshReleases` records, `0.2.0-rc.2` and `0.2.1-rc.2`) and `npm run test:engine`.
   (6) **On the browser side the namespace object must be captured from an INJECT-SCOPED context — never read
     off `ctx.remote`** (`createSettingsScope(ctx, ns, resolveRemote)` in `src/client/settings-scope.ts`,
     wired by the `ctx.inject(['remote.settings'], …)` block in `src/client/index.ts`; the 0.1.7

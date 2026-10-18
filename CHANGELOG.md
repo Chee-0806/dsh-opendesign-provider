@@ -22,6 +22,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **证据边界**：本轮 `scripts/` 巡检工具的状态为 `incomplete`、`readyToApply=false`、`protocol=not-verified`；唯一一条 error 是 `reflection/beam:free: absent from CLI registry`——该模型只出现在两个目录视图里，`1.84.0` 产物注册表完全不认它，因此 `KNOWN_EFFORTS` 与 `KNOWN_NON_ZDR_MODELS` 里这一行属**目录侧单源证据**（与 `1.82.4` 时 `stealth/cat-jam:free` 的处境相同）。16 个数据源全部返回 HTTP 200。**未做**：真实账号登录、付费生成、浏览器渲染验证，也没有在真实账号上验证价格与订阅额度的页面读数；`?view=client` 与定价页均为公开数据采集。
 
+## [0.14.1] - 2026-10-18
+
+### Changed
+
+- **DSH 兼容矩阵反转为两引擎向下兼容 `0.2.0-rc.2 || 0.2.1-rc.2`**，撤销 `[0.14.0]` 的单一引擎收敛。官方 npm `latest` 至今仍指向 `0.2.0-rc.2`（2026-10-18 复核），`0.2.1-rc.2` 挂在 `next` 上，而宿主准入判定只读 `engines.dsh`——只声明 rc.2 会让走官方默认安装路径的用户被直接拒绝（插件行被预检禁用、作为 bundle 被静默跳过、`dsh plugin add` 在 pnpm 之前就拒绝，机制见[《决策记录》第八章第12条](docs/决策记录.md#八dsh-引擎兼容范围与验证边界)）。`engines.dsh`、`dsh.compatibility.dsh`、15 个 `@deepseek-ai/dsh-*` 对等依赖与 19 个开发依赖同批回到析取式，`dsh.compatibility.dshReleases` 回到**两条记录**；两条记录**都是 RC**，alpha（早期测试版）通道不保留——自 `0.2.1-alpha.5` 之后没有新的已验证版本。每个分支仍必须是裸版本号，`0.2.0-rc.1`／`0.2.1-rc.1`／`0.3.0-alpha.1` 等相邻未验证版本继续被拒。`react ^18.2.0` 不变；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 由 rc.2 轮次的单分支 `~4.0.5`／`~3.18.5` 恢复为**按引擎配对的析取式** `~4.0.4 || ~4.0.5`／`~3.18.4 || ~3.18.5`——两代引擎的配对不同（`0.2.0-rc.2` 随 cordis `~4.0.4`／schemastery `~3.18.4` 发布，`0.2.1-rc.2` 随正式版 `4.0.5`／`3.18.5` 发布），单分支解析不到旧引擎的配对，只适用于单引擎矩阵。反转理由、判据与 PR #93 的评审结论见[《决策记录》第八章第14条](docs/决策记录.md#八dsh-引擎兼容范围与验证边界)。
+
+- **网页搜索的选择写入同时支持两种引擎形状。**rc.2 继续走官方易变写入面（`ctx.settings.update()`／`replace()`，写入 profile 的易变字段由 loader 原地提交，且不夺取他人显式选择、写后读回校验）；pre-rc.2 引擎（含 `0.2.0-rc.2`）既没有该易变引用也没有 `web` 的设置行，选择是实例自有字段 `searchProviderId`，改为直写该字段，沿用既有「记住被顶掉的后端、只归还自己拿走的」语义——该值只存在于内存，随实例结束失效，且看不到用户层的他人显式选择。形状按每次观察解析，一个构建同时服务两个引擎；`tests/web-search.test.ts` 新增旧形状用例。
+
+- **升级审计工具同步双引擎。**`.agents/skills/dsh-release-upgrade/` 的 `SKILL.md` 维护策略改为「官方默认安装版本（npm `latest`）必须可用 + 通道最新，不保留 alpha 通道」，与声明面口径一致；`scripts/collect.py` 的隐式 baseline 由「`package.json` 必须恰好一条 `dshReleases`」改为取其中 **semver 最大**者（升级审计总是从最新已验证引擎出发），并把实际选用值打到 stderr，`--baseline` 显式覆盖优先、空记录仍退出 2。技能单测 5/5 通过（新增 4 项：单条/两条取值、semver 排序、空记录报错、CLI 空清单退出 2）。
+
+- 文档同步：两份 README、[对接说明](docs/对接说明.md)、[引擎兼容](docs/agent-reference/engine-compatibility.md)、[账号与重试](docs/agent-reference/accounts-and-retry.md)、[模型成本与性能分析](docs/模型成本与性能分析.md)、[决策记录](docs/决策记录.md)与[提交历史](docs/提交历史.md)。**验证**（本机静态与合成依赖）：`npm run test:engine` 退出码 0，矩阵 **2/2**——关键行 `host compatibility preflight admits this plugin on dsh 0.2.0-rc.2` 与 `... on dsh 0.2.1-rc.2`，末行 `engine-load smoke passed on all 2 declared-compatible engines (0.2.0-rc.2, 0.2.1-rc.2)`；`npm run test:install` 退出码 0（pnpm `10.34.5`），输出 `isolated install passed with pnpm 10.34.5 (dsh 0.2.0-rc.2)` 与 `(dsh 0.2.1-rc.2)`。Cordis／Schemastery 改回析取式后**已重跑**，两次矩阵同为 **2/2**——一个引擎全绿不算通过，沿[《决策记录》第八章第2条](docs/决策记录.md#八dsh-引擎兼容范围与验证边界)。**未做**：真实浏览器渲染、真实账号登录、付费生成、跨平台与长期稳定性；真实引擎内的网络响应与凭据为合成依赖。**真实旧引擎（`0.2.0-rc.2`）上的端到端搜索选择写入未验证**——`test:engine` 只证明插件在该引擎上加载并通过宿主准入，不驱动 `webSearch` 开关，旧形状由单元级替身覆盖。
+
+### Fixed
+
+- 修掉 `[0.14.0]` 引入的「按官方默认方式安装 dsh 的用户装不上本插件」：`0.2.0-rc.2` 仍是 npm `latest`（官方默认安装路径会跑的版本），本版本重新声明它。
+
+- 补齐 `[0.14.0]` 漏改的两处引擎记录表述：[客户端与设置](docs/agent-reference/client-and-settings.md)与[仓库地图](docs/agent-reference/repository-map.md)此前写的 `dshReleases` 条数与当时的单引擎声明不一致，现按两条 RC 记录写明。
+
 ## [0.14.0] - 2026-10-18
 
 ### Added

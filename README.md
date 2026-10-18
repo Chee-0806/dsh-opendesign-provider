@@ -37,17 +37,19 @@ See [Screenshots](#screenshots) below for what the UI looks like.
 
 ## Install
 
-This release supports **dsh 0.2.1-rc.2**. The compatibility matrix is now a
-single verified engine: the RC channel moved from `0.2.0-rc.2` to `0.2.1-rc.2`
-on 2026-10-17, and no alpha release is retained because none has been verified
-since `0.2.1-alpha.5`. The peer range and compatibility records name only that
-exact version, and `@deepseek-ai/cordis` / `@deepseek-ai/schemastery` are pinned
-to the stable releases paired with it (`~4.0.5` / `~3.18.5`). Note that
-**dsh 0.2.1-rc.2 reads `engines.dsh` alone** when it decides whether a plugin is
-compatible; the dsh peer ranges are consulted only when that field is absent, so
-a build that declares the wrong `engines.dsh` is refused outright. A profile on
-`0.2.0-rc.2`, `0.2.1-alpha.5` or any earlier release must upgrade its engine
-before installing this build:
+This release supports **dsh 0.2.0-rc.2 and 0.2.1-rc.2** — two verified engines, both on the RC
+(release-candidate) channel. `0.2.0-rc.2` is what npm `latest` still points at (re-checked
+2026-10-18), so it is the engine an official default install runs; `0.2.1-rc.2` ships on the `next`
+tag. The peer range and the compatibility records name both as exact versions, and no alpha release
+is retained: nothing has been verified since `0.2.1-alpha.5`. `@deepseek-ai/cordis` /
+`@deepseek-ai/schemastery` carry the paired disjunction `~4.0.4 || ~4.0.5` / `~3.18.4 || ~3.18.5`,
+because the two engines pair differently (`0.2.0-rc.2` needs cordis `~4.0.4` and schemastery
+`~3.18.4`, `0.2.1-rc.2` ships `4.0.5` / `3.18.5`) and one branch cannot resolve both. Note that
+**dsh 0.2.1-rc.2 reads
+`engines.dsh` alone** when it decides whether a plugin is compatible; the dsh peer ranges are
+consulted only when that field is absent, so a build that declares the wrong `engines.dsh` is refused
+outright there — while on `0.2.0-rc.2` the peer ranges are what decides. A profile on
+`0.2.1-alpha.5` or any earlier release must upgrade its engine before installing this build:
 
 ```sh
 dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@latest
@@ -74,14 +76,14 @@ dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@0.11.15
 
 The same applies to every profile you install into, including the terminal UI below.
 
-Fresh pnpm 10 marketplace generations are supported directly. Every Harness package is declared by the plugin as a Host peer, so the active dsh profile remains their owner; do not add a separate dependency for any of them. The `@deepseek-ai/dsh-*` packages all declare one exact version; `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` carry the ranges `~4.0.5` and `~3.18.5` paired with that engine instead, because publishing an engine rewrites both to the version that shipped alongside it. Upstream removed the `@deepseek-ai/dsh-invariants` package in `0.2.1-alpha.1`, so the plugin no longer declares it.
+Fresh pnpm 10 marketplace generations are supported directly. Every Harness package is declared by the plugin as a Host peer, so the active dsh profile remains their owner; do not add a separate dependency for any of them. The `@deepseek-ai/dsh-*` packages all declare the same exact-version disjunction `0.2.0-rc.2 || 0.2.1-rc.2`; `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` carry the paired disjunctions `~4.0.4 || ~4.0.5` and `~3.18.4 || ~3.18.5` instead, because publishing an engine rewrites both to the version that shipped alongside it and the two retained engines were published against different pairs. Upstream removed the `@deepseek-ai/dsh-invariants` package in `0.2.1-alpha.1`, so the plugin no longer declares it.
 
 ## Updating
 
 Update with the same tag you installed with:
 
 ```sh
-dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.1-rc.2
+dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 / 0.2.1-rc.2
 dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@0.9.1      # older dsh (0.5.0 line, unmaintained)
 ```
 
@@ -160,7 +162,7 @@ cmd login                               # writes ~/.commandcode/auth.json
         cwd: !!js process.cwd()
 ```
 
-**Engine version.** The plugin is maintained against **one verified engine: dsh 0.2.1-rc.2**. Its `@deepseek-ai/dsh-*` peers use the exact version `0.2.1-rc.2`, while `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` use the stable ranges paired with that engine release, `~4.0.5` and `~3.18.5` (both were prereleases in the alpha era and became stable with this batch). Compatibility records contain exactly this one engine. Each channel upgrade replaces its previous version after verification; it does not accumulate supported releases or admit unverified neighbours, and a channel with no newly verified release simply leaves the matrix. Both `npm run test:engine` and `npm run test:install` check the retained engine, and `test:engine` also calls that engine's own `evaluatePluginCompatibility` on the published manifest — from alpha.4 on, that verdict reads `engines.dsh` alone, so a wrong engine declaration fails there instead of only at install time. See [Install](#install) for older engines.
+**Engine version.** The plugin is maintained against **two verified engines: dsh `0.2.0-rc.2` and dsh `0.2.1-rc.2`**. Its `@deepseek-ai/dsh-*` peers use the exact-version disjunction `0.2.0-rc.2 || 0.2.1-rc.2`, while `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` use the paired disjunctions `~4.0.4 || ~4.0.5` and `~3.18.4 || ~3.18.5` — one branch per engine, because `0.2.0-rc.2` was published against cordis `~4.0.4` / schemastery `~3.18.4` and `0.2.1-rc.2` against the stable `4.0.5` / `3.18.5`. Compatibility records contain exactly these two engines — both RC, with no alpha channel, because nothing has been verified since `0.2.1-alpha.5`. `0.2.0-rc.2` is retained deliberately even though it is the older of the two: it is still what npm `latest` resolves to, so a build that dropped it would be refused by the host's `engines.dsh` admission on every default install. Every declared branch must stay a bare version, so unverified neighbours (`0.2.0-rc.1`, `0.2.1-rc.1`, `0.3.0-alpha.1`) are still rejected. Both `npm run test:engine` and `npm run test:install` verify every declared engine in turn rather than one of them, and `test:engine` also calls that engine's own `evaluatePluginCompatibility` on the published manifest — from alpha.4 on, that verdict reads `engines.dsh` alone, so a wrong engine declaration fails there instead of only at install time. See [Install](#install) for older engines.
 
 ## Usage dashboard
 
@@ -258,10 +260,10 @@ On the CLI transport (`/alpha/generate`), a new image can make Command Code's re
 
 When your deployment's dsh shell mounts the web capability (`@deepseek-ai/dsh-web` + `@deepseek-ai/dsh-tool-web`), the model's `web_search` tool is served by this plugin's `commandcode` search provider — it calls the Command Code Provider API's `/alpha/web-search` endpoint with the **same API key and base URL** as chat. You do not configure a separate search key, endpoint, or model.
 
-**On by default.** The plugin's **Settings → Command Code** page has a *"Serve dsh web search with Command Code"* toggle (`webSearch`, default on). When on, the plugin selects `commandcode` as the active search backend automatically; turn it off to hand the selection back to whichever backend was there before (a sibling search plugin such as modsearch keeps working — it is never forced back to dsh's shipped DeepSeek search). The toggle takes effect on the next search — no restart needed. On dsh 0.2.1-rc.2 this uses the official volatile-settings write path, so the change is committed into the running `web` entry in place rather than by remounting it. **When the official Web search settings already pin another backend, this toggle has no effect** — that explicit choice wins.
+**On by default.** The plugin's **Settings → Command Code** page has a *"Serve dsh web search with Command Code"* toggle (`webSearch`, default on). When on, the plugin selects `commandcode` as the active search backend automatically; turn it off to hand the selection back to whichever backend was there before (a sibling search plugin such as modsearch keeps working — it is never forced back to dsh's shipped DeepSeek search). The toggle takes effect on the next search — no restart needed. On dsh 0.2.1-rc.2 this uses the official volatile-settings write path, so the change is committed into the running `web` entry in place rather than by remounting it; on 0.2.0-rc.2 the engine instead keeps its selection in an instance field with no settings surface, which the plugin assigns directly (memory-only, gone with the instance). **When the official Web search settings already pin another backend, this toggle has no effect** — that explicit choice wins; on 0.2.0-rc.2 there is no such settings row, so no pin can be seen and the toggle always takes over.
 
 - The provider registers as `commandcode` on `ctx.web` only when the web service is present; without it this stays a chat-only plugin.
-- The toggle selects `commandcode` through the engine's volatile-settings write path — the same `web.searchProvider` field the official **Web search** card's *Use the new Web Search API* switch writes (that switch also writes `fetchProvider`). The plugin **defers to an explicit choice already present in the user layer**: when the Web search settings pin another backend, it keeps `commandcode` registered but unselected and reports that state (the toggle's hint, plus a host log line) instead of overwriting it; it takes over only while nothing else pins the field, remembers the backend it displaced, and restores it when the toggle goes off or the plugin unloads. If you would rather pin the choice durably, set `searchProvider: commandcode` (or `$DSH_WEB_SEARCH_PROVIDER=commandcode`); that keeps working even if the runtime selection cannot be committed.
+- The toggle selects `commandcode` through the engine's volatile-settings write path on `0.2.1-rc.2` — the same `web.searchProvider` field the official **Web search** card's *Use the new Web Search API* switch writes (that switch also writes `fetchProvider`). The plugin **defers to an explicit choice already present in the user layer**: when the Web search settings pin another backend, it keeps `commandcode` registered but unselected and reports that state (the toggle's hint, plus a host log line) instead of overwriting it; it takes over only while nothing else pins the field, remembers the backend it displaced, and restores it when the toggle goes off or the plugin unloads. On `0.2.0-rc.2` (and the alphas) the engine has neither that reference nor a `web` settings row, so the selection is its own `searchProviderId` field: the plugin assigns it in memory under the same "remember what we displaced, hand back only what we took" rule, and no other writer's pin is observable there. If you would rather pin the choice durably, set `searchProvider: commandcode` (or `$DSH_WEB_SEARCH_PROVIDER=commandcode`); that keeps working even if the runtime selection cannot be committed.
 - `numResults` from the dsh tool is clamped to the Command Code range (1–10, default 5); results map to the dsh `WebSearchSource` shape (`url`/`title`/`snippet`).
 
 > This reuses the Command Code Provider API directly (like the official CLI's built-in `web_search`), so it is distinct from a DeepSeek-native search backend.

@@ -11,10 +11,17 @@
  * real `@deepseek-ai/dsh-config-editor` and `@deepseek-ai/dsh-settings`, and a
  * real `WebRuntime` that resolves `searchProvider` per call. Assertions read
  * that runtime's `config.searchProvider.get()` — the value `search()` actually
- * uses — plus the profile document the write lands in. Nothing here asserts
- * against a hand-built object shaped like an older engine: a regression that
- * writes a field nobody reads fails these tests, which is exactly what the
- * 0.2.1-rc.2 breakage did under the previous fixture.
+ * uses — plus the profile document the write lands in. A regression that writes
+ * a field the running engine does not read fails these tests, which is exactly
+ * what the 0.2.1-rc.2 breakage did under the previous fixture.
+ *
+ * The third half covers the OTHER supported engine shape — every dsh release up
+ * to and including `0.2.1-alpha.4`, which includes the npm `latest` release
+ * `0.2.0-rc.2`: that `WebRuntime` has no `config` at all and keeps the choice in
+ * the private instance field `searchProviderId`, read once per `search()`, with
+ * no settings surface behind it. That engine is not installed here, so the
+ * fixture is a hand-built double carrying ONLY that own field; every assertion
+ * reads the field the old `search()` reads.
  */
 
 import { test } from 'node:test'
@@ -712,6 +719,36 @@ test('settings 服务缺失时只走内存路径：夺取与归还都作用于�
   }
 })
 
+test('settings 不可用时重复打开不丢失被顶掉的后端', async () => {
+  // 与旧引擎形状同一个缺陷面：内存路径上没有用户层 pin，`view.pinned` 恒为
+  // undefined，于是「已经等于目标值」这个观察必须靠 `state.owner` 保住所有权。
+  // 真实宿主里配置每次 reload／易变提交都会重跑 effect（重复 apply(true)），
+  // 一旦第二次打开把自己写的值误判成部署基值，关闭就不再归还，搜索永久卡在
+  // commandcode 上。
+  const { Context } = await import('@deepseek-ai/cordis')
+  const { WebRuntime } = await import('@deepseek-ai/dsh-web')
+  const ctx = new Context()
+  try {
+    await ctx.plugin(WebRuntime, { searchProvider: 'modsearch', fetchProvider: 'http' })
+    const web = ctx.get('web') as WebRuntime
+    const handle = createCommandCodeSearchSelection({ web, settings: () => undefined, logger: logSink().logger })
+
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(runtimeSelection(web), 'commandcode')
+
+    handle.apply(true)
+    await handle.settled()
+    assert.equal(runtimeSelection(web), 'commandcode')
+
+    handle.apply(false)
+    await handle.settled()
+    assert.equal(runtimeSelection(web), 'modsearch')
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
 test('release() 不写盘：只把运行中的引用交还，profile 覆盖保持不动', async () => {
   const sandbox = await selectionSandbox()
   try {
@@ -849,4 +886,106 @@ test('host apply()：卸载只交还运行中的引用，不调用 settings', as
   } finally {
     await sandbox.dispose()
   }
+})
+
+// ───────────────────────────────────────────────────────────────────────────
+// 旧引擎形状（≤ 0.2.1-alpha.4）：无 config，只有自有实例字段 searchProviderId
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * 旧引擎的运行面：没有 rc.2 的构造参数属性 `config`，选择存在自有实例字段
+ * `searchProviderId` 上（TypeScript 私有参数属性编译后就是普通可写自有字段），
+ * `search()` 每次读一次；它没有任何设置页写入面，所以只能在内存里赋值。
+ *
+ * 这里只能手搓替身：`0.2.0-rc.2` 不在这份依赖树里。替身只保留被断言的那一个
+ * 自有字段、且**不带** `config`，于是「写到一个没有读取方的属性上」这类回归在
+ * 这一节照样会红。
+ */
+function legacyWebDouble(initial?: string): { web: WebRuntime; read(): string | undefined } {
+  // 字段恒为自有属性（真实类字段即使未选中也以 `undefined` 存在），这样「按自有
+  // 属性判别引擎形状」与「按值判别」两种读法看到的是同一台实例。
+  const instance: { searchProviderId: string | undefined } = { searchProviderId: initial }
+  return {
+    web: instance as unknown as WebRuntime,
+    read: () => instance.searchProviderId,
+  }
+}
+
+test('旧引擎形状：夺取写入自有 searchProviderId，关闭归还被顶掉的后端', async () => {
+  const sink = logSink()
+  const { web, read } = legacyWebDouble('modsearch')
+  const handle = createCommandCodeSearchSelection({ web, settings: () => undefined, logger: sink.logger })
+  assert.equal(read(), 'modsearch')
+
+  handle.apply(true)
+  await handle.settled()
+  assert.equal(read(), 'commandcode')
+
+  handle.apply(false)
+  await handle.settled()
+  assert.equal(read(), 'modsearch')
+  // 旧形状的写入本就该成功：一次正常的打开／关闭不该产生告警。
+  assert.equal(sink.warn.length, 0)
+})
+
+test('旧引擎形状：重复 apply(true) 不丢失被顶掉的后端', async () => {
+  // 第二次打开不能把「我们自己写的值」误判成部署自带的基值：一旦误判，关闭时
+  // 就不再有归还义务，被顶掉的 modsearch 会丢，字段被永远钉在 commandcode 上。
+  const { web, read } = legacyWebDouble('modsearch')
+  const handle = createCommandCodeSearchSelection({ web, settings: () => undefined, logger: logSink().logger })
+
+  handle.apply(true)
+  await handle.settled()
+  assert.equal(read(), 'commandcode')
+
+  handle.apply(true)
+  await handle.settled()
+  assert.equal(read(), 'commandcode')
+
+  handle.apply(false)
+  await handle.settled()
+  assert.equal(read(), 'modsearch')
+})
+
+test('旧引擎形状：字段已是 commandcode 时关闭保持不动，不写回 undefined', async () => {
+  // 与 rc.2 的「组合基值已是 commandcode」同一条所有权口径：这个值不是本次打开
+  // 写进去的，关闭时不能写回 `undefined` —— 旧引擎把未设置读成自动选择，第二个
+  // 可用提供方一出现，之后每次搜索都会 WEB_PROVIDER_AMBIGUOUS（issue #26）。
+  const { web, read } = legacyWebDouble('commandcode')
+  const handle = createCommandCodeSearchSelection({ web, settings: () => undefined, logger: logSink().logger })
+
+  handle.apply(true)
+  await handle.settled()
+  assert.equal(read(), 'commandcode')
+
+  handle.apply(false)
+  await handle.settled()
+  assert.equal(read(), 'commandcode')
+})
+
+test('旧引擎形状：字段未设置时夺取，关闭后回到未设置', async () => {
+  const { web, read } = legacyWebDouble()
+  const handle = createCommandCodeSearchSelection({ web, settings: () => undefined, logger: logSink().logger })
+  assert.equal(read(), undefined)
+
+  handle.apply(true)
+  await handle.settled()
+  assert.equal(read(), 'commandcode')
+
+  handle.apply(false)
+  await handle.settled()
+  assert.equal(read(), undefined)
+})
+
+test('旧引擎形状：实例没有可用字段时不抛错、不产生副作用', async () => {
+  // 加固过的运行面（冻结、没有 config、也没有那个字段）必须退化成「未应用」，
+  // 而不是在 apply 里抛出、或往实例上塞字段：handle 的成员契约定死为不抛。
+  const web = Object.freeze({}) as unknown as WebRuntime
+  const handle = createCommandCodeSearchSelection({ web, settings: () => undefined, logger: logSink().logger })
+
+  assert.doesNotThrow(() => handle.apply(true))
+  await handle.settled()
+  assert.doesNotThrow(() => handle.apply(false))
+  await handle.settled()
+  assert.deepEqual(Reflect.ownKeys(web), [])
 })

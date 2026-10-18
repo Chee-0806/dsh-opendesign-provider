@@ -2007,7 +2007,7 @@ interface CommandCodeSearchSelection {
 declare function commandCodeSearchSelection(): CommandCodeSearchSelection;
 /** Dependencies {@link createCommandCodeSearchSelection} resolves per call. */
 interface WebSearchSelectionDeps {
-  /** The running `web` service whose volatile reference backs the degraded write. */
+  /** The running `web` service whose selection field backs the degraded write. */
   web: WebRuntime;
   /** Host settings service, resolved per use because it may activate after `web`. */
   settings: () => WebSelectionSettings | undefined;
@@ -2040,6 +2040,18 @@ interface WebSearchSelectionHandle {
  * and the one the shipped web-search settings page uses, so this plugin takes
  * it first and falls back to the reference only when settings is unavailable or
  * refuses (see `volatileWrite`).
+ *
+ * ## Two engine shapes
+ *
+ * Everything above describes an rc.2+ runtime, where the selection is a
+ * reference. PRE-rc.2 engines (0.2.0-rc.2 and the 0.2.1 alphas) have neither
+ * that reference nor a settings row for `web`: there the selection is the
+ * private instance field `searchProviderId`, memory-only by nature. Those
+ * engines therefore run the degraded path BY CONSTRUCTION — no profile write
+ * exists for it and the user layer is unreadable, so a foreign pin cannot be
+ * seen and the takeover/restore semantics are the ones this plugin shipped
+ * before rc.2: remember the displaced backend, hand back only what we took. The
+ * shape is resolved per observation, so one build serves both.
  *
  * ## Two writers, one field
  *
