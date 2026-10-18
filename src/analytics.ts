@@ -100,7 +100,8 @@ export function foldRequests(session: string, log: AnalyticsLog): RequestFact[] 
   return facts
 }
 
-export const emptyMetrics = (): AnalyticsMetrics => ({ sessions: 0, requests: 0, completed: 0, failed: 0, cancelled: 0, unknown: 0, retries: 0, usageSamples: 0, pricedRequests: 0, cost: 0, tokens: zeroCostTokens(), latencySamples: 0, latencyMs: 0, ttftSamples: 0, ttftMs: 0, decodeSamples: 0, decodeMs: 0, decodeTokens: 0 })
+/** The zeroed accumulator `aggregate` adds into. Internal: nothing outside this module reads it. */
+const emptyMetrics = (): AnalyticsMetrics => ({ sessions: 0, requests: 0, completed: 0, failed: 0, cancelled: 0, unknown: 0, retries: 0, usageSamples: 0, pricedRequests: 0, cost: 0, tokens: zeroCostTokens(), latencySamples: 0, latencyMs: 0, ttftSamples: 0, ttftMs: 0, decodeSamples: 0, decodeMs: 0, decodeTokens: 0 })
 function priceRequest(f: RequestFact, id: string, table: CommandCodePriceTable, prices: ReadonlyMap<string, CommandCodeModelPrice>, peakHours?: Map<number, boolean>): number | undefined {
   if (!f.tokens) return undefined
   const price = prices.get(id)
