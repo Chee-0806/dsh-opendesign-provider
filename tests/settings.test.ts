@@ -1406,7 +1406,10 @@ test('the output-budget copy names the omit sentinel and the Messages limitation
     assert.match(text, /Claude/, `${name} hint ties that route to the Claude family`)
   }
   assert.match(zh.maxOutputTokensHint, /不发送/, 'zh spells out that 0 omits the field')
-  assert.match(en.maxOutputTokensHint, /sends no such field/, 'en spells out that 0 omits the field')
+  // Wording follows the hint's copy, not the other way round: what the guard
+  // pins is that `0` is explained as "no field is sent", in whatever phrasing
+  // the shortened hint uses.
+  assert.match(en.maxOutputTokensHint, /omits the field/, 'en spells out that 0 omits the field')
   // The bounds copy must explain 0 rather than call it too small.
   assert.match(zh.maxOutputTokensTooSmall, /0 表示不发送该字段/)
   assert.doesNotMatch(zh.maxOutputTokensTooSmall, /不能小于 1/)
