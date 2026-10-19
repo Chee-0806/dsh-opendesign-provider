@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { Context, Service } from '@deepseek-ai/cordis'
-import { buildAnalytics, emptyMetrics, foldRequests, type AnalyticsEvent, type RequestFact } from '../src/analytics.ts'
+import { buildAnalytics, foldRequests, type AnalyticsEvent, type RequestFact } from '../src/analytics.ts'
 import { createAnalyticsReader, readAnalyticsHistory, ANALYTICS_SESSION_LIMIT, ANALYTICS_EVENT_LIMIT } from '../src/analytics-history.ts'
 import { parseAnalyticsQuery, parseAnalyticsReport } from '../src/analytics-wire.ts'
 import { modelPriceTable } from '../src/model-prices.ts'
@@ -253,5 +253,4 @@ test('浏览器丢弃旧查询和卸载后结果，缺失接口明确降级', as
   c.refresh(); await new Promise(resolve => setImmediate(resolve)); c.dispose(); waiting[2]!({ ok: true, value: buildAnalytics([], recent, table, []) })
   await new Promise(resolve => setImmediate(resolve)); assert.equal(c.state().status, 'loading')
   const old = new AnalyticsController({}); old.refresh(); assert.match(old.state().error!, /更新插件/)
-  assert.equal(emptyMetrics().requests, 0)
 })

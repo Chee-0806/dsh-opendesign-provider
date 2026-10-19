@@ -207,7 +207,13 @@ interface CommandCodeConnectionOptions {
  * text-only request never depends on the attachment seam.
  */
 type ResolveAttachments = () => AttachmentStore | undefined;
-/** What the rotation hook knows about the request it is rotating within. */
+/**
+ * What the rotation hook knows about the request it is rotating within.
+ *
+ * Not exported: the only consumer is the `rotateApiKey` shape below, so the
+ * name never reaches the published `.d.ts` and the package's `exports` map
+ * leaves no deep-import path to it.
+ */
 interface AccountRotationContext {
   /** Every API key this request has already used, just-rejected key included. */
   tried: readonly string[];
@@ -265,13 +271,13 @@ interface CommandCodeAdapterDeps<C extends CommandCodeConnectionOptions = Comman
    */
   imageOffload?: SurfaceImagePolicy;
 }
-/** Account identity from `/alpha/whoami`. */
+/** Account identity from `/alpha/whoami`; reached only through `CommandCodeUsageReport`. */
 interface CommandCodeAccount {
   id: string;
   name: string;
   userName: string;
 }
-/** Usage summary from `/alpha/usage/summary`. */
+/** Usage summary from `/alpha/usage/summary`; reached only through `CommandCodeUsageReport`. */
 interface CommandCodeUsage {
   totalCount: number;
   totalCost: number;
@@ -326,7 +332,7 @@ interface CommandCodeCredits {
     resetAt: number;
   };
 }
-/** Subscription plan state from `/alpha/billing/subscriptions`. */
+/** Subscription plan state from `/alpha/billing/subscriptions`; reached only through `CommandCodeUsageReport`. */
 interface CommandCodePlan {
   /** Raw subscription plan id (e.g. `individual-pro`); empty when unreported. */
   planId: string;

@@ -102,7 +102,8 @@ export const DEFAULT_API_BASE = 'https://api.commandcode.ai'
  */
 export const DEFAULT_GENERATE_MAX_TOKENS = MAX_OUTPUT_TOKEN_LIMIT
 
-export const MODELS_TIMEOUT_MS = 10_000
+/** Catalog fetch budget. Internal: both call sites are in this module. */
+const MODELS_TIMEOUT_MS = 10_000
 /** How long the picker's plan-filter billing facts stay cached before refetching. */
 export const BILLING_ACCESS_TTL_MS = 5 * 60_000
 /**
@@ -110,7 +111,7 @@ export const BILLING_ACCESS_TTL_MS = 5 * 60_000
  * After this TTL a request may probe Provider API again, so an upgraded Go
  * account can recover without a restart.
  */
-export const PROTOCOL_CACHE_TTL_MS = 15 * 60_000
+const PROTOCOL_CACHE_TTL_MS = 15 * 60_000
 
 /** The entry-plan tier weight (`individual-go` in KNOWN_SUBSCRIPTION_PLANS). */
 const GO_TIER_WEIGHT = 0
@@ -1004,6 +1005,29 @@ function priceRequestImage(
 }
 
 /**
+ * Base64 payloads keyed by the cached request version itself.
+ *
+ * `readImageRequest()` returns one codec object per (attachment, encoder
+ * target) and `requestImages()` reuses that same object for every occurrence in
+ * one generation, but a history that carries an image also replays it in every
+ * later message. Encoding per occurrence therefore re-base64s the same
+ * multi-megabyte buffer once per replay — the single most expensive
+ * per-occurrence step of an image request. Keying on the object makes an
+ * occurrence a map hit, and the WeakMap ties the copy's lifetime to the
+ * harness's own version cache rather than to this plugin.
+ */
+const encodedRequestImages = new WeakMap<RequestImageAttachment, { base64: string; dataUrl: string }>()
+function encodedRequestImage(version: RequestImageAttachment): { base64: string; dataUrl: string } {
+  let encoded = encodedRequestImages.get(version)
+  if (encoded === undefined) {
+    const base64 = Buffer.from(version.data).toString('base64')
+    encoded = { base64, dataUrl: `data:${version.mediaType};base64,${base64}` }
+    encodedRequestImages.set(version, encoded)
+  }
+  return encoded
+}
+
+/**
  * Convert one image reference to the final `/alpha/generate` wire format.
  * The official CLI accepts a base64 source internally, then toWireMessages()
  * sends a data URL plus mimeType. Use the request version's media type because
@@ -1016,7 +1040,7 @@ async function imageToCommandCode(
   const version = await readImage(ref)
   return {
     type: 'image',
-    image: `data:${version.mediaType};base64,${Buffer.from(version.data).toString('base64')}`,
+    image: encodedRequestImage(version).dataUrl,
     mimeType: version.mediaType,
   }
 }
@@ -1187,7 +1211,7 @@ async function imageToOpenAI(
   return {
     type: 'image_url',
     image_url: {
-      url: `data:${version.mediaType};base64,${Buffer.from(version.data).toString('base64')}`,
+      url: encodedRequestImage(version).dataUrl,
     },
   }
 }
@@ -1264,7 +1288,7 @@ async function imageToMessages(
   const version = await readImage(ref)
   return {
     type: 'image',
-    source: { type: 'base64', media_type: version.mediaType, data: Buffer.from(version.data).toString('base64') },
+    source: { type: 'base64', media_type: version.mediaType, data: encodedRequestImage(version).base64 },
   }
 }
 
@@ -1451,8 +1475,14 @@ export interface CommandCodeConnectionOptions {
  */
 export type ResolveAttachments = () => AttachmentStore | undefined
 
-/** What the rotation hook knows about the request it is rotating within. */
-export interface AccountRotationContext {
+/**
+ * What the rotation hook knows about the request it is rotating within.
+ *
+ * Not exported: the only consumer is the `rotateApiKey` shape below, so the
+ * name never reaches the published `.d.ts` and the package's `exports` map
+ * leaves no deep-import path to it.
+ */
+interface AccountRotationContext {
   /** Every API key this request has already used, just-rejected key included. */
   tried: readonly string[]
   /** The provider's own reset time for a `rate-limit` rejection, in millis. */
@@ -1517,15 +1547,15 @@ export interface CommandCodeAdapterDeps<C extends CommandCodeConnectionOptions =
   imageOffload?: SurfaceImagePolicy
 }
 
-/** Account identity from `/alpha/whoami`. */
-export interface CommandCodeAccount {
+/** Account identity from `/alpha/whoami`; reached only through `CommandCodeUsageReport`. */
+interface CommandCodeAccount {
   id: string
   name: string
   userName: string
 }
 
-/** Usage summary from `/alpha/usage/summary`. */
-export interface CommandCodeUsage {
+/** Usage summary from `/alpha/usage/summary`; reached only through `CommandCodeUsageReport`. */
+interface CommandCodeUsage {
   totalCount: number
   totalCost: number
   successRate: number
@@ -1571,8 +1601,8 @@ export interface CommandCodeCredits {
   weekly?: { used: number; cap: number; exceeded: boolean; resetAt: number }
 }
 
-/** Subscription plan state from `/alpha/billing/subscriptions`. */
-export interface CommandCodePlan {
+/** Subscription plan state from `/alpha/billing/subscriptions`; reached only through `CommandCodeUsageReport`. */
+interface CommandCodePlan {
   /** Raw subscription plan id (e.g. `individual-pro`); empty when unreported. */
   planId: string
   /** Display name (e.g. `Pro`); falls back to the raw id for unknown plans. */

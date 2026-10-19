@@ -57,13 +57,53 @@ export function peakHour(at: number, windows: ReadonlyArray<readonly [number, nu
  * today, so the combination becoming real is visible before it reaches a user.
  * This ordering is a latent choice, not a verified upstream rule.
  */
-export function requestRates(price: CommandCodeModelPrice, at: number | null, contextTokens: number, table: CommandCodePriceTable): CommandCodeModelRates {
+export function requestRates(
+  price: CommandCodeModelPrice,
+  at: number | null,
+  contextTokens: number,
+  table: CommandCodePriceTable,
+  peakHourCache?: Map<number, boolean>,
+): CommandCodeModelRates {
   // ORDER IS LOAD-BEARING: the generator refuses non-ascending bounds or a
   // bounded last band and the wire parser rejects the same shapes, so a
   // conforming table cannot present bands out of order.
   const tier = price.contextTiers?.find(tier => tier.maxContext === undefined || contextTokens <= tier.maxContext)
   if (tier !== undefined) return tier
-  return price.peak !== undefined && at !== null && peakHour(at, table.peakHours) ? price.peak : price
+  if (price.peak === undefined || at === null) return price
+  // `peakHour` constructs a Date and reads three of its fields. The analytics
+  // scenario matrix asks this question once per (fact, catalog model), and the
+  // answer depends only on `at` and the table's windows — so a caller that is
+  // pricing many candidates against one table can pass a memo to collapse the
+  // repeated work. The memo is the caller's, so it can never outlive its table.
+  // Named apart from `table.peakHours`, which is the window list itself.
+  let peak = peakHourCache?.get(at)
+  if (peak === undefined) {
+    peak = peakHour(at, table.peakHours)
+    peakHourCache?.set(at, peak)
+  }
+  return peak ? price.peak : price
+}
+
+/**
+ * Price one request's token buckets against an already-resolved price row.
+ *
+ * Split out of the report's per-model lookup so a caller that prices the same
+ * candidate model against every fact — the analytics scenario matrix — resolves
+ * the price row once per model instead of once per (fact, model) pair. The
+ * arithmetic lives here alone so the two callers cannot drift.
+ */
+export function requestCost(
+  tokens: CostTokens,
+  price: CommandCodeModelPrice,
+  at: number | null,
+  table: CommandCodePriceTable,
+  peakHourCache?: Map<number, boolean>,
+): number | undefined {
+  if (price.free === true) return 0
+  const context = tokens.uncachedInputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens
+  const r = requestRates(price, at, context, table, peakHourCache)
+  if (tokens.cacheWriteTokens > 0 && r.cacheWriteCost === undefined) return undefined
+  return (tokens.uncachedInputTokens * r.inputCost + tokens.outputTokens * r.outputCost + tokens.cacheReadTokens * r.cacheReadCost + tokens.cacheWriteTokens * (r.cacheWriteCost ?? 0)) / 1e6
 }
 
 /** Cache version and wire guard: changing bands/rates must refold historical groups. */
