@@ -317,4 +317,13 @@ scripts/verify-engine-load.mjs  Engine-load smoke: stages the published surface 
                       against the engine it will run on fails before publishing (issue #43).
 cordis.patch.yml      Bundle patch layer (inserts the llm-commandcode row).
 tsdown.config.ts      Build config (tsdown -> lib/, ESM, .d.ts + client.js).
+.gitattributes        LF everywhere (`* text=auto eol=lf`), binaries opted out.
+                      Required because `lib/` must rebuild byte-identically for the
+                      CI `git diff --exit-code -- lib/` guard, and a CRLF checkout
+                      makes tsdown's sourcemaps embed CRLF sources — without this
+                      file a Windows contributor's map differs from the committed
+                      one and the guard reads that as a stale bundle (measured:
+                      `src/adapter.ts` 3,482 CRLF lines, `lib/index.js` 11,817).
+                      Sourcemaps are not tracked, and `files` excludes them from the
+                      tarball: nothing loads them.
 ```

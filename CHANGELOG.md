@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **发布包不再携带 sourcemap，体积减少约 16%（tarball 2.9 MB → 2.5 MB，解包 5.1 MB → 3.5 MB；文件数 18 → 16）。** `tsdown.config.ts` 的 `sourcemap: true` 会产出 `lib/index.js.map` 与 `lib/client.js.map`，而 `files` 直接收整个 `lib`，两份 map（1.63 MiB）因此进了 tarball。它们没有任何读取方：`lib/client.js` 是 WebView 直接执行的 CJS 包，`//# sourceMappingURL` 只是尾部注释；`scripts/verify-engine-load.mjs` 的审计用正则匹配 `import`／`require` **语句**，不匹配注释。本地 `npm run build` 照旧产出 map，调试能力不受影响。**用户侧无需做任何事**，运行时行为与公开导出面零变化（`lib/index.d.ts` 的 `export { ... }` 一行未改）。
+
+- **长会话的历史分析报告更快（约 −28%～−33%）。** `buildAnalytics` 原先有两处对「事实 × 模型」的重复扫描：每模型小计对整表过滤 N 次，场景矩阵对每个（事实 × 目录模型）都查一次候选价格行（96 个模型共 480,000 次查找，查的是同一批行）。现改为先按模型分桶一次，并把定价算式收进 `cost-facts.requestCost()`、让场景循环把查价提到内层循环之外；`requestRates` 增加可选的高峰时段 memo（由调用方持有，不会活得比它的价格表更久）。两套独立测量给出同一量级：PR 作者脚本 5,000 条事实 × 96 个目录模型 42.17 ms → 30.36 ms，维护者本机用另一套合成数据复测 14.87 ms → 9.90 ms。**输出逐位不变**：分桶顺序与原 `Set` 顺序一致，排序本来就是按唯一 id 的全序（维护者另用 3,000 条确定性事实 × 96 个模型对比两版 JSON 输出，147,944 字节完全一致）。
+
+- **图片请求里同一张图只编码一次 base64。** `readImageRequest()` 对每个（附件，编码目标）返回同一个缓存对象，但一条请求里同一张图会出现在多条历史消息中；三个 wire 编解码器原先各自按「出现次数」执行 `Buffer.from(version.data).toString('base64')`（1 MiB 载荷 0.738 ms／次）。现改为以该缓存对象为键的 `WeakMap`，保存原始 base64 与 data URL，副本生命周期跟随宿主自己的版本缓存。命中约 21 ns。
+
+### Added
+
+- **新增 `.gitattributes`：全部文本文件统一按 LF 检出与提交。** 仓库此前没有该文件，Windows 贡献者按 CRLF 检出后，sourcemap 的 `sourcesContent` 会内嵌带 CRLF 的源码，重建出的 `.map` 与提交里的不再逐字节相同，CI 的 `git diff --exit-code -- lib/` 守卫因此误报「产物过期」（2026-10-17 那次 CI 失败的根因）。实测对照：无该文件时 `core.autocrlf=true` 检出后 `src/adapter.ts` 有 3,482 行 CRLF、`lib/index.js` 有 11,817 行；加上后两者均为 0。图片与压缩包按 `binary` 排除在行尾转换之外。**本次加入时已跟踪文件 100% 是 LF，`git add --renormalize .` 未改写任何文件。**
+
+### Removed
+
+- 两份 sourcemap（`lib/index.js.map`、`lib/client.js.map`）不再纳入版本控制。它们是 tsdown 产物里唯一在 CRLF 工作树上无法逐字节重建的文件，跟踪它们只会让「产物过期」守卫依赖工作树的行尾；移出 tarball 与版本控制后，该守卫在任意平台都只反映源码与产物的真实一致性。
+
 ## [0.14.2] - 2026-10-18
 
 ### Changed

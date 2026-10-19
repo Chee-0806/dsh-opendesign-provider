@@ -1,0 +1,19 @@
+# 统一行尾：checkout 与提交都按 LF 处理，任何平台都不做行尾转换。
+#
+# 为什么必须显式声明：`lib/` 产物要能逐字节重现（CI 的 `git diff --exit-code -- lib/`
+# 守卫、发布工作流的「校验已提交的构建产物」步骤都依赖这一点），而 sourcemap 的
+# `sourcesContent` 内嵌了全部源码。Windows 贡献者的工作树若按 CRLF checkout，
+# tsdown 重建出的 `.map` 会比提交里的大（实测 `lib/index.js.map` 差 28,584 字节、
+# `lib/client.js.map` 差 23,464 字节，约等于内嵌源码行数的 2 倍），守卫随即误报
+# 「产物过期」。根因是缺这份属性文件，不是构建不可重现——同一棵 LF 源码树上，
+# 两份 `.map` 与 `lib/index.js`、`lib/client.js`、`lib/index.d.ts` 都能逐字节重现。
+* text=auto eol=lf
+
+# 二进制资源不做行尾与文本归一化，否则 Git 会把它们当文本改写。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.tgz binary
