@@ -1669,7 +1669,7 @@ function AddAccountPanel({ state, disabled, t, enrollment, snapshot, onClose }: 
  * each, with its status and quota inline — so one account's facts no longer
  * have to be cross-read across separate surfaces.
  */
-function AccountsCard({ t, state, usage, login, disabled, actions, onRefresh, createEnrollment }: {
+function AccountsCard({ t, state, usage, login, disabled, actions, onRefresh, openAnalytics, createEnrollment }: {
   t: Translate<SettingsCommandCodeKey>
   state: SettingsPageState
   usage: UsagePageState
@@ -1677,6 +1677,8 @@ function AccountsCard({ t, state, usage, login, disabled, actions, onRefresh, cr
   disabled: boolean
   actions: AccountActions
   onRefresh(): void
+  /** Opens the model-usage dashboard. Absent when the Host exposes no panel seam. */
+  openAnalytics?: (() => void) | undefined
   createEnrollment(): AccountEnrollmentController
 }) {
   const [adding, setAdding] = useState(false)
@@ -1698,6 +1700,10 @@ function AccountsCard({ t, state, usage, login, disabled, actions, onRefresh, cr
       <div className="cc-groupHead">
         <h3 className="cc-groupTitle">{t('accountsTitle')}</h3>
         <span className="cc-spacer" />
+        {/* The analytics entry lives with the usage heading rather than in the
+            page intro: it is another way to read the same usage/cost data this
+            card summarises, and the Host may expose no panel seam at all. */}
+        {openAnalytics ? <Button variant="ghost" size="sm" onClick={openAnalytics}>{t('openAnalytics')}</Button> : null}
         <button type="button" className="cc-linkButton" disabled={loading} onClick={() => { onRefresh(); void enrollment.refresh() }}>
           {loading ? t('usageRefreshing') : t('usageRefresh')}
         </button>
@@ -1956,7 +1962,6 @@ export function CommandCodeSettingsPage(props: CommandCodeSettingsProps) {
     <section className={bar.visible ? 'cc-section cc-sectionWithBar' : 'cc-section'} aria-label={t('title')}>
       <h2 className="cc-title">{t('title')}</h2>
       <p className="cc-intro">{t('intro')}</p>
-      {props.openAnalytics ? <Button variant="ghost" size="sm" onClick={props.openAnalytics}>{t('openAnalytics')}</Button> : null}
       {!state.writable ? <p className="cc-readOnly" role="status">{t('readOnly')}</p> : null}
       <AccountsCard
         t={t}
@@ -1966,6 +1971,7 @@ export function CommandCodeSettingsPage(props: CommandCodeSettingsProps) {
         disabled={disabled}
         actions={actions}
         onRefresh={props.refreshUsage}
+        openAnalytics={props.openAnalytics}
         createEnrollment={props.createEnrollment}
       />
       <ModelsCard

@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.3] - 2026-10-19
 
 ### Changed
 
@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **长会话的历史分析报告更快（约 −28%～−33%）。** `buildAnalytics` 原先有两处对「事实 × 模型」的重复扫描：每模型小计对整表过滤 N 次，场景矩阵对每个（事实 × 目录模型）都查一次候选价格行（96 个模型共 480,000 次查找，查的是同一批行）。现改为先按模型分桶一次，并把定价算式收进 `cost-facts.requestCost()`、让场景循环把查价提到内层循环之外；`requestRates` 增加可选的高峰时段 memo（由调用方持有，不会活得比它的价格表更久）。两套独立测量给出同一量级：PR 作者脚本 5,000 条事实 × 96 个目录模型 42.17 ms → 30.36 ms，维护者本机用另一套合成数据复测 14.87 ms → 9.90 ms。**输出逐位不变**：分桶顺序与原 `Set` 顺序一致，排序本来就是按唯一 id 的全序（维护者另用 3,000 条确定性事实 × 96 个模型对比两版 JSON 输出，147,944 字节完全一致）。
 
 - **图片请求里同一张图只编码一次 base64。** `readImageRequest()` 对每个（附件，编码目标）返回同一个缓存对象，但一条请求里同一张图会出现在多条历史消息中；三个 wire 编解码器原先各自按「出现次数」执行 `Buffer.from(version.data).toString('base64')`（1 MiB 载荷 0.738 ms／次）。现改为以该缓存对象为键的 `WeakMap`，保存原始 base64 与 data URL，副本生命周期跟随宿主自己的版本缓存。命中约 21 ns。
+
+- **「查看模型用量、成本与性能分析」入口移到「账户用量」分组标题行**，紧邻「刷新」。它原先裸放在页面说明段与第一个分组之间，既无外边距也不属于任何分组，视觉上像是游离在版式之外；移到「账户用量」标题行后与服务着同一批用量／成本数据的「刷新」并列，也复用了该行既有的 `cc-spacer` 布局，不新增样式类。分析入口仍只在 Host 暴露面板接缝时出现，行为不变（切到面板的「模型分析」页签并打开面板）。
+
+- **多账户轮换说明精简 2 处冗余用词**（中文 47 → 43 字，英文同步）。`账户操作立即生效。当前账户达到用量限额或密钥失效时，请求会按列表顺序自动切换到下一个可用账户。` → 去掉「用量」与「自动」后为：`账户操作立即生效。当前账户达到限额或密钥失效时，请求会按列表顺序切换到下一个可用账户。` 「按列表顺序切换」本身已表达自动性，`达到限额` 在账户上下文里仍是额度含意；英文侧 `usage limit` → `limit`，`switch` 原本就没有 `automatically`。**已知取舍**：同页单账户文案 `accountsHint` 仍用「用量限额」，两条说明的术语因此不完全一致。
 
 ### Added
 
