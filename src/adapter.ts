@@ -80,6 +80,7 @@ import {
   outputCapFloor,
   wireReasoningEffort,
 } from './quirks.ts'
+import type { CliLoginStatus } from './credentials.ts'
 import { diagnosticsSnapshot, type DiagnosticsSnapshot } from './diagnostics.ts'
 import { classifyHttpFailure, missingBodyFailure, retryableFailureCodes } from './error-taxonomy.ts'
 import { streamedCompletionChunks } from './stream-response.ts'
@@ -124,8 +125,12 @@ export interface OpenDesignConnectionOptions {
 export interface OpenDesignCredentialState {
   readonly ref: string
   readonly present: boolean
-  readonly cliLoginPath: string
-  readonly cliLoginReadable: boolean
+  /** The CLI login state as the credential chain read it (path, status, key presence). */
+  readonly login: {
+    readonly path: string
+    readonly status: CliLoginStatus
+    readonly hasRuntimeKey: boolean
+  }
 }
 
 /**
@@ -147,8 +152,15 @@ export interface OpenDesignImageEncoder {
 export interface OpenDesignAdapterDeps {
   /** Read the live connection facts for one call. */
   options: () => OpenDesignConnectionOptions
-  /** Resolve the bearer key for one call (literal → credential ref). */
+  /** Resolve the bearer key for one call (literal → credential ref → CLI login). */
   resolveApiKey: (connection: OpenDesignConnectionOptions) => Promise<string>
+  /**
+   * Resolve request facts that depend on WHERE the key came from: a key from
+   * the CLI login state uses that state's server-issued `linkUrl`, while an
+   * explicit key keeps the configured/default gateway. Optional so tests and
+   * programmatic adapters can omit it; the plugin entry supplies it.
+   */
+  resolveConnection?: (connection: OpenDesignConnectionOptions) => Promise<OpenDesignConnectionOptions> | OpenDesignConnectionOptions
   /**
    * Read the host attachment service, when one is mounted. Read per call: the
    * service may be composed after this plugin. Without it, an image can only be
@@ -238,7 +250,11 @@ export class OpenDesignAdapter extends LlmAdapter {
    * `formatDiagnostics` renders the copyable text.
    */
   async diagnostics(): Promise<DiagnosticsSnapshot> {
-    const connection = this.deps.options()
+    // The effective connection, not the raw options: when the key comes from the
+    // CLI login state, the gateway follows that state's own linkUrl (ticket 08),
+    // and the snapshot must show the address a request would really use.
+    const base = this.deps.options()
+    const connection = await this.deps.resolveConnection?.(base) ?? base
     const catalog = this.currentCatalog(connection)
     const credential = await this.deps.credentialState?.()
     const allowlist = connection.visibleModels ?? []
@@ -251,10 +267,7 @@ export class OpenDesignAdapter extends LlmAdapter {
         ...(catalog.reason === undefined ? {} : { fallbackReason: catalog.reason }),
       },
       credential: { ref: credential?.ref ?? DEFAULT_API_KEY_ENV, present: credential?.present === true },
-      cliLogin: {
-        path: credential?.cliLoginPath ?? '',
-        readable: credential?.cliLoginReadable === true,
-      },
+      cliLogin: credential?.login ?? { path: '', status: 'missing', hasRuntimeKey: false },
       contextWindow: connection.contextWindow,
       contextWindowOverrides: connection.contextWindowOverrides ?? {},
       maxOutputTokens: connection.maxOutputTokens,
@@ -346,7 +359,8 @@ export class OpenDesignAdapter extends LlmAdapter {
    * being generated (ticket 04).
    */
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const connection = this.deps.options()
+    const base = this.deps.options()
+    const connection = await this.deps.resolveConnection?.(base) ?? base
     const apiKey = await this.deps.resolveApiKey(connection)
     // The catalog is read from memory only: a directory refresh must never
     // delay or fail a conversation turn.
@@ -411,8 +425,9 @@ export class OpenDesignAdapter extends LlmAdapter {
    * Load the catalog for listing/status. Never throws: a gateway failure is a
    * fallback to the static snapshot with the reason recorded for ticket 08.
    */
-  private loadCatalog(connection: OpenDesignConnectionOptions): Promise<GatewayCatalogStatus> {
-    return this.catalog.load(this.catalogTarget(connection), () => this.deps.resolveApiKey(connection))
+  private async loadCatalog(connection: OpenDesignConnectionOptions): Promise<GatewayCatalogStatus> {
+    const resolved = await this.deps.resolveConnection?.(connection) ?? connection
+    return this.catalog.load(this.catalogTarget(resolved), () => this.deps.resolveApiKey(resolved))
   }
 
   /** The in-memory catalog for the conversation path; never touches the network. */

@@ -5,14 +5,15 @@
  * 交付数据与文本，按钮由设置页（ticket 08）接线。
  *
  * 脱敏不是「事后擦掉」，而是结构性的：构造快照的入口 {@link DiagnosticsFacts}
- * 里根本没有密钥值的槽位——凭据只有引用名与存在性，CLI 登录态只有路径与可读性。
+ * 里根本没有密钥值的槽位——凭据只有引用名与存在性，CLI 登录态只有路径、读取状态
+ * 与「有没有 runtimeKey」这个布尔。
  * 每个字段都逐项拷贝，夹带的额外属性（哪怕观察值里误塞了 `value`/`runtimeKey`）
  * 不会进入快照或文本。这是本模块唯一的硬约束，测试钉在「输出里不出现密钥」上。
  *
  * @module dsh-opendesign-provider/diagnostics
  */
 
-import { access } from 'node:fs/promises'
+import type { CliLoginStatus } from './credentials.ts'
 
 import { DEFAULT_TRANSPORT_MAX_RETRIES } from './transport-retry.ts'
 
@@ -36,8 +37,11 @@ export interface DiagnosticsFacts {
   readonly catalog: DiagnosticsCatalog
   /** The credential reference in use and whether it currently resolves. */
   readonly credential: { readonly ref: string; readonly present: boolean }
-  /** The CLI login-state file and whether it is readable (its contents never travel). */
-  readonly cliLogin: { readonly path: string; readonly readable: boolean }
+  /**
+   * The CLI login state as the credential chain read it: path, reading status and
+   * whether a runtime key was found. Values never travel.
+   */
+  readonly cliLogin: { readonly path: string; readonly status: CliLoginStatus; readonly hasRuntimeKey: boolean }
   /** Global context-window override; absent means "follow the catalog". */
   readonly contextWindow: number | undefined
   /** Per-model context-window overrides, keyed by model id. */
@@ -65,7 +69,7 @@ export interface DiagnosticsSnapshot {
     readonly fallbackReason?: string
   }
   readonly credential: { readonly ref: string; readonly present: boolean }
-  readonly cliLogin: { readonly path: string; readonly readable: boolean }
+  readonly cliLogin: { readonly path: string; readonly status: CliLoginStatus; readonly hasRuntimeKey: boolean }
   readonly context: { readonly windowOverride: number | null; readonly overriddenModels: number }
   readonly output: { readonly maxTokensOverride: number | null }
   readonly timeouts: { readonly requestMs: number; readonly streamIdleMs: number }
@@ -91,7 +95,11 @@ export function diagnosticsSnapshot(facts: DiagnosticsFacts): DiagnosticsSnapsho
       ...(facts.catalog.fallbackReason === undefined ? {} : { fallbackReason: facts.catalog.fallbackReason }),
     },
     credential: { ref: facts.credential.ref, present: facts.credential.present === true },
-    cliLogin: { path: facts.cliLogin.path, readable: facts.cliLogin.readable === true },
+    cliLogin: {
+      path: facts.cliLogin.path,
+      status: facts.cliLogin.status,
+      hasRuntimeKey: facts.cliLogin.hasRuntimeKey === true,
+    },
     context: {
       windowOverride: facts.contextWindow ?? null,
       overriddenModels: Object.keys(facts.contextWindowOverrides ?? {}).length,
@@ -110,8 +118,8 @@ export function diagnosticsSnapshot(facts: DiagnosticsFacts): DiagnosticsSnapsho
  *
  * One line per setting, each labelled with what it means rather than the raw key
  * name, so a pasted block reads on its own in a support thread. The first line
- * states the redaction promise; the last one lists the seconds/budget defaults
- * that are easy to get wrong when diagnosing a stall.
+ * states the redaction promise; the last one lists the retry budget and the codes
+ * the engine may retry, which is what a stall or a retry storm is diagnosed on.
  */
 export function formatDiagnostics(snapshot: DiagnosticsSnapshot): string {
   const catalog = snapshot.catalog.source === 'live'
@@ -129,32 +137,34 @@ export function formatDiagnostics(snapshot: DiagnosticsSnapshot): string {
     `上下文窗口：${window}`,
     `输出上限：${output}`,
     `凭据引用：${snapshot.credential.ref}（${credential}）`,
-    `CLI 登录态：${snapshot.cliLogin.path}（${snapshot.cliLogin.readable ? '可读' : '不可读'}）`,
+    `CLI 登录态：${snapshot.cliLogin.path}（${describeLogin(snapshot.cliLogin)}）`,
     `请求超时：${formatDuration(snapshot.timeouts.requestMs)}；流空闲超时：${formatDuration(snapshot.timeouts.streamIdleMs)}`,
     `传输重试上限：${snapshot.retry.transportMaxRetries} 次；可重试错误码：${snapshot.retry.retryableCodes.join('、')}`,
   ].join('\n')
 }
 
+/**
+ * One phrase for the CLI login state, in the words the user needs to act on:
+ * a missing file means "run `vela login`", a malformed one means "the file is
+ * there but unusable", and `ok` still distinguishes "no runtime key inside".
+ */
+function describeLogin(login: DiagnosticsSnapshot['cliLogin']): string {
+  // An empty path means the caller never supplied credential observability (a bare
+  // adapter, e.g. a programmatic one): say "unknown" rather than "missing file".
+  if (login.path === '') return '未知（本次诊断没有接上凭据探测）'
+  switch (login.status) {
+    case 'ok':
+      return login.hasRuntimeKey ? '可读，含 runtimeKey' : '可读，但没有 runtimeKey（需要先 vela login）'
+    case 'malformed':
+      return '文件存在但不是合法 JSON（可删掉后重新 vela login）'
+    case 'missing':
+      return '文件不存在（没有 CLI 登录态）'
+    default:
+      return '文件存在但不可读（检查权限）'
+  }
+}
+
 /** Milliseconds as seconds, collapsing whole seconds (`300 秒`). */
 function formatDuration(ms: number): string {
   return ms % 1000 === 0 ? `${ms / 1000} 秒` : `${(ms / 1000).toFixed(1)} 秒`
-}
-
-/**
- * Whether the CLI login state at `path` is readable right now.
- *
- * Only the answer travels: the file's contents (which hold the desktop login's
- * runtime key) are never opened. A missing or unreadable file is a diagnosis
- * fact, not an error — the key may come from the configured reference instead.
- *
- * @param path - absolute path to `~/.amr/config.json` (or the configured override).
- * @returns true when the file exists and this process may read it.
- */
-export async function cliLoginReadable(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  } catch {
-    return false
-  }
 }

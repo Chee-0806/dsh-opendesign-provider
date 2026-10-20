@@ -16,10 +16,12 @@
  *     apiKeyEnv: OPEN_DESIGN_API_KEY
  * ```
  *
- * Ticket 01 is the pre-refactor skeleton: the Host assembly is limited to the
- * configurable-provider entry, the adapter and the settings bridge, and the
- * adapter has no chat transport yet. Ticket 02 adds Chat Completions; the
- * quota Remote and `/opendesign` command return in P1.
+ * Ticket 02 added Chat Completions, tickets 03–07 made the catalog live and
+ * added streaming, thinking, tools, the output cap, the error taxonomy and
+ * images. Ticket 08 completes the credential chain (config key → credential
+ * reference → the Open Design CLI login state) and serves the settings page's
+ * catalog/credential facts through `opendesign/models`; the quota Remote and
+ * `/opendesign` command return in P1.
  *
  * @module dsh-opendesign-provider
  */
@@ -37,7 +39,6 @@ import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-settings'
 
 import {
-  AMR_CONFIG_RELATIVE_PATH,
   DEFAULT_API_BASE,
   DEFAULT_API_KEY_ENV,
   MODELS_CACHE_RELATIVE_PATH,
@@ -46,6 +47,13 @@ import {
   PROVIDER_DISPLAY_NAME,
 } from './identity.ts'
 import {
+  defaultAmrConfigPath,
+  missingCredentialMessage,
+  resolveCredentialChain,
+  type CredentialChainResult,
+} from './credentials.ts'
+import { applyModelsRemote } from './models-remote.ts'
+import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   OpenDesignAdapter,
@@ -53,7 +61,6 @@ import {
   type OpenDesignCredentialState,
   type OpenDesignImageEncoder,
 } from './adapter.ts'
-import { cliLoginReadable } from './diagnostics.ts'
 import {
   MAX_TRANSPORT_MAX_RETRIES,
   TRANSPORT_FAILURE_CODE,
@@ -101,7 +108,7 @@ export {
   OpenDesignAdapter,
 } from './adapter.ts'
 export type { OpenDesignAdapterDeps, OpenDesignConnectionOptions, OpenDesignCredentialState } from './adapter.ts'
-export { diagnosticsSnapshot, formatDiagnostics, cliLoginReadable } from './diagnostics.ts'
+export { diagnosticsSnapshot, formatDiagnostics } from './diagnostics.ts'
 export type { DiagnosticsFacts, DiagnosticsSnapshot } from './diagnostics.ts'
 export { retryableFailureCodes } from './error-taxonomy.ts'
 export type { FailureCode, HttpFailureInput } from './error-taxonomy.ts'
@@ -131,6 +138,11 @@ export interface Config {
   apiBase?: string
   /** Model catalog cache path; defaults to `~/.opendesign/models-cache.json`. */
   modelsCachePath?: string
+  /**
+   * Open Design CLI login state path; defaults to `~/.amr/config.json`. Overridable
+   * for tests and unusual installs. This plugin only ever reads it.
+   */
+  amrConfigPath?: string
   /** Milliseconds to wait for a response's first byte; defaults to 300s. */
   requestTimeoutMs?: number
   /** Milliseconds a stream may stall before being treated as a dead connection; defaults to 300s. */
@@ -193,6 +205,7 @@ export const Config: z<Config> = z.object(markVolatileFields({
   apiKey: z.string().role('secret'),
   apiBase: z.string(),
   modelsCachePath: z.string(),
+  amrConfigPath: z.string(),
   requestTimeoutMs: z.number().min(1).max(MAX_TIMER_DELAY_MS),
   streamIdleTimeoutMs: z.number().min(1).max(MAX_TIMER_DELAY_MS),
   transportMaxRetries: z.number().min(0).max(MAX_TRANSPORT_MAX_RETRIES),
@@ -260,42 +273,44 @@ export function apply(ctx: Context, config: Config): void {
   const current = (): Config => unwrapVolatileConfig(config)
   const options = (): ResolvedOpenDesignOptions => resolveAdapterOptions(current())
 
-  // Credential chain, level 1 and 2: literal config, then the credential
-  // reference (the web Models page writes it). The CLI login state joins the
-  // chain in ticket 08; the diagnosis already names that path so the user can
-  // act on it today. One reader feeds both the request path and the diagnosis,
-  // so "present" can never disagree with what a request would use.
-  const readCredential = async (config: Config, ref: CredentialRef): Promise<string | undefined> => {
-    const literal = config.apiKey
-    if (typeof literal === 'string' && literal !== '') return literal
+  // The credential seam's reference layer (literal config and the CLI login
+  // state are resolved by `resolveCredentialChain`). The credentials service
+  // owns its own layer order; a profile without it falls back to the launch
+  // environment, which is the only ambient source a headless run has.
+  const resolveReference = async (reference: string): Promise<string | undefined> => {
+    const ref = credentialRef(reference)
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
-      // The seam owns the layer order; a miss here is genuinely unconfigured.
       const hit = await credentials.resolve(ref)
       return hit?.value !== undefined && hit.value.length > 0 ? hit.value : undefined
     }
-    // No service means the headless profile, which disables the credentials
-    // line on purpose: only the launch environment is left.
     const ambient = launchEnvironmentOf(ctx).get(ref)
     return ambient !== undefined && ambient.value.length > 0 ? ambient.value : undefined
   }
-  const currentCredentialRef = (config: Config): CredentialRef => credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV)
+
+  const resolveChain = (): Promise<CredentialChainResult> => resolveCredentialChain(current(), {
+    resolveReference,
+  })
+
   const resolveApiKey = async (): Promise<string> => {
-    const config = current()
-    const literal = config.apiKey
-    if (typeof literal === 'string' && literal !== '') {
-      return assertUsableApiKey(literal, 'llm-opendesign', 'config.apiKey')
+    const chain = await resolveChain()
+    if (chain.apiKey === undefined) {
+      throw new LlmError(missingCredentialMessage(chain.reference), 'MISSING_CREDENTIAL')
     }
-    const ref = currentCredentialRef(config)
-    const value = await readCredential(config, ref)
-    if (value !== undefined) return assertUsableApiKey(value, 'llm-opendesign', ref)
-    throw new LlmError(
-      `llm-opendesign: 还没有可用的 Open Design API Key（provider 路由 "${PROVIDER}"，凭据引用 ${ref}）。`
-      + '请在 设置 → Open Design 填入 API Key（或在启动环境导出该变量、在 composition 里设置 config.apiKey）；'
-      + '也可以在终端执行 `vela login` 复用桌面端登录态。'
-      + 'Key 在 https://open-design.ai/cloud/api-keys 创建。',
-      'MISSING_CREDENTIAL',
-    )
+    const origin = chain.source === 'literal'
+      ? 'config.apiKey'
+      : chain.source === 'reference'
+        ? chain.reference
+        : `${chain.login.path}（profiles.prod.runtimeKey）`
+    return assertUsableApiKey(chain.apiKey, 'llm-opendesign', origin)
+  }
+
+  // The CLI-login key is only valid against the URL the CLI was handed; an
+  // explicit apiBase always wins. Resolving the connection separately keeps
+  // that decision out of the transport's wire body.
+  const resolveConnection = async (connection: OpenDesignConnectionOptions): Promise<OpenDesignConnectionOptions> => {
+    const chain = await resolveChain()
+    return { ...connection, apiBase: chain.apiBase }
   }
 
   // The attachment service is an optional peer of this route: it encodes each
@@ -304,23 +319,31 @@ export function apply(ctx: Context, config: Config): void {
   // to placeholder text instead of failing the turn.
   const attachments = (): OpenDesignImageEncoder | undefined => ctx.get('attachments')
 
-  // Diagnostics observability (ticket 06): reference name + presence + whether the
-  // CLI login state is readable. Never a key value; the credentials seam is asked,
-  // not read out, and a seam failure reports "unconfigured" rather than throwing.
+  // Diagnostics observability (ticket 06): the credential chain's safe projection
+  // — reference name, whether it resolves, and the login state's path/status —
+  // never a key value. A chain failure reports "unconfigured" rather than throwing.
   const credentialState = async (): Promise<OpenDesignCredentialState> => {
-    const config = current()
-    const ref = currentCredentialRef(config)
-    const cliLoginPath = join(homedir(), AMR_CONFIG_RELATIVE_PATH)
-    let present = false
     try {
-      present = (await readCredential(config, ref)) !== undefined
+      const chain = await resolveChain()
+      return {
+        ref: chain.reference,
+        present: chain.apiKey !== undefined,
+        login: {
+          path: chain.login.path,
+          status: chain.login.status,
+          hasRuntimeKey: chain.login.hasRuntimeKey,
+        },
+      }
     } catch {
-      present = false
+      return {
+        ref: credentialRef(current().apiKeyEnv ?? DEFAULT_API_KEY_ENV),
+        present: false,
+        login: { path: defaultAmrConfigPath(), status: 'unreadable', hasRuntimeKey: false },
+      }
     }
-    return { ref, present, cliLoginPath, cliLoginReadable: await cliLoginReadable(cliLoginPath) }
   }
 
-  const adapter = new OpenDesignAdapter({ options, resolveApiKey, attachments, credentialState })
+  const adapter = new OpenDesignAdapter({ options, resolveApiKey, resolveConnection, attachments, credentialState })
 
   // The Models page card. An empty `settingsPath` means the whole
   // `llm-opendesign` section configures this provider.
@@ -328,6 +351,14 @@ export function apply(ctx: Context, config: Config): void {
     { provider: PROVIDER, displayName: PROVIDER_DISPLAY_NAME, settingsNs: NS, settingsPath: [] },
   ])
   ctx.llm.registerAdapter([PROVIDER], adapter)
+
+  // Browser surfaces read two Host-only facts: the catalog's provenance and
+  // the credential chain's safe projection. A profile without a Typert
+  // registry (headless) simply never mounts this Remote.
+  applyModelsRemote(ctx, {
+    catalogStatus: () => adapter.catalogStatus(),
+    credentialStatus: resolveChain,
+  })
 
   // Bounded retry for TRANSPORT failures. A connection that cannot be
   // established needs its own budget, or the shared cadence turns a 10-second

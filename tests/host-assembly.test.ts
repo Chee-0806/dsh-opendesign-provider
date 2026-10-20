@@ -1,6 +1,7 @@
 /**
  * Host assembly seam: `apply()` may register only the configurable-provider
- * directory entry, the adapter for `open-design`, and the settings bridge.
+ * directory entry, the adapter for `open-design`, the optional models Remote and
+ * the settings bridge.
  * The previous provider assembly (login, enrollment, account pool, web search,
  * usage Remote, TUI, commands) must not come back through an optional inject.
  */
@@ -21,6 +22,9 @@ import {
 } from '../src/index.ts'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { LlmError, MessageId } from '@deepseek-ai/dsh-llm'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef, ImageRequestTarget, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 
@@ -93,9 +97,9 @@ test('the plugin entry names llm-opendesign and requires only llm', () => {
   assert.deepEqual(inject, ['llm'])
 })
 
-test('apply registers the Open Design provider, adapter and settings bridge only', () => {
+test('apply registers the Open Design provider, adapter, models Remote and settings bridge only', () => {
   const { ctx, providers, adapters, injected, configured } = makeContext()
-  apply(ctx as never, Config({}) as never)
+  apply(ctx as never, Config({ amrConfigPath: '/nonexistent/.amr/config.json' }) as never)
 
   assert.deepEqual(providers, [{
     provider: 'open-design',
@@ -118,7 +122,7 @@ test('apply registers the Open Design provider, adapter and settings bridge only
     name: 'Open Design',
   })
 
-  assert.deepEqual(injected, [['settings']], 'no login, web, commands or TUI inject remains')
+  assert.deepEqual(injected, [['typert'], ['settings']], 'only the optional models Remote and the settings bridge remain')
   assert.deepEqual(configured, [{ auto: false }], 'the plugin ships its own page, so no auto form')
 })
 
@@ -133,7 +137,7 @@ test('没有 Key 时，适配器抛 MISSING_CREDENTIAL 并给出两步可照做�
       return createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }])
     },
   }
-  apply(noEnvironment as never, Config({}) as never)
+  apply(noEnvironment as never, Config({ amrConfigPath: '/nonexistent/.amr/config.json' }) as never)
   const adapter = adapters[0]!.adapter
 
   await assert.rejects(
@@ -164,6 +168,67 @@ test('没有 Key 时，适配器抛 MISSING_CREDENTIAL 并给出两步可照做�
       return true
     },
   )
+})
+
+
+test('没有显式 Key 时，apply 读取 amrConfigPath 的 CLI 登录态并用其 linkUrl', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'od-host-'))
+  const amrConfigPath = join(dir, 'config.json')
+  await writeFile(amrConfigPath, JSON.stringify({
+    profiles: {
+      prod: {
+        runtimeKey: 'sk-amr-runtime-fallback',
+        linkUrl: 'https://runtime.example/v1',
+        user: 'xuqi',
+      },
+    },
+  }), 'utf8')
+
+  const seen: Array<{ url: string; authorization: string | undefined }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seen.push({
+      url: String(input),
+      authorization: new Headers(init?.headers).get('authorization') ?? undefined,
+    })
+    return new Response([
+      'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"ok"}}]}',
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+      'data: [DONE]',
+      '',
+    ].join('\n\n'), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }) as typeof fetch
+
+  try {
+    const { ctx, adapters } = makeContext()
+    const noEnvironment = {
+      ...ctx,
+      get(name: string) {
+        if (name !== 'launchEnvironment') return undefined
+        return createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }])
+      },
+    }
+    apply(noEnvironment as never, Config({ amrConfigPath }) as never)
+    const adapter = adapters[0]!.adapter
+    for await (const _chunk of adapter.stream({
+      provider: 'open-design',
+      model: 'deepseek-v4.1-flash',
+      messages: [{
+        id: MessageId('msg-1'),
+        role: 'user',
+        content: [{ type: 'text', text: '你好' }],
+        source: { kind: 'user' },
+      }],
+    })) {
+      // drain
+    }
+    assert.deepEqual(seen, [{
+      url: 'https://runtime.example/v1/chat/completions',
+      authorization: 'Bearer sk-amr-runtime-fallback',
+    }])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('apply() 把宿主附件服务接到适配器：图片经编码目标变成 data URL 发出', async () => {
@@ -234,11 +299,12 @@ test('apply() 把宿主附件服务接到适配器：图片经编码目标变成
 test('诊断只报凭据引用与存在性：密钥值不出现在快照或可复制文本里', async () => {
   const secret = 'sk-amr-SECRET-from-credentials-seam'
   const { ctx, adapters } = makeContext({ credentials: { resolve: async () => ({ value: secret }) } })
-  apply(ctx as never, Config({}) as never)
+  const amrConfigPath = '/nonexistent/.amr/config.json'
+  apply(ctx as never, Config({ amrConfigPath }) as never)
   const adapter = adapters[0]!.adapter
   const snapshot = await adapter.diagnostics()
   assert.deepEqual(snapshot.credential, { ref: DEFAULT_API_KEY_ENV, present: true })
-  assert.match(snapshot.cliLogin.path, /\.amr\/config\.json$/u)
+  assert.deepEqual(snapshot.cliLogin, { path: amrConfigPath, status: 'missing', hasRuntimeKey: false })
   const text = formatDiagnostics(snapshot)
   assert.equal(text.includes(secret), false)
   assert.equal(JSON.stringify(snapshot).includes(secret), false)
@@ -248,7 +314,7 @@ test('没有凭据时诊断报「未配置」而不是抛错（缺 Key 也能复
   const { ctx, adapters } = makeContext({
     credentials: { resolve: async () => ({ value: '' }) },
   })
-  apply(ctx as never, Config({}) as never)
+  apply(ctx as never, Config({ amrConfigPath: '/nonexistent/.amr/config.json' }) as never)
   const snapshot = await adapters[0]!.adapter.diagnostics()
   assert.deepEqual(snapshot.credential, { ref: DEFAULT_API_KEY_ENV, present: false })
   assert.match(formatDiagnostics(snapshot), /未配置/u)
