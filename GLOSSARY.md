@@ -44,3 +44,21 @@
 3. **单次请求快照（Request snapshot）**：一次适配器调用固定的连接、账号定义及目录能力；覆盖内部轮换、协议回退与唯一降档，后续连接只采纳更低学习值。
 4. **账号作用域（Account scope）**：固定账号列表、选择规则及原连接探测的调用视图；健康状态与探测节流按网关及密钥共享，引用秘密仍实时解析。
 5. **共享发布权（Publication ownership）**：同网关最新发起刷新拥有的共享事实提交资格；失败不交还旧刷新，旧响应仍可供原等待者使用。
+
+## 七、OpenDesign 接入
+
+1. **Open Design API Key**：控制台签发、消耗 OpenDesign 额度的模型面凭据；与 BYOK 相对（BYOK 用自己的厂商密钥，费用归厂商）。
+2. **模型面（Model plane）**：承载推理的网关（`/v1/models`、`/v1/chat/completions`、`/v1/responses`、`/v1/messages` 三协议并列）。
+3. **控制面（Control plane）**：账号、套餐、额度、钱包与登录态的 API；不承载推理，需控制密钥。
+4. **CLI 登录态**：`vela login` 落盘的登录凭据（运行时密钥、控制密钥、模型面地址、控制面地址、用户），与 API Key 是两条独立凭据路径。
+5. **凭据链（Credential chain）**：显式密钥 → 凭据引用 → CLI 登录态的解析顺序；控制密钥单独取自 CLI 登录态。
+6. **Design Plan 额度**：Design Plan 模型共享的额度池，按 5 小时（仅 Go）与 7 天窗口计量，先于套餐模型额度扣减。
+7. **套餐模型额度（Plan model credits）**：仅 Plus/Pro/Max 有，按账单周期发放与重置，不受 5 小时/7 天窗口约束。
+8. **额度窗口（Quota window）**：控制面按模型返回的计量窗口，含已用、上限、剩余与重置时间；5 小时与 7 天是两个固定时长档。
+9. **额度预检（Billing preflight）**：按模型查询「当前会扣哪份额度、两个窗口剩多少」的控制面接口。
+10. **钱包余额（Wallet balance）**：未覆盖 Design Plan 时使用的美元余额口径。
+11. **目录快照（Catalog snapshot）**：网关不可达时使用的内置模型目录；网关可达时以网关公布为准。
+12. **成本档位（Cost tier）**：模型元数据里的 `low/medium/high`，只表达相对计费档位，不是美元单价。
+13. **能力档（Capability tier）**：模型元数据里的 `standard/advanced`，只表达客观能力分档。
+14. **思考等级（Reasoning effort）**：模型接受的思考强度枚举；各模型合法档位不同，`off` 以字面量 `none` 表达。
+15. **客户端硬截断（Client-side output cap）**：上游不遵守输出上限时，由适配器在累计输出达到上限时主动结束生成。

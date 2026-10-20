@@ -56,3 +56,19 @@ you need to locate an unfamiliar module.
   suite is unnecessary unless the documentation change exposes a code-contract concern.
 - Report tests that could not run and distinguish local checks from authenticated, deployed, or
   live-provider validation.
+
+## Agent skills
+
+### Issue tracker
+
+issue 与 spec 以本地 markdown 存放在 `.scratch/<feature-slug>/`（GitHub Issues 已关闭，`.scratch/` 不入库）。见
+`docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+默认五个 triage 角色名即标签名（`needs-triage` / `needs-info` / `ready-for-agent` /
+`ready-for-human` / `wontfix`），写在票文件顶部 `Status:` 行。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+单上下文（single-context）：仓库根 `GLOSSARY.md` + `docs/adr/`。见 `docs/agents/domain.md`。

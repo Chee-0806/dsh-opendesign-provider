@@ -35,3 +35,9 @@ __pycache__/
 # Maintainer-local issue reply drafts, same rule as RELEASES.local.md: they are
 # unsent text, never commit and never publish.
 issue-replies.local.md
+
+# 本地 issue tracker（/setup-matt-pocock-skills）：spec 与票默认不入库
+.scratch/
+
+# /implement-spec 的临时 worktree（不入库）
+.worktrees/
