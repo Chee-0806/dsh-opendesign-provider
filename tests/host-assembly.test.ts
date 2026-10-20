@@ -1,6 +1,7 @@
 /**
  * Host assembly seam: `apply()` may register only the configurable-provider
- * directory entry, the adapter for `open-design`, and the settings bridge.
+ * directory entry, the adapter for `open-design`, the optional models Remote and
+ * the settings bridge.
  * The previous provider assembly (login, enrollment, account pool, web search,
  * usage Remote, TUI, commands) must not come back through an optional inject.
  */
@@ -11,6 +12,9 @@ import assert from 'node:assert/strict'
 import { apply, Config, DEFAULT_API_KEY_ENV, inject, name, OpenDesignAdapter, PROVIDER, NS } from '../src/index.ts'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { LlmError, MessageId } from '@deepseek-ai/dsh-llm'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 interface ProviderEntry {
   provider: string
@@ -79,9 +83,9 @@ test('the plugin entry names llm-opendesign and requires only llm', () => {
   assert.deepEqual(inject, ['llm'])
 })
 
-test('apply registers the Open Design provider, adapter and settings bridge only', () => {
+test('apply registers the Open Design provider, adapter, models Remote and settings bridge only', () => {
   const { ctx, providers, adapters, injected, configured } = makeContext()
-  apply(ctx as never, Config({}) as never)
+  apply(ctx as never, Config({ amrConfigPath: '/nonexistent/.amr/config.json' }) as never)
 
   assert.deepEqual(providers, [{
     provider: 'open-design',
@@ -104,7 +108,7 @@ test('apply registers the Open Design provider, adapter and settings bridge only
     name: 'Open Design',
   })
 
-  assert.deepEqual(injected, [['settings']], 'no login, web, commands or TUI inject remains')
+  assert.deepEqual(injected, [['typert'], ['settings']], 'only the optional models Remote and the settings bridge remain')
   assert.deepEqual(configured, [{ auto: false }], 'the plugin ships its own page, so no auto form')
 })
 
@@ -119,7 +123,7 @@ test('没有 Key 时，适配器抛 MISSING_CREDENTIAL 并给出两步可照做�
       return createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }])
     },
   }
-  apply(noEnvironment as never, Config({}) as never)
+  apply(noEnvironment as never, Config({ amrConfigPath: '/nonexistent/.amr/config.json' }) as never)
   const adapter = adapters[0]!.adapter
 
   await assert.rejects(
@@ -150,4 +154,66 @@ test('没有 Key 时，适配器抛 MISSING_CREDENTIAL 并给出两步可照做�
       return true
     },
   )
+})
+
+
+test('没有显式 Key 时，apply 读取 amrConfigPath 的 CLI 登录态并用其 linkUrl', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'od-host-'))
+  const amrConfigPath = join(dir, 'config.json')
+  await writeFile(amrConfigPath, JSON.stringify({
+    profiles: {
+      prod: {
+        runtimeKey: 'sk-amr-runtime-fallback',
+        linkUrl: 'https://runtime.example/v1',
+        user: 'xuqi',
+      },
+    },
+  }), 'utf8')
+
+  const seen: Array<{ url: string; authorization: string | undefined }> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    seen.push({
+      url: String(input),
+      authorization: new Headers(init?.headers).get('authorization') ?? undefined,
+    })
+    return new Response(JSON.stringify({
+      id: 'x',
+      object: 'chat.completion',
+      model: 'deepseek-v4.1-flash',
+      choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+
+  try {
+    const { ctx, adapters } = makeContext()
+    const noEnvironment = {
+      ...ctx,
+      get(name: string) {
+        if (name !== 'launchEnvironment') return undefined
+        return createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }])
+      },
+    }
+    apply(noEnvironment as never, Config({ amrConfigPath }) as never)
+    const adapter = adapters[0]!.adapter
+    for await (const _chunk of adapter.stream({
+      provider: 'open-design',
+      model: 'deepseek-v4.1-flash',
+      messages: [{
+        id: MessageId('msg-1'),
+        role: 'user',
+        content: [{ type: 'text', text: '你好' }],
+        source: { kind: 'user' },
+      }],
+    })) {
+      // drain
+    }
+    assert.deepEqual(seen, [{
+      url: 'https://runtime.example/v1/chat/completions',
+      authorization: 'Bearer sk-amr-runtime-fallback',
+    }])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })

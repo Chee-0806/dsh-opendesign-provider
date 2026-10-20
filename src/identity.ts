@@ -53,6 +53,9 @@ export const REMOTE_ENDPOINTS = ['report', 'usage', 'models', 'analytics'] as co
 /** The settings-page slot id (`settings.section`). */
 export const SETTINGS_SECTION_ID = 'opendesign'
 
+/** Locale namespace both browser surfaces declare for their copy. */
+export const SETTINGS_LOCALE_NS = 'settings.opendesign'
+
 /** The Models-page provider-card key (`settings.models.provider-card`). */
 export const MODEL_CARD_KEY = 'llm-opendesign'
 
