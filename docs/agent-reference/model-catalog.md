@@ -5,10 +5,23 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 - **Static capability snapshots** (all in `src/capabilities.ts`, synced from official sources — see the
   `dsh-commandcode-upstream` skill for the exact extraction procedures; `src/adapter.ts` imports them and
   keeps only stable wire/runtime logic):
-  - `KNOWN_EFFORTS` — model → selectable reasoning-effort levels. Authoritative source is the CLI bundle's
-    commandcode-provider model table (`command-code/dist/cli.mjs`; minified table/variable names change per
-    release — locate it by the `reasoningEfforts` feature, see the skill), **not** the docs page (whose
-    `Reasoning` flag means "thinks", not "has effort levels").
+
+  **Latest sync (2026-10-20, catalog-only):** the CLI artifact stayed at `1.84.0` while the live catalog
+  changed — the default view went 93 → 94 ids. Added MiniMax M3.1 Flash (`minimax/minimax-m3.1-flash` +
+  `:free`) with five efforts, Vision, Go tier, ZDR coverage, paid rates `$0.15/$0.60/$0.015` and a dated
+  free deal ending `2026-10-21T10:45Z`; removed `stealth/cat-jam:free` from the model tables (both catalog
+  views, the pricing and docs pages dropped it; it stays in `KNOWN_NON_ZDR_MODELS` because the 1.84.0
+  artifact's exclusion set still names it — [decision record](../决策记录.md#七上游快照同步边界) chapter 7
+  item 13). Counts: efforts 65 → 66, plans 93 → 94, image 70 → 72, deals 7 → 7, ZDR 25 → 25; vendored
+  price rows 92 → 93, output-limit rows 78 → 80.
+
+  - `KNOWN_EFFORTS` — model → selectable reasoning-effort levels. Authoritative source is the live
+    `?view=client` catalog's `reasoningEfforts` (since command-code@1.82.4 the CLI no longer keeps this map
+    bundled — `getSupportedEfforts()` resolves it through the catalog, whose embedded bootstrap snapshot
+    expires within days), and it is **not** the docs page (whose `Reasoning` flag means "thinks", not "has
+    effort levels"). The artifact's registry rows remain a cross-check when it carries the model; a row that
+    only the catalog serves (e.g. `reflection/beam:free`, the MiniMax M3.1 Flash pair) is legitimate
+    catalog-side evidence, reported as an audit `incomplete` error because the released artifact predates it.
   - `KNOWN_IMAGE_MODELS` — Vision-capable models, synced from
     [commandcode.ai/docs/reference/cli/models](https://commandcode.ai/docs/reference/cli/models); note
     catalog IDs can differ from doc IDs (e.g. `claude-haiku-4-5-20251001` vs doc's `claude-haiku-4-5`).
@@ -123,7 +136,10 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     `expiresAt`, so an un-updated plugin never shows a lapsed discount — and `modelPriceTable(now)` falls
     the row back to its pre-discount `listRates` on that same instant, so the composer cannot price a
     session at a rate the provider has stopped charging. A deal with no `expiresAt` never lapses and keeps
-    its promotional rates forever (the two MiMo rows, MiniMax M3).
+    its promotional rates forever (the two MiMo rows, MiniMax M3). The first dated FREE row arrived on
+    2026-10-20 (`minimax/minimax-m3.1-flash:free`, ends `2026-10-21T10:45Z`): `dealLabel()` drops the badge
+    at that instant while the `:free` id stays zero-priced by id suffix — `isFreeModel()` deliberately does
+    not read the clock (a free SKU normally leaves the catalog when its window closes).
   - `KNOWN_PEAK_PRICING` — catalog IDs with hourly (peak/off-peak) pricing, synced from the pricing page's
     **embedded model JSON `timeOfDay` blocks** (never the rendered row text — see the skill). Exactly five
     models as of 2026-09-29: `deepseek/deepseek-v4-pro`, `deepseek/deepseek-v4-flash`,

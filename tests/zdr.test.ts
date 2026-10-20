@@ -50,6 +50,12 @@ test('the ZDR exception list is the live catalog zdr verdict (command-code@1.84.
   // embedded model snapshot does not carry it, so `?view=client` is the sole
   // evidence for its `zdr:false` verdict — the same position `stealth/cat-jam:free`
   // was in at 1.82.4.
+  //
+  // 2026-10-20 catalog-only sync: `stealth/cat-jam:free` left both catalog views
+  // (and the pricing/docs pages), so its `zdr:false` verdict is no longer
+  // served; the 1.84.0 artifact's exclusion set still names it and this table is
+  // the UNION of both sources, so membership stays at 25. The MiniMax M3.1 Flash
+  // launch pair is `zdr:true` on both ids and joins no set.
   assert.deepEqual([...KNOWN_NON_ZDR_MODELS].sort(), [
     'MiniMaxAI/MiniMax-M3',
     'Qwen/Qwen3.8-Max-0902',

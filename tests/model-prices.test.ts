@@ -141,11 +141,10 @@ test('the badge and the price revert on the same instant', () => {
   // through this table. One clock, or a user sees "no discount" next to a
   // discounted number. The boundary is inclusive on the expiry side.
   //
-  // Grok 4.7 used to be the row carrying a dated deal; with it removed
-  // (command-code@1.72.1) the snapshot has no live `expiresAt` left, so the
-  // mechanism is pinned against its old boundary while asserting the row is
-  // inert on BOTH sides — a future dated deal has to keep this agreement, and
-  // a row whose deal is gone has to stop moving.
+  // Grok 4.7 used to be the row carrying a dated deal. Its promotion lapsed
+  // (command-code@1.72.1), so this boundary pins the "already lapsed" path: the
+  // row is inert on BOTH sides. The live dated deal added on 2026-10-20 (the
+  // MiniMax M3.1 Flash free twin) is pinned by the next test.
   const boundary = Date.parse('2026-09-27T23:59:59.999Z')
   for (const at of [boundary - 1, boundary, boundary + 1]) {
     const price = modelPriceTable(at).models.find((m) => m.id === 'xai/grok-4.7')
@@ -153,6 +152,30 @@ test('the badge and the price revert on the same instant', () => {
     assert.equal(dealLabel('xai/grok-4.7', at) !== undefined, false, `badge at ${at}`)
     assert.equal(price.inputCost, 2, `rate at ${at}`)
   }
+})
+
+test('the dated MiniMax M3.1 Flash free deal lapses on its published instant', () => {
+  // 2026-10-20 sync: the free twin carries an explicit end
+  // (`minimax-m3-1-flash-free`, expires 2026-10-21T10:45:00Z, Beijing 18:45),
+  // unlike the open-ended "while capacity lasts" previews. The FREE badge must
+  // stop on that instant; the `:free` id itself is priced at zero by id suffix,
+  // so only the badge moves — the row is not a `listRates` revert.
+  const id = 'minimax/minimax-m3.1-flash:free'
+  const before = Date.parse('2026-10-21T10:44:59.999Z')
+  const after = Date.parse('2026-10-21T10:45:00Z')
+  assert.equal(dealLabel(id, before), 'FREE')
+  assert.equal(dealLabel(id, after), undefined)
+  for (const at of [before, after]) {
+    const price = modelPriceTable(at).models.find((m) => m.id === id)
+    assert.ok(price)
+    assert.equal(price.free, true)
+    assert.deepEqual([price.inputCost, price.outputCost, price.cacheReadCost], [0, 0, 0])
+  }
+  // The paid sibling is priced from the page and carries no deal.
+  const paid = modelPriceTable(before).models.find((m) => m.id === 'minimax/minimax-m3.1-flash')
+  assert.ok(paid)
+  assert.deepEqual([paid.inputCost, paid.outputCost, paid.cacheReadCost], [0.15, 0.6, 0.015])
+  assert.equal(dealLabel('minimax/minimax-m3.1-flash', before), undefined)
 })
 
 test('a deal with no expiry never reverts', () => {

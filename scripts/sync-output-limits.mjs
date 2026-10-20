@@ -77,6 +77,13 @@ const OFFICIAL_PROVIDERS = {
   deepseek: 'deepseek',
   moonshotai: 'moonshotai',
   MiniMaxAI: 'minimax',
+  // The catalog is not consistent about MiniMax's casing: `MiniMaxAI/MiniMax-M3`
+  // has used the capitalized namespace since 1.51.3, while the 2026-10-19
+  // MiniMax M3.1 Flash launch rows arrive as `minimax/minimax-m3.1-flash`. Both
+  // must reach the vendor row (`minimax` → `MiniMax-M3.1-Flash`, output 512000),
+  // otherwise the new ids fall through to the aggregator consensus and the paid
+  // id loses its ceiling to provider disagreement.
+  minimax: 'minimax',
   nvidia: 'nvidia',
   poolside: 'poolside',
   stepfun: 'stepfun',

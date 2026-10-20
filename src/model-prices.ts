@@ -211,6 +211,7 @@ const MODEL_PRICE_ROWS: readonly ModelPriceRow[] = [
   { id: 'minimax-m2.5', rates: [0.3, 1.2, 0.03], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'minimax-m2.7', rates: [0.3, 1.2, 0.06], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'minimax-m3', rates: [0.3, 1.2, 0.06], listRates: [0.6, 2.4, 0.12], allowance: { go: 8, goat: 47, pro: 57 } },
+  { id: 'minimax-m3.1-flash', rates: [0.15, 0.6, 0.015], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'mistral-large-4', rates: [1.36, 4.18, 0.14], allowance: { go: 10, goat: 40, pro: 50 } },
   { id: 'muse-spark-1.1', rates: [1.25, 4.25, 0.15], allowance: { go: 6, goat: 20, pro: 20 } },
   { id: 'muse-spark-1.2', rates: [1.25, 4.25, 0.15], allowance: { go: 6, goat: 20, pro: 30 } },

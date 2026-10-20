@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.4] - 2026-10-20
+
+### Changed
+
+- **同步 2026-10-20 的目录侧漂移（CLI 产物不变，仍是 1.84.0）。** 官方 CLI 的 npm `latest` 与变更日志本轮都没有新内容（`1.84.0` 于 2026-10-16T18:29Z 发布，日志顶部仍停在它），但实时模型目录在 10-19 晚变了：默认视图（`GET /provider/v1/models`）93 → 94 个 id，`?view=client` 101 → 102。快照随默认视图投影：`KNOWN_PLANS` 93 → 94、`KNOWN_EFFORTS` 65 → 66、`KNOWN_IMAGE_MODELS` 70 → 72、`KNOWN_DEALS` 7 → 7、`KNOWN_NON_ZDR_MODELS` 25 → 25；`COMMAND_CODE_CLI_VERSION` 与运行时代码不变（纯数据同步）。审计状态 `incomplete` 是预期形态：3 个 error 全是「目录比 1.84.0 产物新」的目录侧单源行（MiniMax M3.1 Flash 两行 + 既有的 `reflection/beam:free`），不是抓取失败。
+
+### Added
+
+- **MiniMax M3.1 Flash：付费 `minimax/minimax-m3.1-flash` 与限时免费 `minimax/minimax-m3.1-flash:free`。** 100 万上下文、文本 + 图像（Vision）、五档推理强度（`low`／`medium`／`high`／`xhigh`／`max`）、ZDR 覆盖、Go 起（全部套餐可见）。付费行 $0.15 输入／$0.60 输出／$0.015 缓存读（每百万 token，Go $6／GOAT $20／Pro $30 月额度）；免费行 100% off，促销期为 `2026-10-19T11:00Z` → `2026-10-21T10:45Z`（北京时间 10-19 19:00 → 10-21 18:45），官方说明「限时、无每日请求上限、账户需有 $1 余额」。**免费行是 `KNOWN_DEALS` 里第一个带 `expiresAt` 的免费促销**：到期后 FREE 徽标由 `dealLabel()` 自动消失，`:free` 行仍按 id 后缀 0 价，不会把过期折扣当成现价。
+
+- **定价页渲染表的「同一显示名多行」解析。** 上游自该模型上线起把付费行与免费行用同一个显示名 `MiniMax M3.1 Flash` 发布，`scripts/sync-model-prices.mjs` 原先「一个显示名一行」的唯一键假设因此让 `--check` 直接失败（`价格表模型名称重复，无法确定对应行：minimax m3.1 flash`）。现改为：渲染行按显示名分组，再按「免费 / 数值」形态唯一配对——同名同形态仍然拒绝生成，配到数值行后照旧逐项交叉校验三档费率与划线价。价格表随之新增一行 `minimax-m3.1-flash`（92 → 93 行）。同时给 `scripts/sync-output-limits.mjs` 的供应商映射补上小写 `minimax` 命名空间：新模型的目录 id 用的是小写前缀，缺这一项会退回聚合共识，把付费 id 的输出上限丢给运行时学习；补齐后两个 id 都落到供应商行（512000），表 78 → 80 行。
+
+### Removed
+
+- **Stealth Cat Jam 预览（`stealth/cat-jam:free`）从模型表下线。** 2026-10-20 检查时两个目录视图、定价页、模型文档页与 Go 套餐页都不再服务该行；`KNOWN_PLANS`／`KNOWN_EFFORTS`／`KNOWN_IMAGE_MODELS`／`KNOWN_DEALS` 移除，`tests/adapter.test.ts` 的免费模型排序夹具改用 Glyph Cluster。**保留在 `KNOWN_NON_ZDR_MODELS`**：1.84.0 产物的 ZDR 排除集仍点名它，而该表是「artifact 排除集 ∪ 目录 `zdr:false`」的并集，删条目会让老会话的 ZDR 判定偏乐观（判据见[《决策记录》第七章第 13 条](docs/决策记录.md#七上游快照同步边界)）。集合仍为 25 条。
+
 ## [0.14.3] - 2026-10-19
 
 ### Changed

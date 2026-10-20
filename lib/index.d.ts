@@ -1047,8 +1047,10 @@ declare const KNOWN_IMAGE_MODELS: ReadonlySet<string>;
  * `minimax/minimax-m3-free` is the one entry the public catalog's default view
  * (`/provider/v1/models`) does not serve through the picker (it is CLI/pricing-visible
  * and hidden from the picker); it stays listed because the CLI carries it and a Go-plan
- * request can still name it. Both this row and `stealth/cat-jam:free` ARE served
- * by the `?view=client` catalog, which is where the 1.82.4 verdict comes from.
+ * request can still name it. At the 1.84.0 sync both this row and
+ * `stealth/cat-jam:free` were also served by the `?view=client` catalog, which
+ * is where the 1.82.4 verdict came from; the catalog stopped serving cat-jam on
+ * 2026-10-20, so the artifact's exclusion set is now its only evidence.
  *
  * command-code@1.82.4 moved the authority for this verdict: `knownModelSupportsZdr`
  * no longer negates a bundled Set, it returns `resolveKnownCatalogModel({model,
@@ -1086,6 +1088,12 @@ declare const KNOWN_IMAGE_MODELS: ReadonlySet<string>;
  * UNION of the artifact's exclusion set and the catalog's `zdr:false` list —
  * neither source alone is complete, which is why this set is not simply "what
  * the CLI says".
+ *
+ * The 2026-10-20 catalog-only sync changes no membership: `stealth/cat-jam:free`
+ * left both catalog views (its `zdr:false` verdict is no longer served), but the
+ * 1.84.0 artifact's exclusion set still names it and this set is the union, so
+ * membership stays at 25. The MiniMax M3.1 Flash launch pair is ZDR-covered
+ * (`zdr:true` on both ids) and joins no set.
  */
 declare const KNOWN_NON_ZDR_MODELS: ReadonlySet<string>;
 /**

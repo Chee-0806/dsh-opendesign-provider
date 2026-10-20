@@ -3298,10 +3298,11 @@ test('compareByPlan() sorts free models first, then plan tier, then name', () =>
     { id: 'zai-org/GLM-5.2', name: 'GLM-5.2 (CC)' },
   ) < 0)
   // Both are Go-tier free models, so the tie falls through to the name and the
-  // Cat Jam preview leads. This row names the free stealth preview that replaced
-  // the retired Ling 3.0 Sante promo in the 1.82.4 sync.
+  // Glyph Cluster preview leads. (The 2026-10-20 catalog sync dropped the
+  // `stealth/cat-jam:free` deal when the live catalog delisted that preview; it
+  // stays in `KNOWN_NON_ZDR_MODELS` on artifact evidence.)
   assert.ok(compareByPlan(
-    { id: 'stealth/cat-jam:free', name: 'Cat Jam (CC)' },
+    { id: 'stealth/glyph-cluster:free', name: 'Glyph Cluster (CC)' },
     { id: 'poolside/laguna-s-2.1-free', name: 'Laguna S 2.1 (CC)' },
   ) < 0)
   assert.ok(compareByPlan(

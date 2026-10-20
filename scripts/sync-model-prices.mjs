@@ -212,6 +212,11 @@ function scanObject(text, start) {
  * layout it kept returning the six plan cards and silently cross-checked
  * nothing for 88 models (measured 2026-09-29), which is why this now anchors on
  * the name cell and requires a cross-check for every rewritten model.
+ *
+ * A display name is no longer unique: since the 2026-10-19 MiniMax M3.1 Flash
+ * launch the page lists a paid row and its limited-time free twin under the same
+ * label, so the map holds an ARRAY per name and the cross-check picks by the
+ * row's shape — see `pickRenderedRow()`.
  */
 const NAME_CELL_OPEN = '<div class="flex min-w-0 items-center gap-2 px-4 py-3">'
 
@@ -251,11 +256,20 @@ function normalizedName(name) {
  *
  * 免费与未公开价格保留明确状态；缺行和无法解析不能冒充交叉校验成功。
  *
+ * 同一个显示名可能对应两行（付费行 + 限时免费同款），因此值是一组候选行，
+ * 由 `pickRenderedRow()` 按形态取唯一一行；取不到唯一行时整次失败。
+ *
  * @param {string} html - the fetched document.
- * @returns {Map<string, { rates?: number[], listRates?: number[], status?: 'free' | 'unpublished' }>} 模型名称 → 数值或明确的无数值状态。
+ * @returns {Map<string, Array<{ rates?: number[], listRates?: number[], status?: 'free' | 'unpublished' }>>} 模型名称 → 候选行（每个元素是数值或明确的无数值状态）。
  */
 export function renderedRates(html) {
+  /** @type {Map<string, Array<{ rates?: number[], listRates?: number[], status?: 'free' | 'unpublished' }>>} */
   const found = new Map()
+  const add = (name, row) => {
+    const rows = found.get(name)
+    if (rows === undefined) found.set(name, [row])
+    else rows.push(row)
+  }
   const segments = html.split(NAME_CELL_OPEN).slice(1)
   for (const segment of segments) {
     // 真正的 HTML 解析器处理字符实体、带 > 的属性与未闭合片段；正则删标签
@@ -266,7 +280,6 @@ export function renderedRates(html) {
     if (nameNode === undefined) continue
     const name = normalizedName(plainText(nameNode))
     if (name === '') continue
-    if (found.has(name)) throw new Error(`价格表模型名称重复，无法确定对应行：${name}`)
     // 第一格是上下文长度，其后三格才是输入、输出、缓存读；不可跳过缺数值
     // 的格子后拿缓存写或下一行的价格补齐，否则金额会发生列错位。
     const cells = nodes.filter((node) => {
@@ -277,11 +290,11 @@ export function renderedRates(html) {
     if (cells.length !== 3) continue
     const texts = cells.map(plainText).map((text) => text.trim())
     if (texts.every((text) => /^free$/iu.test(text))) {
-      found.set(name, { status: 'free' })
+      add(name, { status: 'free' })
       continue
     }
     if (texts.some((text) => text === '—')) {
-      found.set(name, { status: 'unpublished' })
+      add(name, { status: 'unpublished' })
       continue
     }
     const current = texts.map((text) => {
@@ -294,7 +307,7 @@ export function renderedRates(html) {
       const money = struck === undefined ? undefined : /\$([0-9]+(?:\.[0-9]+)?)/u.exec(plainText(struck))
       return money == null ? undefined : rate(Number(money[1]))
     })
-    found.set(name, {
+    add(name, {
       rates: current,
       ...(listTriplet.length === 3 && listTriplet.every((value) => value !== undefined)
         ? { listRates: listTriplet }
@@ -302,6 +315,38 @@ export function renderedRates(html) {
     })
   }
   return found
+}
+
+/**
+ * Pick the one rendered row that belongs to an embedded record.
+ *
+ * A unique display name needs no reasoning: one candidate is the answer. When
+ * the page publishes several rows under one label, pick by the only shape
+ * signal it offers — a free row (`Free` in all three rate cells) versus a
+ * numeric row — and REQUIRE exactly one hit. Two rows of the same shape mean
+ * the cross-check cannot tell which one the JSON record describes; that must
+ * fail loudly instead of quietly comparing against the wrong row, the same
+ * stance the old duplicate-name throw took.
+ *
+ * @param {string} id - the record id, for the error message only.
+ * @param {string} name - normalized display name.
+ * @param {Array<{ rates?: number[], listRates?: number[], status?: 'free' | 'unpublished' }>} candidates - every rendered row under that name.
+ * @param {number[]} rates - embedded rates, the shape to match.
+ * @returns {{ rates?: number[], listRates?: number[], status?: 'free' | 'unpublished' }} the matching row.
+ */
+function pickRenderedRow(id, name, candidates, rates) {
+  if (candidates.length === 1) return candidates[0]
+  const freeExpected = rates.every((value) => value === 0)
+  const matching = candidates.filter((candidate) => (
+    freeExpected ? candidate.status === 'free' : candidate.rates !== undefined
+  ))
+  if (matching.length !== 1) {
+    throw new Error(
+      `价格表模型名称重复，无法确定对应行：${name}（${id}；${candidates.length} 行候选，` +
+      `${matching.length} 行符合“${freeExpected ? '免费' : '数值'}”形态）`,
+    )
+  }
+  return matching[0]
 }
 
 /**
@@ -451,31 +496,34 @@ function buildRows(records, rendered, dealRecords = new Map()) {
 
     // Second opinion: the rendered row must agree with the embedded JSON.
     const name = typeof record.name === 'string' ? normalizedName(record.name) : ''
-    const htmlRow = rendered.get(name)
-    if (htmlRow === undefined) {
+    const candidates = rendered.get(name) ?? []
+    if (candidates.length === 0) {
       problems.push(`  ! ${id}: 缺少可校验的网页价格行（${name || '模型名称缺失'}）`)
-    } else if (htmlRow.status === 'free') {
-      if (rates.some((value) => value !== 0)) problems.push(`  ! ${id}: 网页显示免费，但嵌入数据不是零价`)
-    } else if (htmlRow.status === 'unpublished') {
-      problems.push(`  ! ${id}: 网页未公开完整数值价格，无法交叉校验`)
-    } else if (htmlRow.rates === undefined || htmlRow.rates.length !== 3) {
-      problems.push(`  ! ${id}: 网页数值价格行不完整`)
     } else {
-      for (let i = 0; i < 3; i += 1) {
-        if (htmlRow.rates[i] !== rates[i]) {
-          problems.push(
-            `  ! ${id}: embedded JSON says ${rates[i]} at index ${i}, the rendered table says ${htmlRow.rates[i]}`,
-          )
-        }
-      }
-      // The struck-through figures are the page's OWN pre-discount copy, so they
-      // check the `listRates` taken from the table JSON rather than restating it.
-      if (htmlRow.listRates !== undefined && row.listRates !== undefined) {
+      const htmlRow = pickRenderedRow(id, name, candidates, rates)
+      if (htmlRow.status === 'free') {
+        if (rates.some((value) => value !== 0)) problems.push(`  ! ${id}: 网页显示免费，但嵌入数据不是零价`)
+      } else if (htmlRow.status === 'unpublished') {
+        problems.push(`  ! ${id}: 网页未公开完整数值价格，无法交叉校验`)
+      } else if (htmlRow.rates === undefined || htmlRow.rates.length !== 3) {
+        problems.push(`  ! ${id}: 网页数值价格行不完整`)
+      } else {
         for (let i = 0; i < 3; i += 1) {
-          if (htmlRow.listRates[i] !== row.listRates[i]) {
+          if (htmlRow.rates[i] !== rates[i]) {
             problems.push(
-              `  ! ${id}: listRates[${i}] is ${row.listRates[i]} in the table JSON, but the rendered row strikes through ${htmlRow.listRates[i]}`,
+              `  ! ${id}: embedded JSON says ${rates[i]} at index ${i}, the rendered table says ${htmlRow.rates[i]}`,
             )
+          }
+        }
+        // The struck-through figures are the page's OWN pre-discount copy, so they
+        // check the `listRates` taken from the table JSON rather than restating it.
+        if (htmlRow.listRates !== undefined && row.listRates !== undefined) {
+          for (let i = 0; i < 3; i += 1) {
+            if (htmlRow.listRates[i] !== row.listRates[i]) {
+              problems.push(
+                `  ! ${id}: listRates[${i}] is ${row.listRates[i]} in the table JSON, but the rendered row strikes through ${htmlRow.listRates[i]}`,
+              )
+            }
           }
         }
       }
