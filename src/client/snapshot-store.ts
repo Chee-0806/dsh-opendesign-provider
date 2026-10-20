@@ -23,7 +23,7 @@ function notifyListeners(listeners: ReadonlySet<() => void>): void {
     try {
       listener()
     } catch (error: unknown) {
-      console.error('[dsh-commandcode-provider] snapshot subscriber failed:', error)
+      console.error('[dsh-opendesign-provider] snapshot subscriber failed:', error)
     }
   }
 }

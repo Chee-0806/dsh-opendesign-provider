@@ -12,45 +12,23 @@
 /**
  * The output budget this bundle asks for, and the ceiling it will never exceed.
  *
- * 131 072, chosen against a measured provider limit rather than a round guess.
- * Probing `/alpha/generate` directly on 2026-09-28: 64 000 → 200, 131 072 → 200,
- * 196 608 → 200, **200 000 → 200, 200 704 → 400**, 1 000 000 → 400. The server
- * therefore caps `max_tokens` at 200 000, and it does so identically for a
- * 262 144-window model (`stealth/pixel-canary`, retired by Command Code on
- * 2026-10-01 and named here only as the probe's subject) and a 1 000 000-window
- * one (`stealth/space-bunny-alpha`) — the cap is global, not per model. 131 072
- * keeps a 35 % margin under it while covering the real output ceiling of the
- * models that have one (Claude 64 K, Gemini 64 K, several at 128 K).
- *
- * The old 64 000 was never a provider requirement: it cost nothing in latency
- * (a 64 000 request answered headers in 1.28 s against 1.57 s for 131 072) but
- * it did cap what a model could ever say in one turn.
- *
- * No client-side clamp is applied on top of this: an earlier version pre-shrank
- * `max_tokens` from an estimate of the prompt already sent (`requestContextBudget()`,
- * issue #67), but that estimate over-corrected on ordinary long conversations —
- * exactly the "output gets cut short as the conversation grows" symptom issue #74
- * reported — while a live A/B probe (2026-09-30, `stealth/space-bunny-alpha`,
- * ~19.6% over its 1,000,000-token window with no client-side shrink) showed the
- * endpoint answers a genuine overflow with an unambiguous `400 … exceeds the
- * model's context window`, which `isContextOverflowDetail()` classifies as
- * `CONTEXT_WINDOW_EXCEEDED` independently of this constant.
- *
- * A user-set positive budget can only TIGHTEN this, never raise it — a figure
- * above the cap would be refused by the gateway anyway, so the settings field
- * refuses it at the input instead of spending a round trip to learn that.
+ * 131 072 is the ceiling this bundle asks for until the Open Design output
+ * budget lands (ticket 05 derives it from the catalog's `output_budget`). A
+ * user-set positive budget can only TIGHTEN this, never raise it; a larger
+ * request would be refused upstream anyway, so the settings field refuses it at
+ * the input instead of spending a round trip to learn that.
  *
  * Lives here rather than in `adapter.ts` so the browser settings page can bound
- * its input by the same figure the Host enforces; `adapter.ts` re-exports it
+ * its input by the same figure the Host enforces; the adapter re-exports it
  * under its historical name.
  */
 export const MAX_OUTPUT_TOKEN_LIMIT = 131_072
 
 /**
- * The `maxOutputTokens` value that asks the adapter to send NO `max_tokens`
- * field at all, leaving the per-turn output size to the platform (issue #74).
- * Only the CLI and OpenAI transports can honour it: Anthropic's Messages
- * endpoint requires the field, so that route keeps sending its derived budget.
+ * The `maxOutputTokens` value that asks the adapter to send no output-cap
+ * field at all, leaving the per-turn output size to the platform. The Open
+ * Design Chat Completions transport can honour it; a future Messages transport
+ * would not, because that endpoint requires the field.
  *
  * This is also the field's lower bound, which is why no separate `MIN_` constant
  * exists: zero is not a small budget, it is the instruction.

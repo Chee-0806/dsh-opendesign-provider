@@ -1,5 +1,5 @@
 /**
- * Vision-token accounting for the model families Command Code routes to.
+ * Vision-token accounting for the model families the Open Design gateway routes to.
  *
  * The harness's token meter prices request images through
  * `LlmAdapter.imageRequestPricing(provider, model).priceImages(blocks)` and,
@@ -17,7 +17,7 @@
  * protocols. These are ESTIMATES for context accounting, not invoices — the
  * provider's own usage remains authoritative for a completed request.
  *
- * @module dsh-commandcode-provider/image-tokens
+ * @module dsh-opendesign-provider/image-tokens
  */
 
 import { longEdgeDimensions, REQUEST_IMAGE_MAX_LONG_EDGE } from './image-request.ts'
@@ -59,7 +59,7 @@ export function imageTokenCost(family: ImageTokenFamily, width: number, height: 
 }
 
 /** Convenience for callers that have a model id: family lookup plus the rule. */
-export function commandCodeImageTokens(modelId: string, width: number, height: number): number {
+export function openDesignImageTokens(modelId: string, width: number, height: number): number {
   return imageTokenCost(imageTokenFamily(modelId), width, height)
 }
 

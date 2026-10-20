@@ -1,15 +1,15 @@
-# dsh-commandcode-provider bundle layer.
-# One plugin row: registers the `commandcode` provider route and its
+# dsh-opendesign-provider bundle layer.
+# One plugin row: registers the `open-design` provider route and its
 # Models-page card. All fields are optional — schema defaults apply.
 #
 # `name` must be the FULL package specifier as installed in the profile's
 # node_modules: the loader imports it as a module and pnpm links packages by
-# their true (scoped) name, so a bare `dsh-commandcode-provider` here fails to
+# their true (scoped) name, so a bare `dsh-opendesign-provider` here fails to
 # resolve (ERR_MODULE_NOT_FOUND) and crashes the app on boot. Quote the value:
 # a YAML scalar starting with `@` is parsed as a directive/indicator and fails
 # to parse.
 - insert:
-    - id: llm-commandcode
-      name: "@mars-sea/dsh-commandcode-provider"
+    - id: llm-opendesign
+      name: "@mars-sea/dsh-opendesign-provider"
       config:
-        apiKeyEnv: COMMANDCODE_API_KEY
+        apiKeyEnv: OPEN_DESIGN_API_KEY

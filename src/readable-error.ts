@@ -1,7 +1,7 @@
 /**
  * Readable error text for the settings page AND the Host-side failure paths.
  *
- * @module dsh-commandcode-provider/readable-error
+ * @module dsh-opendesign-provider/readable-error
  */
 
 /**

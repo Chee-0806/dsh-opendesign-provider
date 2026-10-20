@@ -61,7 +61,7 @@ const client = defineConfig({
   },
   outputOptions: {
     entryFileNames: 'client.js',
-    banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify('@mars-sea/dsh-commandcode-provider')}, factory: (require) => {`,
+    banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify('@mars-sea/dsh-opendesign-provider')}, factory: (require) => {`,
     footer: 'return module.exports; } });',
     intro: 'var module = { exports: {} }; var exports = module.exports;',
   },

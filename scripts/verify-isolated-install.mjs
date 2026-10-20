@@ -70,7 +70,7 @@ function run(command, args, cwd) {
  * 同伴依赖一起钉死，逐版本重装，再断言锁文件解析出的 `@deepseek-ai/dsh-llm` 恰好是目标版本。
  */
 function packOnce() {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-commandcode-install-'))
+  const root = mkdtempSync(join(tmpdir(), 'dsh-opendesign-install-'))
   const packDir = join(root, 'pack')
   mkdirSync(packDir)
   try {
@@ -96,10 +96,10 @@ function packOnce() {
 
 /** Install the tarball with every required Harness peer pinned to one exact engine version. */
 function verifyIsolatedInstall(tarball, version) {
-  const consumerDir = mkdtempSync(join(tmpdir(), `dsh-commandcode-install-${version}-`))
+  const consumerDir = mkdtempSync(join(tmpdir(), `dsh-opendesign-install-${version}-`))
   try {
     writeFileSync(join(consumerDir, 'package.json'), `${JSON.stringify({
-      name: 'dsh-commandcode-install-smoke',
+      name: 'dsh-opendesign-install-smoke',
       private: true,
       version: '0.0.0',
     }, null, 2)}\n`)

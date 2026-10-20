@@ -13,7 +13,7 @@ node_modules.bak/
 lib/
 *.tgz
 .DS_Store
-# 将可复用的 DSH 升级与 Command Code 上游审计技能纳入版本控制；
+# 将可复用的 DSH 升级技能纳入版本控制；
 # 其他本地代理临时文件仍忽略，Python 缓存继续由下方规则排除。
 .agents/*
 !.agents/
@@ -21,12 +21,10 @@ lib/
 .agents/skills/*
 !.agents/skills/dsh-release-upgrade/
 !.agents/skills/dsh-release-upgrade/**
-!.agents/skills/dsh-commandcode-upstream/
-!.agents/skills/dsh-commandcode-upstream/**
 
-# The official Command Code CLI's per-project state (e.g. `taste/`), created by
-# running the CLI inside this checkout. Local-only: never commit, never publish.
-.commandcode/
+# Local Open Design CLI state created inside this checkout. Local-only: never
+# commit, never publish.
+.opendesign/
 
 # Maintainer-local release guide: never commit, never publish.
 RELEASES.local.md

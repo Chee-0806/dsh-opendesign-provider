@@ -85,13 +85,13 @@ export function transportResetAction(type: string): 'reset' | 'forget' | 'none' 
  */
 export function transportBudgetMessage(failureMessage: string, maxRetries: number): string {
   return `${failureMessage}`
-    + '；Command Code API 连接在连续重试后仍失败——已停止重试以免整轮卡死。'
-    + `插件已自动重试 ${maxRetries} 次。通常说明当前网络到 api.commandcode.ai 的连接不通，`
+    + '；Open Design API 连接在连续重试后仍失败——已停止重试以免整轮卡死。'
+    + `插件已自动重试 ${maxRetries} 次。通常说明当前网络到 Open Design 网关的连接不通，`
     + '常见原因是代理未生效：DSH 只读取环境变量 HTTPS_PROXY/HTTP_PROXY（系统代理/PAC 不会被读取），'
     + '请确认启动 DSH 的终端里已导出代理，或先关闭代理直连后重试。网络恢复后直接重发即可'
-    + ` — Command Code API transport still failed after ${maxRetries} automatic retries, which were`
+    + ` — Open Design API transport still failed after ${maxRetries} automatic retries, which were`
     + ' stopped so the turn could not stall for minutes. This is a connectivity problem between this'
-    + ' machine and api.commandcode.ai, not a context-window or request-size rejection. Common cause:'
+    + ' machine and the Open Design gateway, not a context-window or request-size rejection. Common cause:'
     + ' the proxy is not reaching the harness — DSH reads HTTPS_PROXY/HTTP_PROXY from the environment'
     + ' only (a Windows system proxy/PAC setting is not consulted), so export it in the launching'
     + ' shell, or turn the proxy off and retry. Resend when the network recovers; the budget is per'

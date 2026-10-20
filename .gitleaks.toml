@@ -6,7 +6,7 @@
 # any `…key: '<high-entropy string>'` assignment, and those fixtures exist
 # precisely to be handed to the settings schema so the redaction contract can
 # be asserted — a test proving literals are stripped needs literals to strip.
-# They are placeholders: real Command Code credentials are `user_…`, and these
+# They are placeholders: real gateway credentials are `user_…`, and these
 # strings appear nowhere outside that one test. Left unhandled, the finding
 # fails the Security Scans workflow on every push.
 #

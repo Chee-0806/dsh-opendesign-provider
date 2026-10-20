@@ -12,12 +12,36 @@
  * `ctx.remote`.** React-free so `tests/settings-scope.test.ts` can drive the
  * lifecycle over a fake remote.
  *
- * @module dsh-commandcode-provider/client/settings-scope
+ * @module dsh-opendesign-provider/client/settings-scope
  */
 
-import type { SettingsScope, SettingsScopeSnapshot } from './settings.ts'
 import { createSnapshotStore, type SnapshotStore } from './snapshot-store.ts'
 import { readableErrorText } from '../readable-error.ts'
+
+/**
+ * Derived settings state for one namespace. Kept here rather than in a page
+ * module: this scope is the only producer, and ticket 08's page consumes it
+ * through this face.
+ */
+export interface SettingsScopeSnapshot<T> {
+  status: 'loading' | 'ready' | 'unavailable'
+  value: T | undefined
+  base: unknown
+  user: unknown
+  revision: number | undefined
+  writable: boolean
+  mode: 'host'
+}
+
+/** The settings-scope face a page consumes without importing a browser service. */
+export interface SettingsScope<T> {
+  getSnapshot(): SettingsScopeSnapshot<T>
+  subscribe(listener: () => void): () => void
+  set(field: string, value: unknown): Promise<void>
+  unset(field: string): Promise<void>
+  /** 多字段共用一次宿主版本检查并返回确认；缺少此能力不能提交配置。 */
+  mutate?(ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<SettingsMutationResult>
+}
 
 /** Result envelope of one current Typert Remote call. */
 type Envelope<T> = { ok: true; value: T } | { ok: false; error?: { message?: string } | undefined }
@@ -298,7 +322,7 @@ class SettingsDescribeMirror {
 
 /**
  * One namespace's derived scope over the shared mirror, plus its serialized
- * Host writes — the face `CommandCodeSettingsController` consumes
+ * Host writes — the face the settings page will consume
  * (`getSnapshot` / `subscribe` / `set` / `unset`).
  */
 class RemoteSettingsScope<T> implements SettingsScope<T> {

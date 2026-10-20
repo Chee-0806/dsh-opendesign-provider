@@ -1,5 +1,5 @@
 /**
- * Ask Command Code for plain response bodies. A DSH host using an incompatible
+ * Ask the Open Design gateway for plain response bodies. A DSH host using an incompatible
  * undici global dispatcher can lose response headers and leave compressed
  * JSON, SSE, and pre-stream error bodies undecoded.
  */
