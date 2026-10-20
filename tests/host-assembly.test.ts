@@ -11,6 +11,8 @@ import assert from 'node:assert/strict'
 import { apply, Config, DEFAULT_API_KEY_ENV, inject, name, OpenDesignAdapter, PROVIDER, NS } from '../src/index.ts'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { LlmError, MessageId } from '@deepseek-ai/dsh-llm'
+import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentRef, ImageRequestTarget, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 
 interface ProviderEntry {
   provider: string
@@ -20,7 +22,7 @@ interface ProviderEntry {
 }
 
 /** The host services `apply()` is allowed to touch, recorded structurally. */
-function makeContext(): {
+function makeContext(services: { attachments?: unknown } = {}): {
   ctx: Record<string, unknown>
   providers: ProviderEntry[]
   adapters: Array<{ providers: string[]; adapter: OpenDesignAdapter }>
@@ -47,8 +49,8 @@ function makeContext(): {
         return () => {}
       },
     },
-    get() {
-      return undefined
+    get(name: string) {
+      return name === 'attachments' ? services.attachments : undefined
     },
     on() {
       return () => {}
@@ -150,4 +152,69 @@ test('没有 Key 时，适配器抛 MISSING_CREDENTIAL 并给出两步可照做�
       return true
     },
   )
+})
+
+test('apply() 把宿主附件服务接到适配器：图片经编码目标变成 data URL 发出', async () => {
+  const screenshot: ImageAttachmentRef = {
+    attachmentId: AttachmentId('sha256:5a4b3c2d1e0f9a8b'),
+    mediaType: 'image/png',
+    bytes: 1_500_000,
+    width: 2880,
+    height: 1800,
+  }
+  const targets: ImageRequestTarget[] = []
+  const attachments = {
+    async readImageRequest(ref: ImageAttachmentRef, target: ImageRequestTarget): Promise<RequestImageAttachment> {
+      targets.push(target)
+      return {
+        variantId: ImageVariantId('variant-host'),
+        attachment: ref,
+        data: Uint8Array.from([1, 2, 3]),
+        mediaType: 'image/webp',
+        bytes: 3,
+        width: target.width,
+        height: target.height,
+        depth: 'uchar',
+        space: 'srgb',
+        hasAlpha: false,
+      }
+    },
+  }
+  const { ctx, adapters } = makeContext({ attachments })
+  apply(ctx as never, Config({ apiKey: 'literal_test_key' }) as never)
+
+  const recorded: Array<Record<string, unknown>> = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    recorded.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+    return new Response([
+      'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"一只猫"}}]}',
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+      'data: [DONE]',
+      '',
+    ].join('\n\n'), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+  }) as typeof fetch
+  try {
+    for await (const _chunk of adapters[0]!.adapter.stream({
+      provider: 'open-design',
+      model: 'deepseek-v4.1-flash',
+      messages: [{
+        id: MessageId('msg-image'),
+        role: 'user',
+        content: [{ type: 'image', attachment: screenshot }],
+        source: { kind: 'user' },
+      }],
+    })) {
+      // drain the stream
+    }
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  // 编码目标来自路由（长边 1568 / 1 MiB），媒体类型以编码后的请求版本为准。
+  assert.deepEqual(targets, [{ width: 1568, height: 980, maxBytes: 1024 * 1024 }])
+  assert.deepEqual((recorded[0]?.messages as Array<{ content: unknown }>)[0]?.content, [{
+    type: 'image_url',
+    image_url: { url: 'data:image/webp;base64,AQID' },
+  }])
 })

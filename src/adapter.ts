@@ -8,9 +8,12 @@
  * the transport into a real stream — one `stream: true` call is read as SSE and
  * mapped, delta by delta, into the `StreamChunk` sequence (thinking, text,
  * tool calls, usage, finish), so the reply is visible while it is generated.
- * The output-cap hard truncation and the full error taxonomy arrive with tickets
- * 05–06; the transport seam here is deliberately the single Chat Completions
- * call the design settles on.
+ * Ticket 07 carries images: a model the catalog declares image-capable gets the
+ * host's request-encoded bytes as an OpenAI multi-part `image_url` data URL,
+ * while file/audio/video attachments and images on a text-only model are refused
+ * as `UNSUPPORTED_CONTENT` naming the capability. The output-cap hard truncation
+ * and the full error taxonomy arrive with tickets 05–06; the transport seam here
+ * is deliberately the single Chat Completions call the design settles on.
  *
  * Request facts come from the live connection thunk and the credential
  * resolver handed in by the plugin entry, so a settings write reaches the next
@@ -22,10 +25,13 @@
 
 import {
   attributionHeaders,
+  offloadedImageText,
+  textOnlyImageText,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
   type GenerateOptions,
+  type LlmImageRequestPricing,
   type LlmModelInfo,
   type LlmProviderInfo,
   type LlmResolvedModelInfo,
@@ -33,6 +39,12 @@ import {
   type StreamChunk,
   type ToolSchema,
 } from '@deepseek-ai/dsh-llm'
+import type {
+  FileAttachmentRef,
+  ImageAttachmentRef,
+  ImageRequestTarget,
+  RequestImageAttachment,
+} from '@deepseek-ai/dsh-attachment'
 
 import {
   DEFAULT_MAX_OUTPUT_TOKENS,
@@ -49,6 +61,8 @@ import {
   type GatewayCatalogStatus,
 } from './gateway-facts.ts'
 import { DEFAULT_API_BASE, PROVIDER_DISPLAY_NAME } from './identity.ts'
+import { requestImageTarget } from './image-request.ts'
+import { openDesignImageTokens } from './image-tokens.ts'
 import { modelIsVisible } from './model-visibility.ts'
 import { applyMaxOutputTokens } from './output-budget.ts'
 import { OUTPUT_CAP_FIELD, coerceReasoningLevel, wireReasoningEffort } from './quirks.ts'
@@ -84,12 +98,33 @@ export interface OpenDesignConnectionOptions {
   maxOutputTokens?: number | undefined
 }
 
+/**
+ * The slice of the host attachment service that image input needs: one
+ * deterministic request version of a stored image, encoded to a route target.
+ * Declared narrowly here so the adapter depends on the capability it uses, not
+ * on attachment storage as a whole; `ctx.attachments` satisfies it as-is.
+ */
+export interface OpenDesignImageEncoder {
+  /** Encode one normalized attachment to the request target (dimensions + byte budget). */
+  readImageRequest(
+    ref: ImageAttachmentRef,
+    target: ImageRequestTarget,
+    signal?: AbortSignal,
+  ): Promise<RequestImageAttachment>
+}
+
 /** Everything the adapter needs from its owning plugin instance. */
 export interface OpenDesignAdapterDeps {
   /** Read the live connection facts for one call. */
   options: () => OpenDesignConnectionOptions
   /** Resolve the bearer key for one call (literal → credential ref). */
   resolveApiKey: (connection: OpenDesignConnectionOptions) => Promise<string>
+  /**
+   * Read the host attachment service, when one is mounted. Read per call: the
+   * service may be composed after this plugin. Without it, an image can only be
+   * described to the model in text — it cannot be encoded for the wire.
+   */
+  attachments?: (() => OpenDesignImageEncoder | undefined) | undefined
   /** Test seam for the HTTP call. */
   fetchImpl?: typeof fetch
   /** Test seam for catalog TTLs; defaults to `Date.now`. */
@@ -171,6 +206,47 @@ export class OpenDesignAdapter extends LlmAdapter {
   }
 
   /**
+   * The request-image projection this route asks the host for: long edge 1568
+   * and a 1 MiB encoded budget (see `./image-request.ts`). It is the same target
+   * `stream()` encodes to, so any preview computed elsewhere matches the bytes
+   * that actually travel.
+   */
+  override imageRequestTarget(
+    _provider: string,
+    _model: string,
+    image: ImageAttachmentRef,
+  ): ImageRequestTarget {
+    return requestImageTarget(image)
+  }
+
+  /**
+   * Vision-token pricing for the meter (see `./image-tokens.ts`).
+   *
+   * A model the catalog calls image-capable pays its family's published rule. An
+   * offloaded occurrence, and every image on a route that takes text only,
+   * travels as placeholder text instead of pixels: 0 visual tokens plus that
+   * exact text, so the meter counts what the model actually reads. A model
+   * neither catalog nor snapshot knows declares nothing here.
+   */
+  override imageRequestPricing(_provider: string, model: string): LlmImageRequestPricing | undefined {
+    const entry = lookupCatalogEntry(this.currentCatalog(this.deps.options()).models, model)
+    if (entry === undefined) return undefined
+    const vision = entry.inputModalities.includes('image')
+    return {
+      priceImages: (images) => images.map((image) => {
+        if (image.offloaded === true) {
+          return { visualTokens: 0, text: offloadedImageText(image.attachment) }
+        }
+        if (!vision) return { visualTokens: 0, text: textOnlyImageText(image.attachment) }
+        return {
+          visualTokens: openDesignImageTokens(model, image.attachment.width, image.attachment.height),
+          text: '',
+        }
+      }),
+    }
+  }
+
+  /**
    * One streaming Chat Completions call, mapped onto the chunk protocol.
    *
    * The request sends only the fields the gateway actually honours: the model
@@ -189,9 +265,15 @@ export class OpenDesignAdapter extends LlmAdapter {
     // delay or fail a conversation turn.
     const entry = lookupCatalogEntry(this.currentCatalog(connection).models, options.model)
     const cap = outputCapFor(options, entry, connection)
-    const body = buildRequestBody(options, cap)
-    const fetchImpl = this.deps.fetchImpl ?? fetch
     const callerSignal = options.signal
+    const body = await buildRequestBody(options, cap, {
+      model: options.model,
+      // The raw catalog list, so a refusal can quote what the gateway declared.
+      declaredModalities: entry?.inputModalities,
+      encoder: this.deps.attachments?.(),
+      signal: callerSignal,
+    })
+    const fetchImpl = this.deps.fetchImpl ?? fetch
     const signal = requestSignal(callerSignal, connection.requestTimeoutMs)
 
     let response: Response
@@ -298,10 +380,14 @@ function selectedReasoningLevel(model: string, requested: string | undefined): R
 }
 
 /** Build the Chat Completions request body for one call. */
-function buildRequestBody(options: GenerateOptions, cap: number): Record<string, unknown> {
+async function buildRequestBody(
+  options: GenerateOptions,
+  cap: number,
+  images: ImagePlan,
+): Promise<Record<string, unknown>> {
   const body: Record<string, unknown> = {
     model: options.model,
-    messages: toWireMessages(options),
+    messages: await toWireMessages(options, images),
     stream: true,
     // Ask for the usage tail frame (`choices: []` with only `usage`): without it
     // the gateway reports no token accounting at all for a streamed reply.
@@ -326,21 +412,67 @@ function toWireTool(tool: ToolSchema): Record<string, unknown> {
   }
 }
 
+/** How one call may carry images: the catalog's capability plus the host encoder. */
+interface ImagePlan {
+  /** Exact model id, named in a capability refusal. */
+  readonly model: string
+  /** The gateway/snapshot's declared input modalities, undefined when unknown. */
+  readonly declaredModalities: readonly string[] | undefined
+  /** The host attachment service, when mounted. */
+  readonly encoder: OpenDesignImageEncoder | undefined
+  /** The caller's cancellation, forwarded to encoding. */
+  readonly signal: AbortSignal | undefined
+}
+
+/** One request image in wire form: the encoded media type plus base64 bytes. */
+interface EncodedImage {
+  readonly mediaType: string
+  readonly data: string
+}
+
+/** Whether the catalog declares image input for this exact model. */
+function modelAcceptsImages(plan: ImagePlan): boolean {
+  return plan.declaredModalities?.includes('image') === true
+}
+
+/**
+ * Turn one durable image into wire bytes.
+ *
+ * The encoder is asked for the ROUTE target (long edge and byte budget from
+ * `./image-request.ts`), not the normalized original, so a Retina screenshot
+ * travels as the size the model would downscale to anyway. Encoding returns
+ * `undefined` when no attachment service is mounted: the image cannot become
+ * pixels, so the caller degrades it to its placeholder text instead of
+ * pretending the model saw it.
+ */
+async function encodeImage(plan: ImagePlan, ref: ImageAttachmentRef): Promise<EncodedImage | undefined> {
+  if (!modelAcceptsImages(plan)) throw imageCapabilityFailure(plan)
+  if (plan.encoder === undefined) return undefined
+  const request = await plan.encoder.readImageRequest(ref, requestImageTarget(ref), plan.signal)
+  return { mediaType: request.mediaType, data: Buffer.from(request.data).toString('base64') }
+}
+
+/** One content part of an OpenAI multi-part message. */
+type WireContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 /** An OpenAI chat message, spelled only with fields the gateway understands. */
 interface WireMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
-  content: string
+  content: string | WireContentPart[]
   tool_calls?: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>
   tool_call_id?: string
 }
 
 /** Map the harness conversation onto the wire, skipping blocks the wire has no slot for. */
-function toWireMessages(options: GenerateOptions): WireMessage[] {
+async function toWireMessages(options: GenerateOptions, images: ImagePlan): Promise<WireMessage[]> {
   const messages: WireMessage[] = []
   const system = options.system?.trim()
   if (system !== undefined && system !== '') messages.push({ role: 'system', content: system })
   for (const message of options.messages) {
-    const wire = toWireMessage(message)
+    // Sequential on purpose: encoding is per image and the wire keeps block order.
+    const wire = await toWireMessage(message, images)
     if (wire !== undefined) messages.push(wire)
   }
   return messages
@@ -354,14 +486,18 @@ function toWireMessages(options: GenerateOptions): WireMessage[] {
  * uniform rather than per-model. Reasoning blocks are history-only and never
  * echoed back; tool addition/removal blocks are projection metadata whose
  * declarations travel in `tools`.
+ *
+ * A message with an image becomes the OpenAI multi-part `content` array (text
+ * and `image_url` parts in block order); a text-only message keeps the plain
+ * string the gateway has always accepted.
  */
-function toWireMessage(message: RequestMessage): WireMessage | undefined {
-  const text: string[] = []
+async function toWireMessage(message: RequestMessage, images: ImagePlan): Promise<WireMessage | undefined> {
+  const parts: WireContentPart[] = []
   const toolCalls: NonNullable<WireMessage['tool_calls']> = []
   for (const block of message.content) {
     switch (block.type) {
       case 'text':
-        if (block.text !== '') text.push(block.text)
+        if (block.text !== '') parts.push({ type: 'text', text: block.text })
         break
       case 'tool-call':
         toolCalls.push({
@@ -374,29 +510,106 @@ function toWireMessage(message: RequestMessage): WireMessage | undefined {
       case 'tool-addition':
       case 'tool-removal':
         break
-      case 'image':
-      case 'file':
-        // Images arrive with ticket 07; files never travel natively.
-        throw new LlmError(
-          'llm-opendesign: 当前版本只支持文本对话，图片/文件输入尚未接通（ticket 07 负责图片）。',
-          'UNSUPPORTED_CONTENT',
-        )
-      default:
+      case 'image': {
+        // An evicted image is a durable decision: the pixels never travel again,
+        // the model keeps its placeholder text.
+        if (block.offloaded === true) {
+          parts.push({ type: 'text', text: offloadedImageText(block.attachment) })
+          break
+        }
+        const image = await encodeImage(images, block.attachment)
+        parts.push(image === undefined
+          ? { type: 'text', text: unencodedImageText(block.attachment, images.model) }
+          : { type: 'image_url', image_url: { url: `data:${image.mediaType};base64,${image.data}` } })
         break
+      }
+      case 'file':
+        throw unsupportedFileFailure(block.attachment)
+      default:
+        throw unsupportedBlockFailure(String((block as { type: unknown }).type))
     }
   }
-  const content = text.join('\n')
+  const content = wireContent(parts)
   if (message.role === 'tool') {
     return { role: 'tool', content, tool_call_id: message.toolCallId }
   }
   if (message.role === 'assistant') {
-    if (content === '' && toolCalls.length === 0) return undefined
+    if (parts.length === 0 && toolCalls.length === 0) return undefined
     return toolCalls.length === 0
       ? { role: 'assistant', content }
       : { role: 'assistant', content, tool_calls: toolCalls }
   }
-  if (content === '') return undefined
+  if (parts.length === 0) return undefined
   return { role: message.role === 'user' ? 'user' : 'system', content }
+}
+
+/**
+ * The wire `content` for one message: the plain string the gateway has always
+ * accepted when every part is text, and the multi-part array only when an image
+ * really travels (so nothing about text-only requests changes).
+ */
+function wireContent(parts: readonly WireContentPart[]): string | WireContentPart[] {
+  if (parts.every((part) => part.type === 'text')) {
+    return parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n')
+  }
+  return [...parts]
+}
+
+/** A refusal for one image on a model the catalog does not call image-capable. */
+function imageCapabilityFailure(plan: ImagePlan): LlmError {
+  const capability = plan.declaredModalities === undefined
+    ? 'Open Design 目录也没有为这个模型声明输入模态'
+    : `目录声明的输入模态是 ${plan.declaredModalities.join('/') || '空'}`
+  return new LlmError(
+    `llm-opendesign: 模型 "${plan.model}" 不支持图片输入（${capability}）。`
+    + 'Open Design 本插件只支持文本与图片；请换用目录声明支持 image 的模型，或移除图片附件。',
+    'UNSUPPORTED_CONTENT',
+  )
+}
+
+/** Attachment kinds this route refuses by filename, and the word its message uses. */
+const REJECTED_ATTACHMENT_KINDS: ReadonlyArray<{ kind: string; extensions: readonly string[] }> = [
+  { kind: '音频', extensions: ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.opus'] },
+  { kind: '视频', extensions: ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.m4v'] },
+]
+
+/**
+ * A `file` block: the gateway may declare file/audio/video modality, but this
+ * plugin carries no such content natively, so the refusal names what arrived
+ * and what is actually supported instead of failing as a generic error.
+ */
+function unsupportedFileFailure(ref: FileAttachmentRef): LlmError {
+  const lower = ref.name.toLowerCase()
+  const kind = REJECTED_ATTACHMENT_KINDS.find(
+    (candidate) => candidate.extensions.some((extension) => lower.endsWith(extension)),
+  )?.kind
+  const subject = kind === undefined ? `file 附件「${ref.name}」` : `${kind}附件「${ref.name}」（以 file 形态送来）`
+  const remedy = kind === undefined
+    ? '请把需要的文件内容转成文本再发。'
+    : `请把${kind}转成文字描述或截图（图片）再发。`
+  return new LlmError(
+    `llm-opendesign: 不支持${subject}。Open Design 本插件只支持文本与图片；${remedy}`,
+    'UNSUPPORTED_CONTENT',
+  )
+}
+
+/** A content block this plugin has no wire slot for (e.g. a plugin-extended audio/video block). */
+function unsupportedBlockFailure(type: string): LlmError {
+  return new LlmError(
+    `llm-opendesign: 不支持 content 块类型 "${type}"。Open Design 本插件只支持文本与图片。`,
+    'UNSUPPORTED_CONTENT',
+  )
+}
+
+/**
+ * Model-facing placeholder for an image the host has no way to encode: the
+ * model is told the pixels did not travel, rather than being handed a turn that
+ * looks like it saw the picture.
+ */
+function unencodedImageText(ref: ImageAttachmentRef, model: string): string {
+  const digest = String(ref.attachmentId).slice(7, 15)
+  return `[Image sha256:${digest} was not sent: this host has no attachment encoding service, so ${model} `
+    + 'received no pixels for it. Ask the user to send the image again once attachments are available.]'
 }
 
 /** One failed HTTP exchange, classified by status with an actionable diagnosis. */
