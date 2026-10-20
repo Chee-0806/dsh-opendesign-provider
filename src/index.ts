@@ -49,6 +49,7 @@ import {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   OpenDesignAdapter,
   type OpenDesignConnectionOptions,
+  type OpenDesignImageEncoder,
 } from './adapter.ts'
 import {
   DEFAULT_TRANSPORT_MAX_RETRIES,
@@ -283,7 +284,13 @@ export function apply(ctx: Context, config: Config): void {
     )
   }
 
-  const adapter = new OpenDesignAdapter({ options, resolveApiKey })
+  // The attachment service is an optional peer of this route: it encodes each
+  // request image to the route target (ticket 07). Read through a thunk because
+  // it may be composed after this plugin; a profile without it degrades an image
+  // to placeholder text instead of failing the turn.
+  const attachments = (): OpenDesignImageEncoder | undefined => ctx.get('attachments')
+
+  const adapter = new OpenDesignAdapter({ options, resolveApiKey, attachments })
 
   // The Models page card. An empty `settingsPath` means the whole
   // `llm-opendesign` section configures this provider.
