@@ -63,12 +63,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Mars-Sea/dsh-opendesign-provider.git"
+    "url": "git+https://github.com/Chee-0806/dsh-opendesign-provider.git"
   },
   "bugs": {
-    "url": "https://github.com/Mars-Sea/dsh-opendesign-provider/issues"
+    "url": "https://github.com/Chee-0806/dsh-opendesign-provider/issues"
   },
-  "homepage": "https://github.com/Mars-Sea/dsh-opendesign-provider#readme",
+  "homepage": "https://github.com/Chee-0806/dsh-opendesign-provider#readme",
   "keywords": [
     "deepseek-harness",
     "dsh",
