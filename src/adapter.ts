@@ -1,9 +1,12 @@
 /**
  * The Open Design LLM adapter: one Chat Completions transport.
  *
- * Ticket 02 wires the walking skeleton end to end: the picker's 12 models come
- * from the static snapshot, and one non-streaming `POST {apiBase}/chat/completions`
- * round trip becomes a `StreamChunk` sequence (text, usage, finish). Streaming,
+ * Ticket 02 wires the walking skeleton end to end; ticket 03 makes the picker
+ * read the gateway's live `GET {apiBase}/models` (per-key, with the 12-model
+ * static snapshot as the offline fallback) and exposes the catalog's
+ * provenance through {@link OpenDesignAdapter.catalogStatus}. One non-streaming
+ * `POST {apiBase}/chat/completions` round trip becomes a `StreamChunk` sequence
+ * (text, usage, finish). Streaming,
  * thinking deltas, tool round trips, the output-cap hard truncation and the
  * full error taxonomy arrive with tickets 04–06; the transport seam here is
  * deliberately the single Chat Completions call the design settles on.
@@ -38,14 +41,17 @@ import {
 import {
   DEFAULT_MAX_OUTPUT_TOKENS,
   REASONING_LEVEL_ORDER,
-  describeCatalogModel,
-  findCatalogModel,
   hostInputModalities,
-  orderedCatalog,
-  type CatalogModelSnapshot,
   type ReasoningLevel,
 } from './catalog-snapshot.ts'
 import { effectiveContextWindow } from './context-window.ts'
+import {
+  GatewayCatalogSource,
+  describeGatewayCatalogEntry,
+  staticGatewayCatalogEntry,
+  type GatewayCatalogEntry,
+  type GatewayCatalogStatus,
+} from './gateway-facts.ts'
 import { DEFAULT_API_BASE, PROVIDER_DISPLAY_NAME } from './identity.ts'
 import { modelIsVisible } from './model-visibility.ts'
 import { applyMaxOutputTokens } from './output-budget.ts'
@@ -89,12 +95,20 @@ export interface OpenDesignAdapterDeps {
   resolveApiKey: (connection: OpenDesignConnectionOptions) => Promise<string>
   /** Test seam for the HTTP call. */
   fetchImpl?: typeof fetch
+  /** Test seam for catalog TTLs; defaults to `Date.now`. */
+  now?: () => number
 }
 
 /** The Open Design adapter: catalog plus the Chat Completions transport. */
 export class OpenDesignAdapter extends LlmAdapter {
+  private readonly catalog: GatewayCatalogSource
+
   constructor(private readonly deps: OpenDesignAdapterDeps) {
     super()
+    this.catalog = new GatewayCatalogSource({
+      ...(deps.fetchImpl === undefined ? {} : { fetchImpl: deps.fetchImpl }),
+      ...(deps.now === undefined ? {} : { now: deps.now }),
+    })
   }
 
   /** Report the route under the product name, preserving the engine's id. */
@@ -103,21 +117,33 @@ export class OpenDesignAdapter extends LlmAdapter {
   }
 
   /**
-   * The models the picker may list: the static snapshot, in the design's
-   * display order, filtered by the allowlist and the per-model toggles.
+   * The models the picker may list: the gateway's live directory when it
+   * answers (per-key, so possibly fewer or more than the 12 known models),
+   * otherwise the static snapshot. Filtered by the allowlist and the
+   * per-model toggles, in the design's display order.
    */
   override async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
     const connection = this.deps.options()
+    const catalog = await this.loadCatalog(connection)
     const allowlist = connection.visibleModels ?? []
-    return orderedCatalog()
+    return catalog.models
       .filter((entry) => modelIsVisible(entry.id, allowlist, connection.modelVisibility))
       .map((entry) => ({
         provider,
         id: entry.id,
         name: entry.name,
-        description: describeCatalogModel(entry),
+        description: describeGatewayCatalogEntry(entry),
         inputModalities: hostInputModalities(entry),
       }))
+  }
+
+  /**
+   * The catalog's provenance as data for the settings page and model cards
+   * (ticket 08): which gateway it is bound to, whether it is live or the
+   * static snapshot, why it fell back, and which entries are uncalibrated.
+   */
+  async catalogStatus(): Promise<GatewayCatalogStatus> {
+    return this.loadCatalog(this.deps.options())
   }
 
   /**
@@ -127,17 +153,17 @@ export class OpenDesignAdapter extends LlmAdapter {
    */
   override async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     const connection = this.deps.options()
-    const entry = findCatalogModel(model)
+    const entry = lookupCatalogEntry(this.currentCatalog(connection).models, model)
     if (entry === undefined) {
-      // A model the snapshot has never seen: announce no capacities rather than
-      // inventing them; ticket 03 calibrates these from the live directory.
+      // A model neither the gateway nor the snapshot knows: announce no
+      // capacities rather than inventing them.
       return { provider, id: model, name: model, reasoning: { efforts: effortInfos(REASONING_LEVEL_ORDER) } }
     }
     return {
       provider,
       id: model,
       name: entry.name,
-      description: describeCatalogModel(entry),
+      description: describeGatewayCatalogEntry(entry),
       inputModalities: hostInputModalities(entry),
       context: {
         contextWindow: effectiveContextWindow(entry.contextWindow, model, connection),
@@ -158,7 +184,9 @@ export class OpenDesignAdapter extends LlmAdapter {
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const connection = this.deps.options()
     const apiKey = await this.deps.resolveApiKey(connection)
-    const entry = findCatalogModel(options.model)
+    // The catalog is read from memory only: a directory refresh must never
+    // delay or fail a conversation turn.
+    const entry = lookupCatalogEntry(this.currentCatalog(connection).models, options.model)
     const cap = outputCapFor(options, entry, connection)
     const body = buildRequestBody(options, cap)
     const fetchImpl = this.deps.fetchImpl ?? fetch
@@ -187,6 +215,36 @@ export class OpenDesignAdapter extends LlmAdapter {
     if (!response.ok) throw httpFailure(response.status, raw)
     yield* completionChunks(parseJson(raw), cap)
   }
+
+  /**
+   * Load the catalog for listing/status. Never throws: a gateway failure is a
+   * fallback to the static snapshot with the reason recorded for ticket 08.
+   */
+  private loadCatalog(connection: OpenDesignConnectionOptions): Promise<GatewayCatalogStatus> {
+    return this.catalog.load(this.catalogTarget(connection), () => this.deps.resolveApiKey(connection))
+  }
+
+  /** The in-memory catalog for the conversation path; never touches the network. */
+  private currentCatalog(connection: OpenDesignConnectionOptions): GatewayCatalogStatus {
+    return this.catalog.current(this.catalogTarget(connection))
+  }
+
+  /** The catalog's binding: one normalized gateway address plus one cache file. */
+  private catalogTarget(connection: OpenDesignConnectionOptions): { apiBase: string; modelsCachePath: string } {
+    return { apiBase: apiBaseOf(connection), modelsCachePath: connection.modelsCachePath }
+  }
+}
+
+/**
+ * The merged entry for one model: the current catalog first, then the static
+ * snapshot, so a model the key no longer lists (e.g. restored history) still
+ * resolves its known capacities.
+ */
+function lookupCatalogEntry(
+  entries: readonly GatewayCatalogEntry[],
+  model: string,
+): GatewayCatalogEntry | undefined {
+  return entries.find((entry) => entry.id === model) ?? staticGatewayCatalogEntry(model)
 }
 
 /** The base URL without a trailing slash, so the endpoint join is unambiguous. */
@@ -203,7 +261,7 @@ function requestSignal(callerSignal: AbortSignal | undefined, timeoutMs: number)
 /** The largest output budget this call may ask for: user/host budget, else the model's own. */
 function outputCapFor(
   options: GenerateOptions,
-  entry: CatalogModelSnapshot | undefined,
+  entry: GatewayCatalogEntry | undefined,
   connection: OpenDesignConnectionOptions,
 ): number {
   const derived = entry?.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS

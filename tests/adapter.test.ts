@@ -49,6 +49,9 @@ interface RecordedRequest {
   init: RequestInit
 }
 
+/** 真实 `/v1/models` 响应夹具（脱敏，ticket 03）：目录请求不再访问网络。 */
+const MODELS_FIXTURE = readFileSync(new URL('./fixtures/models.json', import.meta.url), 'utf8')
+
 /** A fetch stub that records the request and answers with a canned JSON body. */
 function recordingFetch(
   status: number,
@@ -57,6 +60,9 @@ function recordingFetch(
 ): typeof fetch {
   return (async (url: string | URL | Request, init?: RequestInit) => {
     recorded.push({ url: String(url), init: init ?? {} })
+    if (String(url).endsWith('/models')) {
+      return new Response(MODELS_FIXTURE, { status: 200, headers: { 'content-type': 'application/json' } })
+    }
     return new Response(body, {
       status,
       headers: { 'content-type': 'application/json' },
@@ -64,11 +70,20 @@ function recordingFetch(
   }) as unknown as typeof fetch
 }
 
+/** 只回答实时目录的 fetch；对话请求走调用方自己的桩。 */
+function catalogFetch(): typeof fetch {
+  return (async () => new Response(MODELS_FIXTURE, {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })) as unknown as typeof fetch
+}
+
 function makeAdapter(overrides: Partial<OpenDesignAdapterDeps> = {}): OpenDesignAdapter {
   return new OpenDesignAdapter({
     options: overrides.options ?? (() => connection()),
     resolveApiKey: overrides.resolveApiKey ?? (async () => 'user_test_key'),
-    ...(overrides.fetchImpl === undefined ? {} : { fetchImpl: overrides.fetchImpl }),
+    fetchImpl: overrides.fetchImpl ?? catalogFetch(),
+    ...(overrides.now === undefined ? {} : { now: overrides.now }),
   })
 }
 
@@ -87,10 +102,11 @@ async function collect(options: GenerateOptions, adapter: OpenDesignAdapter): Pr
   return chunks
 }
 
-/** The parsed request body of the single recorded call. */
+/** The parsed request body of the single recorded chat call (catalog reads aside). */
 function requestBody(recorded: RecordedRequest[]): Record<string, unknown> {
-  assert.equal(recorded.length, 1)
-  const body = recorded[0]?.init.body
+  const chat = recorded.filter((request) => request.init.method === 'POST')
+  assert.equal(chat.length, 1)
+  const body = chat[0]?.init.body
   assert.equal(typeof body, 'string')
   return JSON.parse(body as string) as Record<string, unknown>
 }
@@ -231,9 +247,9 @@ test('非流式请求：URL、鉴权头与请求体字段（模型/消息/流开
   const adapter = makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, recorded) })
   await collect(oneTurn('deepseek-v4.1-flash', { reasoningEffort: ReasoningEffortId('medium') }), adapter)
 
-  assert.equal(recorded[0]?.url, 'https://models.example.test/v1/chat/completions')
-  assert.equal(recorded[0]?.init.method, 'POST')
-  const headers = recorded[0]?.init.headers as Record<string, string>
+  const chat = recorded.find((request) => request.init.method === 'POST')
+  assert.equal(chat?.url, 'https://models.example.test/v1/chat/completions')
+  const headers = chat?.init.headers as Record<string, string>
   assert.equal(headers.authorization, 'Bearer user_test_key')
   assert.equal(headers['content-type'], 'application/json')
   assert.match(headers['user-agent'] ?? '', /dsh|deepseek/i)
