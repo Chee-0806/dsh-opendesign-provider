@@ -124,8 +124,8 @@
 - 输出上限 = `min(DSH 预算, output_budget, 262144)`；适配器在累计输出（含思考 token）达到上限时**主动结束读取**并以 `length` 收尾——因为 deepseek/glm 实测完全不遵守该字段，`max_tokens` 对所有模型都不生效。kimi 例外：`max_completion_tokens` 必须大于该档 thinking 预算（low 8192 / medium 32768），其 maxTokens 抬到 65536。
 - 思考等级映射为「逐模型合法域」：9 个全档模型支持 off/minimal/low/medium/high/xhigh/max 且 `off` 发字面量 `none`；glm 仅 low/high/max；kimi 无 off/无 max。非法档在请求前收敛，选择器只列合法档；glm 的 off 请求收敛为 low 并在界面标注「该模型不支持关闭思考」。
 - 流解析：正文读 `delta.content`；思考读 `delta.reasoning` 与 `reasoning_details`（**不是** `reasoning_content`），容忍首帧空串；工具调用按 index 累积 `id/name/arguments`；`finish_reason` 可缺省，缺省时按「有工具调用 → tool_use、达上限 → length、否则 stop」推断；`choices` 为空的尾帧若带 usage 必须计入（`prompt_tokens_details.cached_tokens`、`completion_tokens_details.reasoning_tokens`）；`[DONE]` 为终止标记。
-- 错误分类按三态形状解析（JSON `{error:{code,message,type}}` / Go 纯文本 404 / nginx HTML 404），映射为：`AUTH`（401）、`QUOTA_EXHAUSTED`（402）、`DETERMINISTIC_BAD_REQUEST`（400 中确定性原因：`Incorrect role information`、`Empty input messages` 等）、`PROTOCOL_ERROR`（404/HTML）、`TRANSIENT`（其余）。确定性错误不重试；502 包 400 时先解析真因再决定是否重试；429 有 `Retry-After` 用、无则指数退避，预算沿用 3 次。
-- 图片：目录声明 `image` 模态才允许；沿用通用请求图片目标（长边 1568 / 编码 1 MiB）与视觉 token 估算；`file`/`audio`/`video` 一律 `UNSUPPORTED_CONTENT` 并说明能力限制。
+- 错误分类按三态形状解析（JSON `{error:{code,message,type}}` / Go 纯文本 404 / nginx HTML 404），映射为：`AUTH`（401/403）、`QUOTA_EXHAUSTED`（402）、`BAD_REQUEST`（400 中确定性原因：`Incorrect role information`、`Empty input messages` 等；实现里的命名取代早期草稿的 `DETERMINISTIC_BAD_REQUEST`）、`PROTOCOL_ERROR`（404 纯文本/HTML、非 SSE 200、空响应体）、`TRANSIENT`（读不出确定性原因的 5xx）、`TRANSPORT`（连接层失败，独立重试预算）、`RATE_LIMIT`（429）、`EMPTY_RESPONSE`（200 空流，可重试）、`TIMEOUT`（首字节或流空闲超时）。确定性错误不重试；502 包 400 时先解析真因再决定是否重试；404 带 JSON `model_not_found` 归 `BAD_REQUEST`（模型 id 错，不是路径错）。
+- 图片：目录声明 `image` 模态才允许；沿用通用请求图片目标（长边 1568 / 编码 1 MiB）与视觉 token 估算；`file`/`audio`/`video` 一律 `UNSUPPORTED_CONTENT` 并说明能力限制。视觉 token 按模型家族估算，裸 id 走 `generic` 保守规则（不猜厂商）。
 
 ### 目录、快照与逐模型规则
 
@@ -139,7 +139,7 @@
 ### 凭据与配置
 
 - 凭据链（只读）：配置里的字面量密钥 → 配置的凭据引用（默认 `OPEN_DESIGN_API_KEY`）→ CLI 登录态的运行时密钥（仅在未显式配置密钥时）。
-- baseURL 推导：显式 `apiBase` → 若密钥来自 CLI 登录态则用登录态里的模型面地址（动态，不假定固定域名）→ 默认 `https://amr-link.open-design.ai/v1`。
+- baseURL 推导：显式 `apiBase` → 若密钥来自 CLI 登录态则用登录态里的模型面地址（动态，不假定固定域名；实测 `linkUrl` 是主机名，裸源站补 `/v1`）→ 默认 `https://amr-link.open-design.ai/v1`。
 - 控制密钥只从 CLI 登录态取，且只用于额度查询；插件绝不写该文件、不复用登录态做其他请求。
 - Host 配置保留：`apiKeyEnv`、`apiKey`（secret 角色）、`apiBase`、`modelsCachePath`、请求超时、流空闲超时、传输重试、可见模型、模型可见性、上下文窗口与覆盖、输出上限、语言；（P1）额度卡开关与登录态文件路径。删除：账号列表、活动账号、凭据清理引用、开通任务、账号规则、ZDR、联网搜索、套餐过滤。
 - 无凭据、401、402 三类错误各有固定文案与下一步动作指引；诊断只输出引用名与存在性，不出密钥。
@@ -199,7 +199,7 @@ type QuotaSnapshot = {
 1. **HTTP 边界（主力缝）**：以 stub `fetch` 驱动目录解析、请求体构造、流解析、错误分类、硬截断、额度查询。既有先例：适配器测试用预置结算帧驱动、命令测试用 stub fetch 不联网。
 2. **插件装配缝**：以假 `ctx` 驱动 Host `apply()`，断言 provider/adapter/设置桥/（P1）命令与 Remote 的注册结果、以及删除后的 optional inject 不再出现。既有先例：引擎加载脚本用真实引擎校验发布面。
 3. **设置写入缝**：以假 `remote.settings` 驱动设置页控制器，断言 describe→草稿→mutate 链路、冲突保留、凭据写入只在指定引用上发生。既有先例：设置作用域测试用会抛错的假 remote 保证只能走 inject。
-4. **真实 Key 验收缝（不进单测）**：一个 live 脚本逐项打印 PASS/FAIL/SKIP，覆盖目录、多模型、思考等级、工具调用、输出上限、图片、错误分类；安装后再做一次「装进 profile + 客户端冒烟」。
+4. **真实 Key 验收缝（不进单测）**：`scripts/verify-live.mjs`（`npm run test:live`）逐项打印 PASS/FAIL/SKIP，覆盖目录、多模型、思考等级、工具调用、输出上限、错误分类、图片（第 8、9 条为 SKIP，留给人工/维护者）；与单测分开汇报。安装后再做一次「装进 profile + 客户端冒烟」。
 
 ### 各模块测试
 
@@ -232,7 +232,7 @@ type QuotaSnapshot = {
 ## 补充说明
 
 - 事实基线：模型面/控制面端点与鉴权、三协议并列、12 模型目录与逐模型怪癖、控制面额度响应，全部有实测记录，见 `docs/grill/` 四份报告；设计取舍与逐票拆解见 `docs/opendesign/`。
-- 已知未验证项（实现时按「先实测再定」处理）：429/`Retry-After` 形状、图片输入真实可用性、`temperature` 行为、Messages 面 tool_use 与图片；图片若实测失败，P0 验收记为已知限制而非阻塞。
-- 版本与仓库状态：归档 tag `commandcode-v0.14.4`、工作分支 `feat/opendesign`，未推送、未提交设计件；`lib/` 为旧构建产物，改造后需重建并纳入提交。
+- 已知未验证项（实现时按「先实测再定」处理）：429/`Retry-After` 形状、`temperature` 行为、Messages 面 tool_use 与图片。图片输入已实测可用（16x16 PNG 被正确描述），不再列为未验证项。
+- 版本与仓库状态：归档 tag `commandcode-v0.14.4`、工作分支 `feat/opendesign`，未推送；设计件已提交；`lib/` 已按新源码重建并随 ticket 09 提交（`.map` 不提交、不进 tarball），`git diff --exit-code -- lib/` 为门禁。
 - 交付节奏：P0 验收后立即进 P1（额度是本次的核心诉求）；P2 按需排期。
 - 发布状态：已发布到本地 markdown tracker，`Status: ready-for-agent`，位置 `.scratch/opendesign-provider/spec.md`（`.scratch/` 不入库，避免内部 spec 在 PUBLIC 仓库外泄）；实施票在开工时按 tracker 约定逐票拆到 `.scratch/opendesign-provider/issues/NN-*.md`。
