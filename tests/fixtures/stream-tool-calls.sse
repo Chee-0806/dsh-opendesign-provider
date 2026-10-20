@@ -1,0 +1,18 @@
+event: message
+data: {"id":"gen-3","object":"chat.completion.chunk","created":1792480243,"model":"gpt-6-luna","choices":[{"index":0,"delta":{"role":"assistant","content":null,"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"get_time","arguments":""}}]}}]}
+
+event: message
+data: {"id":"gen-3","object":"chat.completion.chunk","created":1792480243,"model":"gpt-6-luna","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":"}}]}}]}
+
+event: message
+data: {"id":"gen-3","object":"chat.completion.chunk","created":1792480243,"model":"gpt-6-luna","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"Tokyo\"}"}},{"index":1,"id":"call_def","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}
+
+event: message
+data: {"id":"gen-3","object":"chat.completion.chunk","created":1792480243,"model":"gpt-6-luna","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"city\":\"Osaka\"}"}}]}}]}
+
+event: message
+data: {"id":"gen-3","object":"chat.completion.chunk","created":1792480243,"model":"gpt-6-luna","choices":[{"index":0,"delta":{}}]}
+
+data: {"id":"gen-3","object":"chat.completion.chunk","created":1792480243,"model":"gpt-6-luna","choices":[],"usage":{"prompt_tokens":56,"completion_tokens":30,"total_tokens":86,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":0}}}
+
+data: [DONE]

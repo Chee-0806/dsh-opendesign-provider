@@ -8,6 +8,8 @@
  * - 输出上限字段是 `max_completion_tokens`；`max_tokens` 全员不认。
  * - glm 只接受 low/high/max，kimi 没有 off/max —— 逐模型档位域来自目录快照，
  *   本模块只做「域内收敛」与「上线字面量映射」，不另存第二份档位表。
+ * - gpt-6-luna 与 claude-haiku-5.5 在 Chat 面完全不吐 `reasoning`（实测），它们的
+ *   思考只在 Responses / Messages 面可见；这不是 bug，界面上要标注「思考不可见」。
  * - 上游不认输出上限（deepseek/glm）时由客户端硬截断兜底：那是 ticket 05。
  *
  * @module dsh-opendesign-provider/quirks
@@ -94,4 +96,18 @@ export function coerceReasoningLevel(model: string, level: ReasoningLevel): Reas
     }
   }
   return best
+}
+
+/** 在 Chat Completions 面不吐 `reasoning` 的模型（协议实测 §3.3）。 */
+const CHAT_THINKING_HIDDEN: readonly string[] = ['gpt-6-luna', 'claude-haiku-5.5']
+
+/**
+ * 该模型在 Chat 面是否会把思考发出来。
+ *
+ * 两个模型把思考藏在上游（gpt-6-luna 只在 `/v1/responses` 的 reasoning 项里给、
+ * claude-haiku-5.5 在 Chat 流里从不发 `reasoning`）。界面据此标注「思考不可见」，
+ * 用户才不用把「没有思考块」误读成「模型没思考」。
+ */
+export function thinkingVisibleInChat(model: string): boolean {
+  return !CHAT_THINKING_HIDDEN.includes(model)
 }

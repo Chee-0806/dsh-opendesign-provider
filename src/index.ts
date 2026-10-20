@@ -16,10 +16,12 @@
  *     apiKeyEnv: OPEN_DESIGN_API_KEY
  * ```
  *
- * Ticket 01 is the pre-refactor skeleton: the Host assembly is limited to the
- * configurable-provider entry, the adapter and the settings bridge, and the
- * adapter has no chat transport yet. Ticket 02 adds Chat Completions; the
- * quota Remote and `/opendesign` command return in P1.
+ * Ticket 02 added Chat Completions, tickets 03–07 made the catalog live and
+ * added streaming, thinking, tools, the output cap, the error taxonomy and
+ * images. Ticket 08 completes the credential chain (config key → credential
+ * reference → the Open Design CLI login state) and serves the settings page's
+ * catalog/credential facts through `opendesign/models`; the quota Remote and
+ * `/opendesign` command return in P1.
  *
  * @module dsh-opendesign-provider
  */
@@ -55,6 +57,7 @@ import {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   OpenDesignAdapter,
   type OpenDesignConnectionOptions,
+  type OpenDesignImageEncoder,
 } from './adapter.ts'
 import {
   DEFAULT_TRANSPORT_MAX_RETRIES,
@@ -301,7 +304,13 @@ export function apply(ctx: Context, config: Config): void {
     return { ...connection, apiBase: chain.apiBase }
   }
 
-  const adapter = new OpenDesignAdapter({ options, resolveApiKey, resolveConnection })
+  // The attachment service is an optional peer of this route: it encodes each
+  // request image to the route target (ticket 07). Read through a thunk because
+  // it may be composed after this plugin; a profile without it degrades an image
+  // to placeholder text instead of failing the turn.
+  const attachments = (): OpenDesignImageEncoder | undefined => ctx.get('attachments')
+
+  const adapter = new OpenDesignAdapter({ options, resolveApiKey, resolveConnection, attachments })
 
   // The Models page card. An empty `settingsPath` means the whole
   // `llm-opendesign` section configures this provider.

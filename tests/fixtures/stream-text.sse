@@ -1,0 +1,11 @@
+data: {"id":"gen-1","object":"chat.completion.chunk","created":1792480241,"model":"gpt-6-luna","choices":[{"index":0,"delta":{"role":"assistant","content":""}}]}
+
+data: {"id":"gen-1","object":"chat.completion.chunk","created":1792480241,"model":"gpt-6-luna","choices":[{"index":0,"delta":{"content":"Hi"}}]}
+
+data: {"id":"gen-1","object":"chat.completion.chunk","created":1792480241,"model":"gpt-6-luna","choices":[{"index":0,"delta":{"content":"!"},"extra_fields":{"routing_info":{"provider":"openai"}}}]}
+
+data: {"id":"gen-1","object":"chat.completion.chunk","created":1792480241,"model":"gpt-6-luna","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"gen-1","object":"chat.completion.chunk","created":1792480241,"model":"gpt-6-luna","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16,"prompt_tokens_details":{"cached_tokens":4},"completion_tokens_details":{"reasoning_tokens":0}}}
+
+data: [DONE]

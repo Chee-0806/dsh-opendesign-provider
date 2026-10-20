@@ -243,11 +243,13 @@ test('网关按 Key 裁剪时以网关为准：少于 12 条不补快照，enabl
 // 快照外的新模型
 // ---------------------------------------------------------------------------
 
-const OK_REPLY = JSON.stringify({
-  id: 'gen-live',
-  object: 'chat.completion',
-  choices: [{ index: 0, message: { role: 'assistant', content: '你好' }, finish_reason: 'stop' }],
-})
+/** 一次最小的成功流式应答（ticket 04 起对话走 SSE）。 */
+const OK_REPLY = [
+  'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"你好"}}]}',
+  'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+  'data: [DONE]',
+  '',
+].join('\n\n')
 
 test('快照外的新模型：可见、标题化、全档、无图片、标未校准，且能正常对话', async () => {
   const cache = tempCache()

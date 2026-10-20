@@ -7,9 +7,11 @@
  * the full normalized original, which is what admission accepted. Every request
  * should carry a REQUEST VERSION instead (`readImageRequest()`): the same image
  * re-encoded to a route target and cached under it. On this route that matters
- * three times over, because both transports inline every historical image as
- * base64: bytes become context, latency, and progress against the gateway's
- * undocumented ~50 MB body cap (see the request image budget in `./adapter.ts`).
+ * three times over, because every historical image is inlined as base64 in the
+ * Chat Completions body: bytes become context, latency, and progress against the
+ * gateway's undocumented body cap. `./adapter.ts` asks for exactly this target
+ * when it encodes an image (`imageRequestTarget()`), and its stream encodes to
+ * the same target, so a preview computed elsewhere matches the bytes sent.
  *
  * @module dsh-opendesign-provider/image-request
  */

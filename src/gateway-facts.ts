@@ -39,6 +39,7 @@ import {
   type ModelCostTier,
   type ReasoningLevel,
 } from './catalog-snapshot.ts'
+import { thinkingVisibleInChat } from './quirks.ts'
 
 /** 目录缓存文件的形状版本；字段或语义变更时递增，旧缓存自然失效。 */
 export const CATALOG_CACHE_VERSION = 1
@@ -240,10 +241,16 @@ export function staticGatewayCatalogEntry(id: string): GatewayCatalogEntry | und
   return snapshot === undefined ? undefined : snapshotEntry(snapshot)
 }
 
-/** 选择器副标题：档位、成本与可用窗口；未校准的模型明确标注。 */
+/**
+ * 选择器副标题：档位、成本与可用窗口；未校准与思考不可见的模型明确标注。
+ *
+ * 「思考不可见」是逐模型兼容事实（`quirks.ts`），不是 UI 新字段：标注跟着描述
+ * 一起走，模型卡与选择器都能看到同一句话。
+ */
 export function describeGatewayCatalogEntry(entry: GatewayCatalogEntry): string {
   const base = describeCatalogModel(entry)
-  return entry.calibrated ? base : `${base} · 未校准`
+  const described = entry.calibrated ? base : `${base} · 未校准`
+  return thinkingVisibleInChat(entry.id) ? described : `${described} · 思考不可见`
 }
 
 /**

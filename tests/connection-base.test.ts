@@ -43,13 +43,12 @@ function turn(): GenerateOptions {
 function recordingFetch(seen: string[]): typeof fetch {
   return (async (input: string | URL | Request) => {
     seen.push(String(input))
-    return new Response(JSON.stringify({
-      id: 'x',
-      object: 'chat.completion',
-      model: 'deepseek-v4.1-flash',
-      choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-    }), { status: 200, headers: { 'content-type': 'application/json' } })
+    return new Response([
+      'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"ok"}}]}',
+      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+      'data: [DONE]',
+      '',
+    ].join('\n\n'), { status: 200, headers: { 'content-type': 'text/event-stream' } })
   }) as typeof fetch
 }
 
