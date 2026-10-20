@@ -8,7 +8,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { apply, Config, inject, name, OpenDesignAdapter, PROVIDER, NS } from '../src/index.ts'
+import { apply, Config, DEFAULT_API_KEY_ENV, inject, name, OpenDesignAdapter, PROVIDER, NS } from '../src/index.ts'
+import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
+import { LlmError, MessageId } from '@deepseek-ai/dsh-llm'
 
 interface ProviderEntry {
   provider: string
@@ -104,4 +106,48 @@ test('apply registers the Open Design provider, adapter and settings bridge only
 
   assert.deepEqual(injected, [['settings']], 'no login, web, commands or TUI inject remains')
   assert.deepEqual(configured, [{ auto: false }], 'the plugin ships its own page, so no auto form')
+})
+
+test('没有 Key 时，适配器抛 MISSING_CREDENTIAL 并给出两步可照做的文案', async () => {
+  const { ctx, adapters } = makeContext()
+  // The launch environment is empty on purpose: this pins the unconfigured
+  // path rather than whatever the developer's shell happens to export.
+  const noEnvironment = {
+    ...ctx,
+    get(name: string) {
+      if (name !== 'launchEnvironment') return undefined
+      return createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }])
+    },
+  }
+  apply(noEnvironment as never, Config({}) as never)
+  const adapter = adapters[0]!.adapter
+
+  await assert.rejects(
+    (async () => {
+      for await (const _chunk of adapter.stream({
+        provider: 'open-design',
+        model: 'deepseek-v4.1-flash',
+        messages: [{
+          id: MessageId('msg-1'),
+          role: 'user',
+          content: [{ type: 'text', text: '你好' }],
+          source: { kind: 'user' },
+        }],
+      })) {
+        // The very first step must fail; nothing may be yielded.
+      }
+    })(),
+    (error: unknown) => {
+      assert.ok(error instanceof LlmError)
+      assert.equal(error.code, 'MISSING_CREDENTIAL')
+      // 可照做：设置页填 Key，或在终端复用 CLI 登录态；引用名要点出来。
+      assert.match(error.message, /设置/)
+      assert.match(error.message, /Open Design/)
+      assert.match(error.message, /vela login/)
+      assert.match(error.message, new RegExp(DEFAULT_API_KEY_ENV))
+      // 不把密钥内容写进文案。
+      assert.doesNotMatch(error.message, /sk-amr-/)
+      return true
+    },
+  )
 })

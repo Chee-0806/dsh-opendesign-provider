@@ -245,7 +245,8 @@ export function apply(ctx: Context, config: Config): void {
 
   // Credential chain, level 1 and 2: literal config, then the credential
   // reference (the web Models page writes it). The CLI login state joins the
-  // chain in ticket 08; until then a missing key names both paths.
+  // chain in ticket 08; the diagnosis already names that path so the user can
+  // act on it today.
   const resolveApiKey = async (): Promise<string> => {
     const literal = current().apiKey
     if (typeof literal === 'string' && literal !== '') {
@@ -268,10 +269,10 @@ export function apply(ctx: Context, config: Config): void {
       }
     }
     throw new LlmError(
-      `llm-opendesign: no API key for provider route "${PROVIDER}"; store ${ref} through the`
-      + ' credentials service (the web Models page writes it), export it in the launching'
-      + ' environment, set config.apiKey, or run `vela login` and let ticket 08 reuse'
-      + ' ~/.amr/config.json. Open Design keys are created at https://open-design.ai/cloud/api-keys.',
+      `llm-opendesign: 还没有可用的 Open Design API Key（provider 路由 "${PROVIDER}"，凭据引用 ${ref}）。`
+      + '请在 设置 → Open Design 填入 API Key（或在启动环境导出该变量、在 composition 里设置 config.apiKey）；'
+      + '也可以在终端执行 `vela login` 复用桌面端登录态。'
+      + 'Key 在 https://open-design.ai/cloud/api-keys 创建。',
       'MISSING_CREDENTIAL',
     )
   }

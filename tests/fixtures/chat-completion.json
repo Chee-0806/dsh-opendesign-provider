@@ -1,0 +1,27 @@
+{
+  "id": "gen-1750000000-abcdef",
+  "object": "chat.completion",
+  "created": 1792480241,
+  "model": "deepseek-v4.1-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "reasoning": "用户用中文打招呼，直接用中文回复。",
+        "reasoning_details": [
+          { "index": 0, "type": "reasoning.text", "text": "用户用中文打招呼，直接用中文回复。" }
+        ],
+        "content": "你好！有什么可以帮你？"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 9,
+    "total_tokens": 21,
+    "prompt_tokens_details": { "cached_tokens": 4 },
+    "completion_tokens_details": { "reasoning_tokens": 3 }
+  }
+}
