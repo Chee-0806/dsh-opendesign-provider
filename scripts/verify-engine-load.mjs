@@ -1,7 +1,8 @@
 /**
  * Engine-load smoke test: prove this bundle LINKS and EVALUATES against a real
  * dsh engine before it ships, and that its Host assembly registers only the
- * Open Design provider, adapter, optional models Remote and settings bridge.
+ * Open Design provider, adapter, optional models/quota Remotes, the
+ * `/opendesign` command and the settings bridge.
  *
  * The check installs each declared-compatible engine (reusing a scratch npm
  * cache), stages the published surface next to that engine's peers, then:
@@ -431,8 +432,10 @@ async function checkHostAssembly(staged, engineModules) {
       const info = adapters[0].adapter.providerInfo(PROVIDER)
       if (info.id !== PROVIDER || info.name !== 'Open Design') fail(`adapter providerInfo() is ${JSON.stringify(info)}`)
     }
-    if (JSON.stringify(injected) !== JSON.stringify([['typert'], ['settings']])) {
-      fail(`apply() injected ${JSON.stringify(injected)}, expected the optional models Remote and the settings bridge`)
+    // models Remote + quota Remote ride two optional typert fibers; the command
+    // rides the optional `commands` service; settings stays last.
+    if (JSON.stringify(injected) !== JSON.stringify([['typert'], ['typert'], ['commands'], ['settings']])) {
+      fail(`apply() injected ${JSON.stringify(injected)}, expected the two optional Remotes, the command and the settings bridge`)
     }
     if (configured.length !== 1 || configured[0]?.auto !== false) {
       fail(`settings.configure() received ${JSON.stringify(configured)}, expected [{ auto: false }]`)

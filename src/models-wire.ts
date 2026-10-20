@@ -16,7 +16,7 @@
  * @module dsh-opendesign-provider/models-wire
  */
 
-import type { InvocationDescriptor, RemoteResult, TypertRemoteContribution, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
+import type { InvocationDescriptor, TypertRemoteContribution, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
 import type { ApiBaseSource, CliLoginStatus, CredentialSource } from './credentials.ts'
 import {
   makeBoundaryValidator,
@@ -205,19 +205,10 @@ export const MODELS_REMOTE_CONTRIBUTION: TypertRemoteContribution = {
   descriptors: [MODELS_DESCRIPTOR],
 }
 
-/**
- * Type-level merge for the generated Remote face. `opendesign/models` is an
- * optional member: a Host older than this bundle mounts no such descriptor, and
- * the settings page degrades to the unknown-catalog state instead of throwing.
+/*
+ * The typed Remote face lives in `remote-map.ts`: Typert's namespace
+ * augmentation must declare every `opendesign` endpoint in one place. It is a
+ * source-level type contract (the declaration bundler strips module
+ * augmentations from `lib/index.d.ts`, for every wire module, before and after
+ * this ticket).
  */
-declare module '@deepseek-ai/dsh-typert-protocol' {
-  interface TypertRemoteMap {
-    'opendesign/models': () => Promise<RemoteResult<OpenDesignModelsReport>>
-  }
-
-  interface TypertRemoteNamespaceMap {
-    opendesign: {
-      models?: () => Promise<RemoteResult<OpenDesignModelsReport>>
-    }
-  }
-}
