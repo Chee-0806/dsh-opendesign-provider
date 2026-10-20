@@ -18,6 +18,7 @@
 
 import type { InvocationDescriptor, RemoteResult, TypertRemoteContribution, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
 import type { ApiBaseSource, CliLoginStatus, CredentialSource } from './credentials.ts'
+import type { AnalyticsQuery, OpenDesignAnalyticsReport } from './analytics-wire.ts'
 import {
   makeBoundaryValidator,
   makeRemoteDescriptor,
@@ -218,6 +219,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespaceMap {
     opendesign: {
       models?: () => Promise<RemoteResult<OpenDesignModelsReport>>
+      /** Ticket 12 analytics read; optional like `models`. */
+      analytics?: (query: AnalyticsQuery) => Promise<RemoteResult<OpenDesignAnalyticsReport>>
     }
   }
 }

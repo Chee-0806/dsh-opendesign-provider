@@ -1,5 +1,6 @@
 /**
- * Host half of `opendesign/models` (ticket 08).
+ * Host half of the `opendesign` namespace: `opendesign/models` (ticket 08) and,
+ * when the plugin supplies analytics deps, `opendesign/analytics` (ticket 12).
  *
  * The settings page and the Models-page card need two Host-only facts: the
  * catalog's provenance (`OpenDesignAdapter.catalogStatus()`, ticket 03) and
@@ -20,6 +21,12 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { CredentialChainResult } from './credentials.ts'
 import type { GatewayCatalogStatus } from './gateway-facts.ts'
 import { REMOTE_NAMESPACE, REMOTE_SERVICE } from './identity.ts'
+import { analyticsReport, type OpenDesignAnalyticsDeps } from './analytics-remote.ts'
+import {
+  ANALYTICS_DESCRIPTOR,
+  type AnalyticsQuery,
+  type OpenDesignAnalyticsReport,
+} from './analytics-wire.ts'
 import {
   MODELS_DESCRIPTOR,
   type ModelsReportCatalog,
@@ -33,6 +40,13 @@ export interface OpenDesignModelsDeps {
   catalogStatus: () => Promise<GatewayCatalogStatus>
   /** The credential chain's safe projection; never contains the key values. */
   credentialStatus: () => Promise<CredentialChainResult>
+  /**
+   * Ticket 12's analytics read. Supplying it adds the `analytics` method to
+   * this one Service and registers its descriptor. It lives here because
+   * Cordis allows exactly one Service per key (`opendesignUsage`) and two
+   * `ctx.inject(['typert'])` scopes cannot see each other's services.
+   */
+  analytics?: OpenDesignAnalyticsDeps | undefined
 }
 
 /** Project one catalog status onto the wire shape. */
@@ -92,9 +106,20 @@ export function buildModelsReport(
 export class OpenDesignModelsService extends TypertRemoteService {
   private readonly deps: OpenDesignModelsDeps
 
+  /**
+   * The ticket 12 analytics invocation, present only when the plugin supplied
+   * analytics deps. It shares this Service because one Cordis key cannot host
+   * two instances; the `opendesign/models` method and descriptor are untouched.
+   */
+  readonly analytics?: ((query: AnalyticsQuery) => Promise<OpenDesignAnalyticsReport>) | undefined
+
   constructor(ctx: Context, deps: OpenDesignModelsDeps) {
     super(ctx, REMOTE_SERVICE, { namespace: REMOTE_NAMESPACE })
     this.deps = deps
+    if (deps.analytics !== undefined) {
+      const analyticsDeps = deps.analytics
+      this.analytics = (query: AnalyticsQuery) => analyticsReport(analyticsDeps, query)
+    }
   }
 
   /** Read both Host-only facts fresh for one browser request. */
@@ -118,13 +143,23 @@ interface TypertContributionRegistry {
   }): () => void | Promise<void>
 }
 
-/** The Host-face contribution carrying the one descriptor. */
-const MODELS_HOST_CONTRIBUTION = {
-  package: REMOTE_PACKAGE,
-  face: 'host' as const,
-  schemas: [],
-  model: { services: [], events: [], objects: [] },
-  invocations: [MODELS_DESCRIPTOR],
+/** The Host-face contribution: the models descriptor, plus analytics when wired. */
+function hostContribution(deps: OpenDesignModelsDeps): {
+  package: string
+  face: 'host'
+  schemas: unknown[]
+  model: { services: unknown[]; events: unknown[]; objects: unknown[] }
+  invocations: unknown[]
+} {
+  return {
+    package: REMOTE_PACKAGE,
+    face: 'host',
+    schemas: [],
+    model: { services: [], events: [], objects: [] },
+    invocations: deps.analytics === undefined
+      ? [MODELS_DESCRIPTOR]
+      : [MODELS_DESCRIPTOR, ANALYTICS_DESCRIPTOR],
+  }
 }
 
 /**
@@ -135,7 +170,7 @@ export function applyModelsRemote(ctx: Context, deps: OpenDesignModelsDeps): voi
   ctx.inject(['typert'], (remoteCtx) => {
     new OpenDesignModelsService(remoteCtx, deps)
     const registry = remoteCtx.typert as unknown as TypertContributionRegistry
-    const unregister = registry.register(MODELS_HOST_CONTRIBUTION)
+    const unregister = registry.register(hostContribution(deps))
     remoteCtx.effect(() => () => void unregister(), 'dsh-opendesign-provider: models remote')
   })
 }

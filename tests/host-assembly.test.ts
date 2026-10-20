@@ -122,7 +122,7 @@ test('apply registers the Open Design provider, adapter, models Remote and setti
     name: 'Open Design',
   })
 
-  assert.deepEqual(injected, [['typert'], ['settings']], 'only the optional models Remote and the settings bridge remain')
+  assert.deepEqual(injected, [['typert'], ['settings']], 'the models+analytics Remote and the settings bridge remain')
   assert.deepEqual(configured, [{ auto: false }], 'the plugin ships its own page, so no auto form')
 })
 

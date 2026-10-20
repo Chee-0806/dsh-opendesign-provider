@@ -16,7 +16,7 @@
  *
  * @module dsh-opendesign-provider/wire-shared
  */
-import type { InvocationDescriptor, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
+import type { InvocationDescriptor, InvocationParameterDescriptor, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
 
 import { PACKAGE_NAME, REMOTE_NAMESPACE, REMOTE_SERVICE } from './identity.ts'
 
@@ -86,16 +86,32 @@ export function makeStrictCodec<Output>(typeSymbol: string, schema: TypertSchema
   return { mode: 'strict', typeSymbol, create: () => schema }
 }
 
+/** Build one JSON business parameter carried in the wire `args` object. */
+export function makeRemoteParameter<Input>(
+  name: string,
+  typeSymbol: string,
+  schema: TypertSchema<Input>,
+): InvocationParameterDescriptor {
+  return {
+    name,
+    wire: name,
+    source: 'json',
+    codec: makeStrictCodec(typeSymbol, schema),
+  }
+}
+
 /**
  * Build one strict invocation descriptor. Every Open Design Remote shares the
  * `opendesign` namespace, the `opendesignUsage` service, and a strict result
- * — only the endpoint, method, result type symbol, and schema differ.
+ * — only the endpoint, method, parameters, result type symbol and schema
+ * differ. A parameterless method (the default) sends an empty `args` object.
  */
 export function makeRemoteDescriptor<Output>(
   endpoint: string,
   method: string,
   typeSymbol: string,
   schema: TypertSchema<Output>,
+  parameters: readonly InvocationParameterDescriptor[] = [],
 ): InvocationDescriptor {
   return {
     id: `${REMOTE_PACKAGE}#${endpoint}`,
@@ -103,7 +119,7 @@ export function makeRemoteDescriptor<Output>(
     namespace: REMOTE_NAMESPACE,
     method,
     invocation: { kind: 'direct' },
-    parameters: [],
+    parameters,
     result: makeStrictCodec(typeSymbol, schema),
   }
 }
