@@ -154,9 +154,10 @@ export interface Config {
   /** Per-model custom context length, keyed by catalog model id; wins over the global value. */
   contextWindowOverrides?: Record<string, number>
   /**
-   * Per-turn output budget ceiling. Unset follows the adapter's derived
-   * default; a positive integer can only tighten it; `0` is the "omit the
-   * output-cap field" sentinel once the transport supports it.
+   * Per-turn output budget ceiling. Unset follows the model's own output
+   * budget; a positive integer can only tighten it; `0` means "no host
+   * budget" and never tightens anything (the cap field is always sent —
+   * design §4.2 — so `0` must not become a literal zero-token budget).
    */
   maxOutputTokens?: number
   /**
@@ -192,7 +193,8 @@ export const Config: z<Config> = z.object(markVolatileFields({
   // 自定义上下文长度：全局值与按模型覆盖共用同一边界，越界在 schema 层就被拒绝。
   contextWindow: z.number().min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX).step(1),
   contextWindowOverrides: z.dict(z.number().min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX).step(1)),
-  // 输出预算：0 是「不发送该字段」的省略哨兵，正数是最小值上限，两者都不得超过网关总上限。
+  // 输出预算：0 表示「没有宿主预算」（不是 0 token 的预算），正数只会收紧模型预算，
+  // 两者都不得超过网关的绝对上限 262144。
   maxOutputTokens: z.number().min(OMIT_OUTPUT_TOKENS).max(MAX_OUTPUT_TOKEN_LIMIT).step(1),
   lang: z.string().pattern(/^(zh|en)$/).default('zh' as const),
 }, ['apiKey']))

@@ -10,7 +10,8 @@
  *   本模块只做「域内收敛」与「上线字面量映射」，不另存第二份档位表。
  * - gpt-6-luna 与 claude-haiku-5.5 在 Chat 面完全不吐 `reasoning`（实测），它们的
  *   思考只在 Responses / Messages 面可见；这不是 bug，界面上要标注「思考不可见」。
- * - 上游不认输出上限（deepseek/glm）时由客户端硬截断兜底：那是 ticket 05。
+ * - 上游不认输出上限（glm 实测 16 → 74 tokens）时由客户端硬截断兜底
+ *   （`stream-response.ts`，ticket 05）；kimi 的 low/medium 档另有思考预算门限。
  *
  * @module dsh-opendesign-provider/quirks
  */
@@ -110,4 +111,43 @@ const CHAT_THINKING_HIDDEN: readonly string[] = ['gpt-6-luna', 'claude-haiku-5.5
  */
 export function thinkingVisibleInChat(model: string): boolean {
   return !CHAT_THINKING_HIDDEN.includes(model)
+}
+
+/** kimi 是唯一有思考预算门限的模型（设计件 §4.3）。 */
+const KIMI_MODEL_ID = 'kimi-k2.7-code'
+
+/**
+ * kimi 各档的 `thinking_budget`（token），来自 2026-10-20 的逐档实测：
+ *
+ * - `minimal` 与 `low` → 8192；
+ * - `medium` → 32768；
+ * - `high` / `xhigh` → 无门限：`max_completion_tokens` 给 16 甚至 1 都返回 200，
+ *   上游没有可收敛的预算。设计件写的「high 更高」是当时的假设，实测不支持，
+ *   所以不编一个数字：给小上限就让它真截断。
+ *
+ * 报错原文：`max_completion_tokens [8192] must be greater than thinking_budget [8192]`。
+ */
+const KIMI_THINKING_BUDGETS: Readonly<Partial<Record<ReasoningLevel, number>>> = {
+  minimal: 8_192,
+  low: 8_192,
+  medium: 32_768,
+}
+
+/**
+ * 该模型在该思考档的 `thinking_budget`；`undefined` = 这一档没有预算门限。
+ *
+ * 只对 kimi 生效：其他模型的档位不影响输出上限。
+ */
+export function thinkingBudgetFor(model: string, level: ReasoningLevel | undefined): number | undefined {
+  if (model !== KIMI_MODEL_ID || level === undefined) return undefined
+  return KIMI_THINKING_BUDGETS[level]
+}
+
+/**
+ * 该档可用的最小 `max_completion_tokens`：上游要求严格「大于」预算，
+ * 所以是预算 + 1；没有门限的档返回 `undefined`。
+ */
+export function outputCapFloor(model: string, level: ReasoningLevel | undefined): number | undefined {
+  const budget = thinkingBudgetFor(model, level)
+  return budget === undefined ? undefined : budget + 1
 }

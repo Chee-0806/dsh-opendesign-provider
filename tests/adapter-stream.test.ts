@@ -418,3 +418,135 @@ test('finish_reason=length 如实映射为因长度结束', async () => {
   const chunks = await collect(oneTurn('kimi-k2.7-code'), makeAdapter({ fetchImpl: sseFetch([body]) }))
   assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'max-tokens' } })
 })
+
+// ---------------------------------------------------------------------------
+// 客户端硬截断（ticket 05）
+// ---------------------------------------------------------------------------
+
+/**
+ * 累计输出达到有效上限就停止读取，并以「因长度结束」收尾。
+ *
+ * 计数按已收到的内容估算：中日韩字符与换行各算 1 token，ASCII 每 3 个字符算
+ * 1 token。所以下面用 10 个汉字一帧，上限 16 时第二帧（累计 20）越线，第三帧
+ * 起不再读取——第三帧故意写成非法 JSON，若仍被读取会抛 PROTOCOL_ERROR。
+ */
+test('上游不遵守上限（glm 实测超发）：客户端在累计越线后停止读取，保留已产出内容并如实标注长度结束', async () => {
+  const overproducing = [
+    'data: {"choices":[{"index":0,"delta":{"content":"一二三四五六七八九十"}}]}',
+    'data: {"choices":[{"index":0,"delta":{"content":"甲乙丙丁戊己庚辛壬癸"}}]}',
+    'data: 这不是 JSON',
+    'data: {"choices":[{"index":0,"delta":{"content":"不该被读到"}}]}',
+    'data: [DONE]',
+    '',
+  ].join('\n\n')
+
+  const chunks = await collect(
+    oneTurn('glm-5.3-flash', { maxTokens: 16 }),
+    makeAdapter({ fetchImpl: sseFetch([overproducing]) }),
+  )
+
+  assert.deepEqual(chunks, [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text: '一二三四五六七八九十' },
+    { type: 'text-delta', index: 0, text: '甲乙丙丁戊己庚辛壬癸' },
+    { type: 'block-end', index: 0, block: { type: 'text', text: '一二三四五六七八九十甲乙丙丁戊己庚辛壬癸' } },
+    // 没有「成功」的假象：宿主据此把回复标成被截断。
+    { type: 'finish', reason: { kind: 'max-tokens' } },
+  ])
+})
+
+test('思考 token 也计入上限：思考吃满后停止，思考块与正文块都保留', async () => {
+  const thinkingHeavy = [
+    'data: {"choices":[{"index":0,"delta":{"reasoning":"想了一二三四五六七八九十"}}]}',
+    'data: {"choices":[{"index":0,"delta":{"content":"答"}}]}',
+    'data: 这不是 JSON',
+    'data: [DONE]',
+    '',
+  ].join('\n\n')
+
+  // 12 个汉字的思考 + 1 个汉字的正文 = 13，正好触到 13 的上限。
+  const chunks = await collect(
+    oneTurn('deepseek-v4.1-flash', { maxTokens: 13 }),
+    makeAdapter({ fetchImpl: sseFetch([thinkingHeavy]) }),
+  )
+
+  assert.deepEqual(chunks, [
+    { type: 'block-start', index: 0, blockType: 'reasoning' },
+    { type: 'reasoning-delta', index: 0, text: '想了一二三四五六七八九十' },
+    { type: 'block-end', index: 0, block: { type: 'reasoning', text: '想了一二三四五六七八九十' } },
+    { type: 'block-start', index: 1, blockType: 'text' },
+    { type: 'text-delta', index: 1, text: '答' },
+    { type: 'block-end', index: 1, block: { type: 'text', text: '答' } },
+    { type: 'finish', reason: { kind: 'max-tokens' } },
+  ])
+})
+
+test('上游在流内报出的 completion_tokens 也计入计数：达到上限即停止，不依赖尾帧', async () => {
+  const withUsage = [
+    'data: {"choices":[{"index":0,"delta":{"content":"短"}}]}',
+    'data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":16,"total_tokens":21}}',
+    'data: 这不是 JSON',
+    'data: [DONE]',
+    '',
+  ].join('\n\n')
+
+  const chunks = await collect(
+    oneTurn('glm-5.3-flash', { maxTokens: 16 }),
+    makeAdapter({ fetchImpl: sseFetch([withUsage]) }),
+  )
+
+  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'max-tokens' } })
+  assert.ok(
+    chunks.some((chunk) => (chunk as { type?: string }).type === 'usage'),
+    '上游报出的用量要保留，不能被截断丢掉',
+  )
+})
+
+test('上限够大时不误伤正常结束：全部内容与用量都在，终态是 stop', async () => {
+  const chunks = await collect(
+    oneTurn('deepseek-v4.1-flash'),
+    makeAdapter({ fetchImpl: sseFetch([fixture('stream-text.sse')]) }),
+  )
+  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
+  assert.equal(chunks.filter((chunk) => (chunk as { type?: string }).type === 'text-delta').length, 2)
+})
+
+test('同样的超发流在宽松上限下不截断：整段读完，终态仍是 stop', async () => {
+  const overproducing = [
+    'data: {"choices":[{"index":0,"delta":{"content":"一二三四五六七八九十"}}]}',
+    'data: {"choices":[{"index":0,"delta":{"content":"甲乙丙丁戊己庚辛壬癸"}}]}',
+    'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+    'data: [DONE]',
+    '',
+  ].join('\n\n')
+
+  const chunks = await collect(
+    oneTurn('glm-5.3-flash', { maxTokens: 200 }),
+    makeAdapter({ fetchImpl: sseFetch([overproducing]) }),
+  )
+  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
+  assert.deepEqual(
+    (chunks.find((chunk) => (chunk as { type?: string }).type === 'block-end') as { block?: unknown }).block,
+    { type: 'text', text: '一二三四五六七八九十甲乙丙丁戊己庚辛壬癸' },
+  )
+})
+
+test('上游遵守上限（kimi 精确 16）：内容保留，终态是因长度结束而不是成功', async () => {
+  const capped = [
+    'data: {"choices":[{"index":0,"delta":{"content":"一二三四五六七八九十一二三四五六"}}]}',
+    'data: {"choices":[{"index":0,"delta":{},"finish_reason":"length"}]}',
+    'data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":16,"total_tokens":21}}',
+    'data: [DONE]',
+    '',
+  ].join('\n\n')
+
+  const chunks = await collect(
+    oneTurn('kimi-k2.7-code', { maxTokens: 16 }),
+    makeAdapter({ fetchImpl: sseFetch([capped]) }),
+  )
+  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'max-tokens' } })
+  assert.deepEqual(
+    (chunks.find((chunk) => (chunk as { type?: string }).type === 'block-end') as { block?: unknown }).block,
+    { type: 'text', text: '一二三四五六七八九十一二三四五六' },
+  )
+})

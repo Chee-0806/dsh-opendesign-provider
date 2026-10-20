@@ -12,7 +12,9 @@
  *   `arguments` 逐片拼接；
  * - 尾帧是 `choices: []` 只带 `usage` 的帧，必须计入；
  * - `finish_reason` 可缺省（gpt-6-luna 贴近实测），缺省时按内容/工具/上限推断；
- * - `data: [DONE]` 是终止标记，其后的帧一律不看；`event:` 行不参与分派。
+ * - `data: [DONE]` 是终止标记，其后的帧一律不看；`event:` 行不参与分派；
+ * - 累计输出（思考 + 正文 + 工具参数，含上游报出的 usage）达到上限就停止读取，
+ *   保留已产出的内容并以「因长度结束」收尾（ticket 05 的客户端硬截断）。
  *
  * 本模块只被 Host 半侧引用，不导入 cordis / schemastery。
  *
@@ -28,6 +30,7 @@ import {
   type StreamChunk,
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
+import { estimateOutputTokens } from './output-tokens.ts'
 
 /** 一帧 `data:` 载荷：解析后的对象，或协议终止标记。 */
 type SsePayload = Record<string, unknown>
@@ -48,6 +51,10 @@ export async function* streamedCompletionChunks(
   const toolCalls = new Map<number, { readonly index: number; id: string; name: string; arguments: string }>()
   let finishSpelling: string | undefined
   let usage: TokenUsage | undefined
+  // 硬截断的计数：已收到内容的估算值，以及上游在流内报出的真实用量，取较大者。
+  let estimatedOutputTokens = 0
+  let reportedOutputTokens = 0
+  let truncated = false
 
   /** 关闭当前思考块：下一类内容开始时收尾，块的形态与一次性响应完全一致。 */
   function* closeReasoning(): Generator<StreamChunk> {
@@ -65,9 +72,19 @@ export async function* streamedCompletionChunks(
 
   for await (const payload of readSsePayloads(body)) {
     const reported = usageOf(payload.usage)
-    if (reported !== undefined) usage = reported
+    if (reported !== undefined) {
+      usage = reported
+      reportedOutputTokens = Math.max(reportedOutputTokens, reported.outputTokens)
+    }
     const choice = firstChoice(payload)
-    if (choice === undefined) continue
+    if (choice === undefined) {
+      // 只有用量的尾帧（真实流）或空帧：用量本身也可能已经证明到顶。
+      if (reportedOutputTokens >= cap) {
+        truncated = true
+        break
+      }
+      continue
+    }
     if (typeof choice.finish_reason === 'string') finishSpelling = choice.finish_reason
     const delta = isRecord(choice.delta) ? choice.delta : {}
 
@@ -78,6 +95,7 @@ export async function* streamedCompletionChunks(
         yield { type: 'block-start', index: reasoning.index, blockType: 'reasoning' }
       }
       reasoning.text += reasoningDelta
+      estimatedOutputTokens += estimateOutputTokens(reasoningDelta)
       yield { type: 'reasoning-delta', index: reasoning.index, text: reasoningDelta }
     }
 
@@ -89,6 +107,7 @@ export async function* streamedCompletionChunks(
         yield { type: 'block-start', index: text.index, blockType: 'text' }
       }
       text.text += textDelta
+      estimatedOutputTokens += estimateOutputTokens(textDelta)
       yield { type: 'text-delta', index: text.index, text: textDelta }
     }
 
@@ -108,6 +127,7 @@ export async function* streamedCompletionChunks(
       }
       if (fragment.name !== '') call.name = fragment.name
       call.arguments += fragment.argumentsDelta
+      estimatedOutputTokens += estimateOutputTokens(fragment.argumentsDelta)
       yield {
         type: 'tool-call-delta',
         index: call.index,
@@ -115,6 +135,13 @@ export async function* streamedCompletionChunks(
         ...(fragment.name === '' ? {} : { name: fragment.name }),
         argumentsDelta: fragment.argumentsDelta,
       }
+    }
+
+    // 越线就停止读取：剩下的帧（可能还有半截工具调用或错误页）不再看。
+    // 已产出的内容保留，终态由 `truncated` 改写成「因长度结束」。
+    if (Math.max(estimatedOutputTokens, reportedOutputTokens) >= cap) {
+      truncated = true
+      break
     }
   }
 
@@ -142,7 +169,10 @@ export async function* streamedCompletionChunks(
   }
 
   if (usage !== undefined) yield { type: 'usage', usage }
-  yield { type: 'finish', reason: finishReasonOf(finishSpelling, toolCalls.size, usage, cap) }
+  yield {
+    type: 'finish',
+    reason: truncated ? { kind: 'max-tokens' } : finishReasonOf(finishSpelling, toolCalls.size, usage, cap),
+  }
 }
 
 /**

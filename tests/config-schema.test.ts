@@ -72,13 +72,13 @@ test('上下文配置只接受边界内整数，程序化调用另行清洗非�
   assert.deepEqual(resolved.contextWindowOverrides, { valid: 32_768 })
 })
 
-test('输出预算接受 0（省略哨兵）到网关上限，越界与非整数被拒绝', () => {
-  // 0 is the sentinel the issue #74 report asked for, not a small budget, so
-  // it must survive the schema rather than be treated like a missing value.
-  for (const value of [0, 1, 64_000, 131_072]) {
+test('输出预算接受 0（无宿主预算）到 262144 绝对上限，越界与非整数被拒绝', () => {
+  // 0 是「没有宿主预算」的哨兵，不是 0 token 的预算，所以必须能通过 schema；
+  // 262144 是网关接受的绝对上限（ticket 05）。
+  for (const value of [0, 1, 64_000, 131_072, 262_144]) {
     assert.equal(unwrapVolatileConfig(Config({ maxOutputTokens: value })).maxOutputTokens, value)
   }
-  for (const value of [-1, 131_073, 64_000.5]) {
+  for (const value of [-1, 262_145, 64_000.5]) {
     assert.throws(() => Config({ maxOutputTokens: value }))
   }
 })
@@ -87,7 +87,7 @@ test('程序化构造越过配置校验时，非法输出预算回落到「未�
   // A connection built by hand never passes through Schemastery, so the resolve
   // step re-judges: a budget the gateway would refuse becomes "unset" (the
   // derived default), not a request that fails upstream.
-  for (const value of [-1, 131_073, 64_000.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+  for (const value of [-1, 262_145, 64_000.5, Number.NaN, Number.POSITIVE_INFINITY]) {
     assert.equal(resolveAdapterOptions({ maxOutputTokens: value }).maxOutputTokens, undefined)
   }
   assert.equal(resolveAdapterOptions({ maxOutputTokens: 0 }).maxOutputTokens, 0)

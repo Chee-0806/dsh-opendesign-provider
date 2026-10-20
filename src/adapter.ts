@@ -50,8 +50,13 @@ import {
 } from './gateway-facts.ts'
 import { DEFAULT_API_BASE, PROVIDER_DISPLAY_NAME } from './identity.ts'
 import { modelIsVisible } from './model-visibility.ts'
-import { applyMaxOutputTokens } from './output-budget.ts'
-import { OUTPUT_CAP_FIELD, coerceReasoningLevel, wireReasoningEffort } from './quirks.ts'
+import { effectiveOutputCap } from './output-budget.ts'
+import {
+  OUTPUT_CAP_FIELD,
+  coerceReasoningLevel,
+  outputCapFloor,
+  wireReasoningEffort,
+} from './quirks.ts'
 import { streamedCompletionChunks } from './stream-response.ts'
 
 /** Default budget for the first byte of a response. */
@@ -188,8 +193,9 @@ export class OpenDesignAdapter extends LlmAdapter {
     // The catalog is read from memory only: a directory refresh must never
     // delay or fail a conversation turn.
     const entry = lookupCatalogEntry(this.currentCatalog(connection).models, options.model)
-    const cap = outputCapFor(options, entry, connection)
-    const body = buildRequestBody(options, cap)
+    const level = selectedReasoningLevel(options.model, options.reasoningEffort)
+    const cap = outputCapFor(options, entry, connection, options.model, level)
+    const body = buildRequestBody(options, cap, level)
     const fetchImpl = this.deps.fetchImpl ?? fetch
     const callerSignal = options.signal
     const signal = requestSignal(callerSignal, connection.requestTimeoutMs)
@@ -279,14 +285,26 @@ function requestSignal(callerSignal: AbortSignal | undefined, timeoutMs: number)
   return callerSignal === undefined ? timeout : AbortSignal.any([callerSignal, timeout])
 }
 
-/** The largest output budget this call may ask for: user/host budget, else the model's own. */
+/**
+ * The `max_completion_tokens` this call sends: the host budget, the model's
+ * output budget and the gateway's absolute ceiling, smallest wins, raised to
+ * the selected thinking level's floor when the model demands one (kimi).
+ *
+ * The host's per-call budget outranks the connection setting; both use the
+ * zero sentinel to mean "no host budget" (design §4.3).
+ */
 function outputCapFor(
   options: GenerateOptions,
   entry: GatewayCatalogEntry | undefined,
   connection: OpenDesignConnectionOptions,
+  model: string,
+  level: ReasoningLevel | undefined,
 ): number {
-  const derived = entry?.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS
-  return applyMaxOutputTokens(derived, options.maxTokens ?? connection.maxOutputTokens)
+  return effectiveOutputCap({
+    hostBudget: options.maxTokens ?? connection.maxOutputTokens,
+    modelBudget: entry?.maxTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+    thinkingFloor: outputCapFloor(model, level),
+  })
 }
 
 /** The reasoning level to send: a known level, coerced into the model's own domain. */
@@ -298,7 +316,11 @@ function selectedReasoningLevel(model: string, requested: string | undefined): R
 }
 
 /** Build the Chat Completions request body for one call. */
-function buildRequestBody(options: GenerateOptions, cap: number): Record<string, unknown> {
+function buildRequestBody(
+  options: GenerateOptions,
+  cap: number,
+  level: ReasoningLevel | undefined,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: options.model,
     messages: toWireMessages(options),
@@ -309,7 +331,7 @@ function buildRequestBody(options: GenerateOptions, cap: number): Record<string,
     [OUTPUT_CAP_FIELD]: cap,
   }
   if (options.tools !== undefined && options.tools.length > 0) body.tools = options.tools.map(toWireTool)
-  const effort = wireReasoningEffort(selectedReasoningLevel(options.model, options.reasoningEffort))
+  const effort = wireReasoningEffort(level)
   if (effort !== undefined) body.reasoning_effort = effort
   return body
 }

@@ -291,6 +291,90 @@ test('模型不支持的档位在请求前收敛（glm 只发 low/high/max）', 
   assert.equal(requestBody(recorded).reasoning_effort, 'low')
 })
 
+// ---------------------------------------------------------------------------
+// 输出上限（ticket 05）
+// ---------------------------------------------------------------------------
+
+test('宿主预算按 min(宿主, 模型, 262144) 发送，且只发 max_completion_tokens', async () => {
+  // 16 的宿主预算压在模型 128000 之上。
+  const small: RecordedRequest[] = []
+  await collect(
+    oneTurn('deepseek-v4.1-flash', { maxTokens: 16 }),
+    makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, small) }),
+  )
+  const capped = requestBody(small)
+  assert.equal(capped.max_completion_tokens, 16)
+  // max_tokens 全员不认，任何情况下都不发。
+  assert.equal('max_tokens' in capped, false)
+
+  // 宿主预算比模型大时以模型预算为准。
+  const bigger: RecordedRequest[] = []
+  await collect(
+    oneTurn('glm-5.3-flash', { maxTokens: 200_000 }),
+    makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, bigger) }),
+  )
+  assert.equal(requestBody(bigger).max_completion_tokens, 32_000)
+  assert.equal('max_tokens' in requestBody(bigger), false)
+
+  // 连接级预算只在宿主没有逐次给值时兜底；逐次给值优先。
+  const fromConnection: RecordedRequest[] = []
+  await collect(
+    oneTurn('deepseek-v4.1-flash'),
+    makeAdapter({
+      options: () => connection({ maxOutputTokens: 64 }),
+      fetchImpl: recordingFetch(200, OK_REPLY, fromConnection),
+    }),
+  )
+  assert.equal(requestBody(fromConnection).max_completion_tokens, 64)
+
+  const perCall: RecordedRequest[] = []
+  await collect(
+    oneTurn('deepseek-v4.1-flash', { maxTokens: 8 }),
+    makeAdapter({
+      options: () => connection({ maxOutputTokens: 64 }),
+      fetchImpl: recordingFetch(200, OK_REPLY, perCall),
+    }),
+  )
+  assert.equal(requestBody(perCall).max_completion_tokens, 8)
+})
+
+test('kimi 小上限按思考档收敛后再发送：low/minimal → 8193、medium → 32769，high/xhigh 不动', async () => {
+  const cases: Array<[Parameters<typeof ReasoningEffortId>[0], number]> = [
+    ['minimal', 8_193],
+    ['low', 8_193],
+    ['medium', 32_769],
+    ['high', 16],
+    ['xhigh', 16],
+  ]
+  for (const [level, expected] of cases) {
+    const recorded: RecordedRequest[] = []
+    await collect(
+      oneTurn('kimi-k2.7-code', { maxTokens: 16, reasoningEffort: ReasoningEffortId(level) }),
+      makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, recorded) }),
+    )
+    const body = requestBody(recorded)
+    assert.equal(body.max_completion_tokens, expected, `${level} 档`)
+    assert.equal(body.reasoning_effort, level)
+    assert.equal('max_tokens' in body, false)
+  }
+})
+
+test('kimi 未选档位时小上限原样发送（上游精确截断），未设上限时跟随模型 65536', async () => {
+  const unsetLevel: RecordedRequest[] = []
+  await collect(
+    oneTurn('kimi-k2.7-code', { maxTokens: 16 }),
+    makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, unsetLevel) }),
+  )
+  assert.equal(requestBody(unsetLevel).max_completion_tokens, 16)
+
+  const unsetBudget: RecordedRequest[] = []
+  await collect(
+    oneTurn('kimi-k2.7-code'),
+    makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, unsetBudget) }),
+  )
+  assert.equal(requestBody(unsetBudget).max_completion_tokens, 65_536)
+})
+
 test('宿主给了工具就按 OpenAI function 形态透传；system 与工具结果按角色映射', async () => {
   const recorded: RecordedRequest[] = []
   const adapter = makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, recorded) })
