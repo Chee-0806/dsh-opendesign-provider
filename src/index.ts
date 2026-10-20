@@ -47,6 +47,7 @@ import {
   PROVIDER_DISPLAY_NAME,
 } from './identity.ts'
 import {
+  defaultAmrConfigPath,
   missingCredentialMessage,
   resolveCredentialChain,
   type CredentialChainResult,
@@ -57,13 +58,14 @@ import {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   OpenDesignAdapter,
   type OpenDesignConnectionOptions,
+  type OpenDesignCredentialState,
   type OpenDesignImageEncoder,
 } from './adapter.ts'
 import {
-  DEFAULT_TRANSPORT_MAX_RETRIES,
   MAX_TRANSPORT_MAX_RETRIES,
   TRANSPORT_FAILURE_CODE,
   absorbTransportFailure,
+  readTransportMaxRetries,
   resetTransportFailures,
   transportBudgetMessage,
   transportResetAction,
@@ -105,7 +107,11 @@ export {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   OpenDesignAdapter,
 } from './adapter.ts'
-export type { OpenDesignAdapterDeps, OpenDesignConnectionOptions } from './adapter.ts'
+export type { OpenDesignAdapterDeps, OpenDesignConnectionOptions, OpenDesignCredentialState } from './adapter.ts'
+export { diagnosticsSnapshot, formatDiagnostics } from './diagnostics.ts'
+export type { DiagnosticsFacts, DiagnosticsSnapshot } from './diagnostics.ts'
+export { retryableFailureCodes } from './error-taxonomy.ts'
+export type { FailureCode, HttpFailureInput } from './error-taxonomy.ts'
 export type {
   GatewayCatalogEntry,
   GatewayCatalogFailureReason,
@@ -242,6 +248,7 @@ export function resolveAdapterOptions(config: Config): ResolvedOpenDesignOptions
     contextWindow: isValidContextWindow(config.contextWindow) ? config.contextWindow : undefined,
     contextWindowOverrides: readContextWindowOverrides(config.contextWindowOverrides),
     maxOutputTokens: isValidMaxOutputTokens(config.maxOutputTokens) ? config.maxOutputTokens : undefined,
+    transportMaxRetries: readTransportMaxRetries(config.transportMaxRetries),
   }
 }
 
@@ -312,7 +319,31 @@ export function apply(ctx: Context, config: Config): void {
   // to placeholder text instead of failing the turn.
   const attachments = (): OpenDesignImageEncoder | undefined => ctx.get('attachments')
 
-  const adapter = new OpenDesignAdapter({ options, resolveApiKey, resolveConnection, attachments })
+  // Diagnostics observability (ticket 06): the credential chain's safe projection
+  // — reference name, whether it resolves, and the login state's path/status —
+  // never a key value. A chain failure reports "unconfigured" rather than throwing.
+  const credentialState = async (): Promise<OpenDesignCredentialState> => {
+    try {
+      const chain = await resolveChain()
+      return {
+        ref: chain.reference,
+        present: chain.apiKey !== undefined,
+        login: {
+          path: chain.login.path,
+          status: chain.login.status,
+          hasRuntimeKey: chain.login.hasRuntimeKey,
+        },
+      }
+    } catch {
+      return {
+        ref: credentialRef(current().apiKeyEnv ?? DEFAULT_API_KEY_ENV),
+        present: false,
+        login: { path: defaultAmrConfigPath(), status: 'unreadable', hasRuntimeKey: false },
+      }
+    }
+  }
+
+  const adapter = new OpenDesignAdapter({ options, resolveApiKey, resolveConnection, attachments, credentialState })
 
   // The Models page card. An empty `settingsPath` means the whole
   // `llm-opendesign` section configures this provider.
@@ -334,11 +365,7 @@ export function apply(ctx: Context, config: Config): void {
   // connect timeout into a multi-minute stall; the first few transport
   // failures are absorbed here and the rest surface with a diagnosis.
   // `dsh-llm-retry` still owns the wait between allowed attempts.
-  const transportMaxRetries = (): number => {
-    const value = current().transportMaxRetries
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return DEFAULT_TRANSPORT_MAX_RETRIES
-    return Math.min(Math.trunc(value), MAX_TRANSPORT_MAX_RETRIES)
-  }
+  const transportMaxRetries = (): number => readTransportMaxRetries(current().transportMaxRetries)
   // The session → agent map exists for the reset below: `session/event` carries
   // the session, and the agent is the natural budget key. Weak on BOTH sides so
   // a long-lived Host cannot be held open by sessions whose turn never ended.

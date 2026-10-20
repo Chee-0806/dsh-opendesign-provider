@@ -1,19 +1,15 @@
 /**
  * A bounded retry budget for `TRANSPORT` failures (issue #39, second report).
  *
- * The route policy (`providerRetryPolicy` in `./adapter.ts`) is near-unbounded
- * on purpose — 1000 attempts doubling to a 15-minute cap — for failures the
- * provider ASKS to have retried. A connection that cannot be established is
- * not that: a blip the first few attempts absorb, or an outage no in-request
- * waiting fixes (attempt 11 alone already waits 512 s). So transport failures
- * get their own budget, cleared at each new STEP (one step = one model
- * request). `agent/status` → `idle` is NOT the reset (one `running` phase spans
- * a turn's steps), and neither is `assistant/attempt` (appended for the FAILED
- * attempt itself, which would clear the budget on every failure).
- *
- * Not counted here: the adapter's in-`stream()` pre-stream recovery (account
- * rotation, the 413 step-down, the Provider-API → CLI switch) — invisible to
- * the caller and bounded on its own.
+ * The route policy (`providerRetryPolicy` in `./adapter.ts`) declares which codes
+ * are worth another attempt — `EMPTY_RESPONSE`, `RATE_LIMIT`, `TIMEOUT`,
+ * `TRANSIENT`, `TRANSPORT` since ticket 06 — and the engine owns the backoff. A
+ * connection that cannot be established still needs its own, configurable cap:
+ * a blip the first few attempts absorb, an outage no in-request waiting fixes.
+ * So transport failures get this budget, cleared at each new STEP (one step = one
+ * model request). `agent/status` → `idle` is NOT the reset (one `running` phase
+ * spans a turn's steps), and neither is `assistant/attempt` (appended for the
+ * FAILED attempt itself, which would clear the budget on every failure).
  *
  * @module
  */
@@ -26,6 +22,22 @@ export const DEFAULT_TRANSPORT_MAX_RETRIES = 5
 
 /** Ceiling for the setting above (plausibility bound, not a recommendation; mirrored in `Config`'s schema and pinned by tests). */
 export const MAX_TRANSPORT_MAX_RETRIES = 50
+
+/**
+ * The effective transport-retry cap from raw config.
+ *
+ * Shared by the request-failure handler and the diagnostics snapshot so the
+ * number the user reads is the number the handler uses: a missing or unusable
+ * value falls back to {@link DEFAULT_TRANSPORT_MAX_RETRIES}, a large one clamps
+ * to {@link MAX_TRANSPORT_MAX_RETRIES}.
+ *
+ * @param raw - the config value as written (may be anything a hand-edited document carries).
+ * @returns the effective cap.
+ */
+export function readTransportMaxRetries(raw: unknown): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return DEFAULT_TRANSPORT_MAX_RETRIES
+  return Math.min(Math.trunc(raw), MAX_TRANSPORT_MAX_RETRIES)
+}
 
 /** Why {@link absorbTransportFailure} answered the way it did. */
 export type TransportRetryDecision = 'retry' | 'exhausted' | 'ignored'

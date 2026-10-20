@@ -44,7 +44,7 @@ test('a non-transport code is never consumed by the budget', () => {
   const agent: FakeAgent = { id: 'main' }
   // Codes the route policy retries on its own window plus the ones that must
   // stay terminal: none may spend (or be stopped by) this budget.
-  for (const code of ['RATE_LIMIT', 'SERVER', 'TIMEOUT', 'EMPTY_RESPONSE', 'CONTEXT_WINDOW_EXCEEDED', 'INVALID_CREDENTIAL']) {
+  for (const code of ['RATE_LIMIT', 'TRANSIENT', 'TIMEOUT', 'EMPTY_RESPONSE', 'CONTEXT_WINDOW_EXCEEDED', 'INVALID_CREDENTIAL']) {
     assert.equal(absorbTransportFailure(agent, code, 0), 'ignored', `${code} must be ignored`)
   }
 })

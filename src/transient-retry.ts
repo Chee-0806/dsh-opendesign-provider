@@ -1,7 +1,16 @@
-/** 普通临时故障与额度窗口分开计数；预算按智能体的一次模型请求重置。 */
+/**
+ * 普通临时故障的预算：空回复、网关临时故障（`TRANSIENT`）、超时，以及 429 限流
+ * （ticket 06 起 429 也走这棵预算，最多 3 次）。确定性错误不计数也不重试；
+ * 预算按智能体的一次模型请求重置。
+ */
 export const TRANSIENT_MAX_RETRIES = 3
 export const THROTTLED_CODE = 'THROTTLED'
-const boundedCodes = new Set(['EMPTY_RESPONSE', 'SERVER', 'TIMEOUT', THROTTLED_CODE])
+/**
+ * 值得再试一次的失败码：空回复、网关临时故障、超时，以及 429 限流（有 Retry-After
+ * 时引擎按上游时间等，没有则指数退避）。确定性错误（`AUTH` / `QUOTA_EXHAUSTED` /
+ * `BAD_REQUEST` / `PROTOCOL_ERROR`）不在此列：重试只会重放同一个失败。
+ */
+const boundedCodes = new Set(['EMPTY_RESPONSE', 'TRANSIENT', 'TIMEOUT', THROTTLED_CODE, 'RATE_LIMIT'])
 const counts = new WeakMap<object, number>()
 
 export function absorbTransientFailure(agent: object, code: string): 'ignored' | 'retry' | 'exhausted' {

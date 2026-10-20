@@ -21,6 +21,7 @@ import {
   type OpenDesignAdapterDeps,
   type OpenDesignConnectionOptions,
 } from '../src/adapter.ts'
+import { retryableFailureCodes } from '../src/error-taxonomy.ts'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -449,8 +450,8 @@ test('401 归为 AUTH（不可重试），文案指向 Key 的创建/检查', as
   assert.equal(error.failure.status, 401)
   assert.match(error.message, /api-keys/)
   assert.match(error.message, /Key/)
-  // 不可重试：AUTH 不在 DSH 的重试码表里。
-  assert.equal(['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'].includes(error.code), false)
+  // 不可重试：AUTH 不在本路由声明的重试码表里（ticket 06 的 providerRetryPolicy）。
+  assert.equal(retryableFailureCodes().includes('AUTH'), false)
 })
 
 test('402 额度耗尽有明确文案，不可重试', async () => {
@@ -471,17 +472,19 @@ test('400 保留上游真因且不判为可重试', async () => {
     },
   })
   const error = await streamError(makeAdapter({ fetchImpl: recordingFetch(400, body, []) }), oneTurn('glm-5.3-flash'))
-  assert.equal(error.code, 'INVALID_REQUEST')
+  assert.equal(error.code, 'BAD_REQUEST')
   assert.match(error.message, /Incorrect role information/)
+  assert.equal(retryableFailureCodes().includes('BAD_REQUEST'), false)
 })
 
-test('5xx 归为 SERVER（可重试）', async () => {
+test('5xx 归为 TRANSIENT（可重试）', async () => {
   const error = await streamError(
     makeAdapter({ fetchImpl: recordingFetch(500, '<html>oops</html>', []) }),
     oneTurn('deepseek-v4.1-flash'),
   )
-  assert.equal(error.code, 'SERVER')
+  assert.equal(error.code, 'TRANSIENT')
   assert.equal(error.failure.status, 500)
+  assert.equal(retryableFailureCodes().includes('TRANSIENT'), true)
 })
 
 test('developer 角色统一降级为 system（glm 会拒该角色），历史里的思考块不回传', async () => {
