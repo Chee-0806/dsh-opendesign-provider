@@ -8,7 +8,17 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { apply, Config, DEFAULT_API_KEY_ENV, inject, name, OpenDesignAdapter, PROVIDER, NS } from '../src/index.ts'
+import {
+  apply,
+  Config,
+  DEFAULT_API_KEY_ENV,
+  formatDiagnostics,
+  inject,
+  name,
+  OpenDesignAdapter,
+  PROVIDER,
+  NS,
+} from '../src/index.ts'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import { LlmError, MessageId } from '@deepseek-ai/dsh-llm'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
@@ -22,7 +32,7 @@ interface ProviderEntry {
 }
 
 /** The host services `apply()` is allowed to touch, recorded structurally. */
-function makeContext(services: { attachments?: unknown } = {}): {
+function makeContext(services: { attachments?: unknown; credentials?: unknown } = {}): {
   ctx: Record<string, unknown>
   providers: ProviderEntry[]
   adapters: Array<{ providers: string[]; adapter: OpenDesignAdapter }>
@@ -50,7 +60,9 @@ function makeContext(services: { attachments?: unknown } = {}): {
       },
     },
     get(name: string) {
-      return name === 'attachments' ? services.attachments : undefined
+      if (name === 'attachments') return services.attachments
+      if (name === 'credentials') return services.credentials
+      return undefined
     },
     on() {
       return () => {}
@@ -217,4 +229,27 @@ test('apply() 把宿主附件服务接到适配器：图片经编码目标变成
     type: 'image_url',
     image_url: { url: 'data:image/webp;base64,AQID' },
   }])
+})
+
+test('诊断只报凭据引用与存在性：密钥值不出现在快照或可复制文本里', async () => {
+  const secret = 'sk-amr-SECRET-from-credentials-seam'
+  const { ctx, adapters } = makeContext({ credentials: { resolve: async () => ({ value: secret }) } })
+  apply(ctx as never, Config({}) as never)
+  const adapter = adapters[0]!.adapter
+  const snapshot = await adapter.diagnostics()
+  assert.deepEqual(snapshot.credential, { ref: DEFAULT_API_KEY_ENV, present: true })
+  assert.match(snapshot.cliLogin.path, /\.amr\/config\.json$/u)
+  const text = formatDiagnostics(snapshot)
+  assert.equal(text.includes(secret), false)
+  assert.equal(JSON.stringify(snapshot).includes(secret), false)
+})
+
+test('没有凭据时诊断报「未配置」而不是抛错（缺 Key 也能复制诊断）', async () => {
+  const { ctx, adapters } = makeContext({
+    credentials: { resolve: async () => ({ value: '' }) },
+  })
+  apply(ctx as never, Config({}) as never)
+  const snapshot = await adapters[0]!.adapter.diagnostics()
+  assert.deepEqual(snapshot.credential, { ref: DEFAULT_API_KEY_ENV, present: false })
+  assert.match(formatDiagnostics(snapshot), /未配置/u)
 })

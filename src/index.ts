@@ -37,6 +37,7 @@ import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-settings'
 
 import {
+  AMR_CONFIG_RELATIVE_PATH,
   DEFAULT_API_BASE,
   DEFAULT_API_KEY_ENV,
   MODELS_CACHE_RELATIVE_PATH,
@@ -49,13 +50,15 @@ import {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   OpenDesignAdapter,
   type OpenDesignConnectionOptions,
+  type OpenDesignCredentialState,
   type OpenDesignImageEncoder,
 } from './adapter.ts'
+import { cliLoginReadable } from './diagnostics.ts'
 import {
-  DEFAULT_TRANSPORT_MAX_RETRIES,
   MAX_TRANSPORT_MAX_RETRIES,
   TRANSPORT_FAILURE_CODE,
   absorbTransportFailure,
+  readTransportMaxRetries,
   resetTransportFailures,
   transportBudgetMessage,
   transportResetAction,
@@ -97,7 +100,11 @@ export {
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   OpenDesignAdapter,
 } from './adapter.ts'
-export type { OpenDesignAdapterDeps, OpenDesignConnectionOptions } from './adapter.ts'
+export type { OpenDesignAdapterDeps, OpenDesignConnectionOptions, OpenDesignCredentialState } from './adapter.ts'
+export { diagnosticsSnapshot, formatDiagnostics, cliLoginReadable } from './diagnostics.ts'
+export type { DiagnosticsFacts, DiagnosticsSnapshot } from './diagnostics.ts'
+export { retryableFailureCodes } from './error-taxonomy.ts'
+export type { FailureCode, HttpFailureInput } from './error-taxonomy.ts'
 export type {
   GatewayCatalogEntry,
   GatewayCatalogFailureReason,
@@ -228,6 +235,7 @@ export function resolveAdapterOptions(config: Config): ResolvedOpenDesignOptions
     contextWindow: isValidContextWindow(config.contextWindow) ? config.contextWindow : undefined,
     contextWindowOverrides: readContextWindowOverrides(config.contextWindowOverrides),
     maxOutputTokens: isValidMaxOutputTokens(config.maxOutputTokens) ? config.maxOutputTokens : undefined,
+    transportMaxRetries: readTransportMaxRetries(config.transportMaxRetries),
   }
 }
 
@@ -255,28 +263,32 @@ export function apply(ctx: Context, config: Config): void {
   // Credential chain, level 1 and 2: literal config, then the credential
   // reference (the web Models page writes it). The CLI login state joins the
   // chain in ticket 08; the diagnosis already names that path so the user can
-  // act on it today.
-  const resolveApiKey = async (): Promise<string> => {
-    const literal = current().apiKey
-    if (typeof literal === 'string' && literal !== '') {
-      return assertUsableApiKey(literal, 'llm-opendesign', 'config.apiKey')
-    }
-    const ref = credentialRef(current().apiKeyEnv ?? DEFAULT_API_KEY_ENV)
+  // act on it today. One reader feeds both the request path and the diagnosis,
+  // so "present" can never disagree with what a request would use.
+  const readCredential = async (config: Config, ref: CredentialRef): Promise<string | undefined> => {
+    const literal = config.apiKey
+    if (typeof literal === 'string' && literal !== '') return literal
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
       // The seam owns the layer order; a miss here is genuinely unconfigured.
       const hit = await credentials.resolve(ref)
-      if (hit?.value !== undefined && hit.value.length > 0) {
-        return assertUsableApiKey(hit.value, 'llm-opendesign', ref)
-      }
-    } else {
-      // No service means the headless profile, which disables the credentials
-      // line on purpose: only the launch environment is left.
-      const ambient = launchEnvironmentOf(ctx).get(ref)
-      if (ambient !== undefined && ambient.value.length > 0) {
-        return assertUsableApiKey(ambient.value, 'llm-opendesign', ref)
-      }
+      return hit?.value !== undefined && hit.value.length > 0 ? hit.value : undefined
     }
+    // No service means the headless profile, which disables the credentials
+    // line on purpose: only the launch environment is left.
+    const ambient = launchEnvironmentOf(ctx).get(ref)
+    return ambient !== undefined && ambient.value.length > 0 ? ambient.value : undefined
+  }
+  const currentCredentialRef = (config: Config): CredentialRef => credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV)
+  const resolveApiKey = async (): Promise<string> => {
+    const config = current()
+    const literal = config.apiKey
+    if (typeof literal === 'string' && literal !== '') {
+      return assertUsableApiKey(literal, 'llm-opendesign', 'config.apiKey')
+    }
+    const ref = currentCredentialRef(config)
+    const value = await readCredential(config, ref)
+    if (value !== undefined) return assertUsableApiKey(value, 'llm-opendesign', ref)
     throw new LlmError(
       `llm-opendesign: 还没有可用的 Open Design API Key（provider 路由 "${PROVIDER}"，凭据引用 ${ref}）。`
       + '请在 设置 → Open Design 填入 API Key（或在启动环境导出该变量、在 composition 里设置 config.apiKey）；'
@@ -292,7 +304,23 @@ export function apply(ctx: Context, config: Config): void {
   // to placeholder text instead of failing the turn.
   const attachments = (): OpenDesignImageEncoder | undefined => ctx.get('attachments')
 
-  const adapter = new OpenDesignAdapter({ options, resolveApiKey, attachments })
+  // Diagnostics observability (ticket 06): reference name + presence + whether the
+  // CLI login state is readable. Never a key value; the credentials seam is asked,
+  // not read out, and a seam failure reports "unconfigured" rather than throwing.
+  const credentialState = async (): Promise<OpenDesignCredentialState> => {
+    const config = current()
+    const ref = currentCredentialRef(config)
+    const cliLoginPath = join(homedir(), AMR_CONFIG_RELATIVE_PATH)
+    let present = false
+    try {
+      present = (await readCredential(config, ref)) !== undefined
+    } catch {
+      present = false
+    }
+    return { ref, present, cliLoginPath, cliLoginReadable: await cliLoginReadable(cliLoginPath) }
+  }
+
+  const adapter = new OpenDesignAdapter({ options, resolveApiKey, attachments, credentialState })
 
   // The Models page card. An empty `settingsPath` means the whole
   // `llm-opendesign` section configures this provider.
@@ -306,11 +334,7 @@ export function apply(ctx: Context, config: Config): void {
   // connect timeout into a multi-minute stall; the first few transport
   // failures are absorbed here and the rest surface with a diagnosis.
   // `dsh-llm-retry` still owns the wait between allowed attempts.
-  const transportMaxRetries = (): number => {
-    const value = current().transportMaxRetries
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return DEFAULT_TRANSPORT_MAX_RETRIES
-    return Math.min(Math.trunc(value), MAX_TRANSPORT_MAX_RETRIES)
-  }
+  const transportMaxRetries = (): number => readTransportMaxRetries(current().transportMaxRetries)
   // The session → agent map exists for the reset below: `session/event` carries
   // the session, and the agent is the natural budget key. Weak on BOTH sides so
   // a long-lived Host cannot be held open by sessions whose turn never ended.

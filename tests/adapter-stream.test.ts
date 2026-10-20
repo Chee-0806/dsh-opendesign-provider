@@ -374,13 +374,17 @@ test('读取中途断流：按传输失败报 LlmError，而不是把原始异�
   )
 })
 
-test('200 却没有内容（HTML 错误页或只有 [DONE]）：报协议错误而不是给出空回复', async () => {
-  for (const body of ['<html>oops</html>\n', 'data: [DONE]\n']) {
+test('200 却没有内容：HTML 错误页是协议错误，只有 [DONE] 是空回复（ticket 06 细分）', async () => {
+  const cases: Array<{ body: string; code: string }> = [
+    { body: '<html>oops</html>\n', code: 'PROTOCOL_ERROR' },
+    { body: 'data: [DONE]\n', code: 'EMPTY_RESPONSE' },
+  ]
+  for (const { body, code } of cases) {
     await assert.rejects(
       collect(oneTurn('deepseek-v4.1-flash'), makeAdapter({ fetchImpl: sseFetch([body]) })),
       (error: unknown) => {
         assert.ok(error instanceof LlmError)
-        assert.equal(error.code, 'PROTOCOL_ERROR')
+        assert.equal(error.code, code)
         return true
       },
     )

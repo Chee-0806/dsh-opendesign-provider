@@ -15,9 +15,12 @@
  * `max_completion_tokens` is the smallest of the host budget, the model's own
  * budget and the gateway ceiling, raised to the selected thinking level's floor
  * when the model demands one (kimi), and the stream hard-truncates at that cap
- * with a `max-tokens` finish. The full error taxonomy arrives with ticket 06;
- * the transport seam here is deliberately the single Chat Completions call the
- * design settles on.
+ * with a `max-tokens` finish. Ticket 06 routes every failure through
+ * `./error-taxonomy.ts` (three body shapes, deterministic vs retryable, empty
+ * response, idle timeout), declares the route's retry policy from that table, and
+ * exposes `diagnostics()` for the settings page's redacted config copy. The
+ * transport seam here is deliberately the single Chat Completions call the design
+ * settles on.
  *
  * Request facts come from the live connection thunk and the credential
  * resolver handed in by the plugin entry, so a settings write reaches the next
@@ -30,6 +33,7 @@
 import {
   attributionHeaders,
   offloadedImageText,
+  resolveRetryPolicy,
   textOnlyImageText,
   LlmAdapter,
   LlmError,
@@ -40,6 +44,7 @@ import {
   type LlmProviderInfo,
   type LlmResolvedModelInfo,
   type RequestMessage,
+  type ResolvedRetryPolicy,
   type StreamChunk,
   type ToolSchema,
 } from '@deepseek-ai/dsh-llm'
@@ -64,7 +69,7 @@ import {
   type GatewayCatalogEntry,
   type GatewayCatalogStatus,
 } from './gateway-facts.ts'
-import { DEFAULT_API_BASE, PROVIDER_DISPLAY_NAME } from './identity.ts'
+import { DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, PROVIDER_DISPLAY_NAME } from './identity.ts'
 import { requestImageTarget } from './image-request.ts'
 import { openDesignImageTokens } from './image-tokens.ts'
 import { modelIsVisible } from './model-visibility.ts'
@@ -75,6 +80,8 @@ import {
   outputCapFloor,
   wireReasoningEffort,
 } from './quirks.ts'
+import { diagnosticsSnapshot, type DiagnosticsSnapshot } from './diagnostics.ts'
+import { classifyHttpFailure, missingBodyFailure, retryableFailureCodes } from './error-taxonomy.ts'
 import { streamedCompletionChunks } from './stream-response.ts'
 
 /** Default budget for the first byte of a response. */
@@ -105,6 +112,20 @@ export interface OpenDesignConnectionOptions {
   contextWindow?: number | undefined
   contextWindowOverrides?: Readonly<Record<string, number>> | undefined
   maxOutputTokens?: number | undefined
+  /** Transport failures one request absorbs; absent reports the default in diagnostics. */
+  transportMaxRetries?: number | undefined
+}
+
+/**
+ * Credential observability for the diagnostics snapshot (ticket 06): the reference
+ * name, whether it resolves, and whether the CLI login state is readable. Never a
+ * key value — the type has no slot for one.
+ */
+export interface OpenDesignCredentialState {
+  readonly ref: string
+  readonly present: boolean
+  readonly cliLoginPath: string
+  readonly cliLoginReadable: boolean
 }
 
 /**
@@ -134,6 +155,12 @@ export interface OpenDesignAdapterDeps {
    * described to the model in text — it cannot be encoded for the wire.
    */
   attachments?: (() => OpenDesignImageEncoder | undefined) | undefined
+  /**
+   * Read credential/CLI observability for {@link OpenDesignAdapter.diagnostics}.
+   * Omitted means "unknown": the snapshot then reports the default reference as
+   * unconfigured. Read per call, exactly like {@link OpenDesignAdapterDeps.options}.
+   */
+  credentialState?: (() => Promise<OpenDesignCredentialState> | OpenDesignCredentialState) | undefined
   /** Test seam for the HTTP call. */
   fetchImpl?: typeof fetch
   /** Test seam for catalog TTLs; defaults to `Date.now`. */
@@ -150,6 +177,20 @@ export class OpenDesignAdapter extends LlmAdapter {
       ...(deps.fetchImpl === undefined ? {} : { fetchImpl: deps.fetchImpl }),
       ...(deps.now === undefined ? {} : { now: deps.now }),
     })
+  }
+
+  /**
+   * The engine's retry decision for this route, declared from the classification
+   * table: only `EMPTY_RESPONSE` / `RATE_LIMIT` / `TIMEOUT` / `TRANSIENT` /
+   * `TRANSPORT` are worth another attempt. `AUTH`, `QUOTA_EXHAUSTED`,
+   * `BAD_REQUEST` and `PROTOCOL_ERROR` fail identically every time, so declaring
+   * them non-retryable is what keeps a deterministic 400 from burning quota.
+   */
+  override providerRetryPolicy(_provider: string): ResolvedRetryPolicy {
+    return resolveRetryPolicy(
+      { mode: 'normal', retryableCodes: [...retryableFailureCodes()] },
+      `llm-opendesign: provider "${PROVIDER_DISPLAY_NAME}" retryPolicy`,
+    )
   }
 
   /** Report the route under the product name, preserving the engine's id. */
@@ -185,6 +226,43 @@ export class OpenDesignAdapter extends LlmAdapter {
    */
   async catalogStatus(): Promise<GatewayCatalogStatus> {
     return this.loadCatalog(this.deps.options())
+  }
+
+  /**
+   * The redacted "current effective configuration" block (ticket 06).
+   *
+   * This is the data half of the settings page's copy button; the button itself
+   * belongs to ticket 08. The catalog is read from memory, never the network: the
+   * snapshot reports what conversations would use right now, and a diagnostic must
+   * never become the outage (or stall the page). `./diagnostics.ts`'s
+   * `formatDiagnostics` renders the copyable text.
+   */
+  async diagnostics(): Promise<DiagnosticsSnapshot> {
+    const connection = this.deps.options()
+    const catalog = this.currentCatalog(connection)
+    const credential = await this.deps.credentialState?.()
+    const allowlist = connection.visibleModels ?? []
+    return diagnosticsSnapshot({
+      gateway: apiBaseOf(connection),
+      catalog: {
+        source: catalog.source === 'live' ? 'live' : 'snapshot',
+        models: catalog.models.length,
+        visible: catalog.models.filter((entry) => modelIsVisible(entry.id, allowlist, connection.modelVisibility)).length,
+        ...(catalog.reason === undefined ? {} : { fallbackReason: catalog.reason }),
+      },
+      credential: { ref: credential?.ref ?? DEFAULT_API_KEY_ENV, present: credential?.present === true },
+      cliLogin: {
+        path: credential?.cliLoginPath ?? '',
+        readable: credential?.cliLoginReadable === true,
+      },
+      contextWindow: connection.contextWindow,
+      contextWindowOverrides: connection.contextWindowOverrides ?? {},
+      maxOutputTokens: connection.maxOutputTokens,
+      requestTimeoutMs: connection.requestTimeoutMs,
+      streamIdleTimeoutMs: connection.streamIdleTimeoutMs,
+      transportMaxRetries: connection.transportMaxRetries,
+      retryableCodes: retryableFailureCodes(),
+    })
   }
 
   /**
@@ -310,16 +388,16 @@ export class OpenDesignAdapter extends LlmAdapter {
       } catch {
         raw = ''
       }
-      throw httpFailure(response.status, raw)
+      throw classifyHttpFailure({
+        status: response.status,
+        body: raw,
+        contentType: response.headers.get('content-type'),
+        retryAfter: response.headers.get('retry-after'),
+      })
     }
-    if (response.body === null) {
-      throw new LlmError(
-        'llm-opendesign: Open Design 返回了空的流式响应体，无法读取回复内容。',
-        'PROTOCOL_ERROR',
-      )
-    }
+    if (response.body === null) throw missingBodyFailure()
     try {
-      yield* streamedCompletionChunks(response.body, cap)
+      yield* streamedCompletionChunks(response.body, cap, connection.streamIdleTimeoutMs)
     } catch (error) {
       // A failed HTTP exchange and a socket cut mid-body are the same thing to
       // the caller: a transport failure, reported as LlmError rather than a raw
@@ -641,57 +719,6 @@ function unencodedImageText(ref: ImageAttachmentRef, model: string): string {
     + 'received no pixels for it. Ask the user to send the image again once attachments are available.]'
 }
 
-/** One failed HTTP exchange, classified by status with an actionable diagnosis. */
-function httpFailure(status: number, raw: string): LlmError {
-  const detail = upstreamDetail(raw)
-  if (status === 401) {
-    return new LlmError(
-      'Open Design 拒绝了这把 API Key（401）。请在 设置 → Open Design 重新填入 Key，'
-      + '或到 https://open-design.ai/cloud/api-keys 检查/重建 Key。'
-      + detail,
-      'AUTH',
-      { status },
-    )
-  }
-  if (status === 402) {
-    return new LlmError(
-      'Design Plan 额度已用尽或余额不足（402）。请到 Open Design 控制台查看额度，或改用 BYOK。'
-      + detail,
-      'QUOTA_EXHAUSTED',
-      { status },
-    )
-  }
-  if (status === 429) {
-    return new LlmError(`Open Design 限流了这次请求（429），稍后重试。${detail}`, 'RATE_LIMIT', { status })
-  }
-  if (status >= 500) {
-    return new LlmError(`Open Design 网关暂时不可用（HTTP ${status}）。${detail}`, 'SERVER', { status })
-  }
-  return new LlmError(`Open Design 拒绝了这次请求（HTTP ${status}）。${detail}`, 'INVALID_REQUEST', { status })
-}
-
-/**
- * The upstream's own words, peeled out of the three error-body shapes the
- * gateway uses: `{error:{code,message,type}}` JSON, Go's plain-text 404, and
- * nginx's HTML page. Only JSON is parsed; the other two are quoted as text.
- */
-function upstreamDetail(raw: string): string {
-  const trimmed = raw.trim()
-  if (trimmed === '') return ''
-  try {
-    const parsed: unknown = JSON.parse(trimmed)
-    if (isRecord(parsed) && isRecord(parsed.error)) {
-      const message = typeof parsed.error.message === 'string' ? parsed.error.message : ''
-      const code = typeof parsed.error.code === 'string' ? parsed.error.code : ''
-      const reason = message !== '' ? message : code
-      return reason === '' ? '' : ` 上游原因：${truncate(reason, 400)}`
-    }
-  } catch {
-    // not JSON — fall through to quoting the body
-  }
-  return ` 上游返回：${truncate(trimmed, 200)}`
-}
-
 /** A thrown fetch (connect failure, timeout, caller cancellation) as an `LlmError`. */
 function requestFailure(error: unknown, callerAborted: boolean): LlmError {
   if (callerAborted) {
@@ -713,10 +740,4 @@ function effortInfos(levels: readonly ReasoningLevel[]): Array<{ id: ReturnType<
   return levels.map((level) => ({ id: ReasoningEffortId(level), name: EFFORT_NAMES[level] }))
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
-function truncate(text: string, max = 300): string {
-  return text.length <= max ? text : `${text.slice(0, max)}…`
-}
