@@ -1,0 +1,13 @@
+data: {"id":"gen-2","object":"chat.completion.chunk","created":1792480242,"model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"role":"assistant","reasoning":"","reasoning_details":[],"content":""}}]}
+
+data: {"id":"gen-2","object":"chat.completion.chunk","created":1792480242,"model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"content":null,"reasoning":"用户用中文","reasoning_details":[{"index":0,"type":"reasoning.text","text":"用户用中文"}]}}]}
+
+data: {"id":"gen-2","object":"chat.completion.chunk","created":1792480242,"model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"content":null,"reasoning":"打招呼。","reasoning_details":[{"index":0,"type":"reasoning.text","text":"打招呼。"}]}}]}
+
+data: {"id":"gen-2","object":"chat.completion.chunk","created":1792480242,"model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"content":"你好！"}}]}
+
+data: {"id":"gen-2","object":"chat.completion.chunk","created":1792480242,"model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"gen-2","object":"chat.completion.chunk","created":1792480242,"model":"deepseek-v4.1-flash","choices":[],"usage":{"prompt_tokens":34,"completion_tokens":18,"total_tokens":52,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":16}}}
+
+data: [DONE]

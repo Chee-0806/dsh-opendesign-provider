@@ -1,15 +1,16 @@
 /**
  * The Open Design LLM adapter: one Chat Completions transport.
  *
- * Ticket 02 wires the walking skeleton end to end; ticket 03 makes the picker
+ * Ticket 02 wired the walking skeleton end to end; ticket 03 made the picker
  * read the gateway's live `GET {apiBase}/models` (per-key, with the 12-model
  * static snapshot as the offline fallback) and exposes the catalog's
- * provenance through {@link OpenDesignAdapter.catalogStatus}. One non-streaming
- * `POST {apiBase}/chat/completions` round trip becomes a `StreamChunk` sequence
- * (text, usage, finish). Streaming,
- * thinking deltas, tool round trips, the output-cap hard truncation and the
- * full error taxonomy arrive with tickets 04–06; the transport seam here is
- * deliberately the single Chat Completions call the design settles on.
+ * provenance through {@link OpenDesignAdapter.catalogStatus}; ticket 04 turned
+ * the transport into a real stream — one `stream: true` call is read as SSE and
+ * mapped, delta by delta, into the `StreamChunk` sequence (thinking, text,
+ * tool calls, usage, finish), so the reply is visible while it is generated.
+ * The output-cap hard truncation and the full error taxonomy arrive with tickets
+ * 05–06; the transport seam here is deliberately the single Chat Completions
+ * call the design settles on.
  *
  * Request facts come from the live connection thunk and the credential
  * resolver handed in by the plugin entry, so a settings write reaches the next
@@ -19,22 +20,17 @@
  * @module dsh-opendesign-provider/adapter
  */
 
-import { randomUUID } from 'node:crypto'
-
 import {
   attributionHeaders,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
-  ToolCallId,
-  type FinishReason,
   type GenerateOptions,
   type LlmModelInfo,
   type LlmProviderInfo,
   type LlmResolvedModelInfo,
   type RequestMessage,
   type StreamChunk,
-  type TokenUsage,
   type ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 
@@ -56,6 +52,7 @@ import { DEFAULT_API_BASE, PROVIDER_DISPLAY_NAME } from './identity.ts'
 import { modelIsVisible } from './model-visibility.ts'
 import { applyMaxOutputTokens } from './output-budget.ts'
 import { OUTPUT_CAP_FIELD, coerceReasoningLevel, wireReasoningEffort } from './quirks.ts'
+import { streamedCompletionChunks } from './stream-response.ts'
 
 /** Default budget for the first byte of a response. */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 300_000
@@ -174,12 +171,16 @@ export class OpenDesignAdapter extends LlmAdapter {
   }
 
   /**
-   * One non-streaming Chat Completions call, mapped onto the chunk protocol.
+   * One streaming Chat Completions call, mapped onto the chunk protocol.
    *
    * The request sends only the fields the gateway actually honours: the model
-   * id, the mapped messages, `stream: false`, `max_completion_tokens` and the
-   * model's own `reasoning_effort`. It never sends `max_tokens` (no model
-   * honours it), `store` (server-side default) or `temperature` (unverified).
+   * id, the mapped messages, `stream: true` with `stream_options.include_usage`
+   * so the usage tail frame arrives, `max_completion_tokens` and the model's own
+   * `reasoning_effort`. It never sends `max_tokens` (no model honours it),
+   * `store` (server-side default) or `temperature` (unverified).
+   *
+   * Deltas are yielded as they land, so the reply is visible while it is still
+   * being generated (ticket 04).
    */
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     const connection = this.deps.options()
@@ -194,7 +195,6 @@ export class OpenDesignAdapter extends LlmAdapter {
     const signal = requestSignal(callerSignal, connection.requestTimeoutMs)
 
     let response: Response
-    let raw: string
     try {
       response = await fetchImpl(`${apiBaseOf(connection)}/chat/completions`, {
         method: 'POST',
@@ -202,18 +202,39 @@ export class OpenDesignAdapter extends LlmAdapter {
           ...attributionHeaders(),
           authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
-          accept: 'application/json',
+          accept: 'text/event-stream',
         },
         body: JSON.stringify(body),
         signal,
       })
-      raw = await response.text()
     } catch (error) {
       throw requestFailure(error, callerSignal?.aborted === true)
     }
 
-    if (!response.ok) throw httpFailure(response.status, raw)
-    yield* completionChunks(parseJson(raw), cap)
+    if (!response.ok) {
+      let raw: string
+      try {
+        raw = await response.text()
+      } catch {
+        raw = ''
+      }
+      throw httpFailure(response.status, raw)
+    }
+    if (response.body === null) {
+      throw new LlmError(
+        'llm-opendesign: Open Design 返回了空的流式响应体，无法读取回复内容。',
+        'PROTOCOL_ERROR',
+      )
+    }
+    try {
+      yield* streamedCompletionChunks(response.body, cap)
+    } catch (error) {
+      // A failed HTTP exchange and a socket cut mid-body are the same thing to
+      // the caller: a transport failure, reported as LlmError rather than a raw
+      // stream exception. Mapping errors travel through untouched.
+      if (error instanceof LlmError) throw error
+      throw requestFailure(error, callerSignal?.aborted === true)
+    }
   }
 
   /**
@@ -281,9 +302,10 @@ function buildRequestBody(options: GenerateOptions, cap: number): Record<string,
   const body: Record<string, unknown> = {
     model: options.model,
     messages: toWireMessages(options),
-    // The transport is non-streaming in ticket 02; the flag stays explicit so a
-    // later streaming ticket flips one value rather than adding a field.
-    stream: false,
+    stream: true,
+    // Ask for the usage tail frame (`choices: []` with only `usage`): without it
+    // the gateway reports no token accounting at all for a streamed reply.
+    stream_options: { include_usage: true },
     [OUTPUT_CAP_FIELD]: cap,
   }
   if (options.tools !== undefined && options.tools.length > 0) body.tools = options.tools.map(toWireTool)
@@ -377,157 +399,6 @@ function toWireMessage(message: RequestMessage): WireMessage | undefined {
   return { role: message.role === 'user' ? 'user' : 'system', content }
 }
 
-/** Parse a 200 body, or report the gateway's odd shape as a protocol error. */
-function parseJson(raw: string): Record<string, unknown> {
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (isRecord(parsed)) return parsed
-  } catch {
-    // fall through to the diagnosis below
-  }
-  throw new LlmError(
-    `llm-opendesign: Open Design 返回了无法解析的响应体（预期 JSON）：${truncate(raw)}`,
-    'PROTOCOL_ERROR',
-  )
-}
-
-/** Map one non-streaming completion onto blocks, usage and a finish reason. */
-function* completionChunks(payload: Record<string, unknown>, cap: number): Generator<StreamChunk> {
-  const choices = payload.choices
-  if (!Array.isArray(choices) || choices.length === 0) {
-    throw new LlmError(
-      'llm-opendesign: Open Design 返回了空的 choices，无法得到回复内容。',
-      'PROTOCOL_ERROR',
-    )
-  }
-  const choice = isRecord(choices[0]) ? choices[0] : {}
-  const message = isRecord(choice.message) ? choice.message : {}
-  const usage = usageOf(payload.usage)
-  const reasoning = reasoningText(message)
-  const text = textOf(message.content)
-  const toolCalls = toolCallsOf(message.tool_calls)
-
-  let index = 0
-  if (reasoning !== '') {
-    const reasoningIndex = index++
-    yield { type: 'block-start', index: reasoningIndex, blockType: 'reasoning' }
-    yield { type: 'reasoning-delta', index: reasoningIndex, text: reasoning }
-    yield { type: 'block-end', index: reasoningIndex, block: { type: 'reasoning', text: reasoning } }
-  }
-  if (text !== '') {
-    const textIndex = index++
-    yield { type: 'block-start', index: textIndex, blockType: 'text' }
-    yield { type: 'text-delta', index: textIndex, text }
-    yield { type: 'block-end', index: textIndex, block: { type: 'text', text } }
-  }
-  for (const call of toolCalls) {
-    const callIndex = index++
-    const id = ToolCallId(call.id)
-    yield { type: 'block-start', index: callIndex, blockType: 'tool-call' }
-    yield { type: 'tool-call-delta', index: callIndex, id, name: call.name, argumentsDelta: call.arguments }
-    yield {
-      type: 'block-end',
-      index: callIndex,
-      block: { type: 'tool-call', id, name: call.name, arguments: call.arguments },
-    }
-  }
-  if (usage !== undefined) yield { type: 'usage', usage }
-  yield { type: 'finish', reason: finishReasonOf(choice.finish_reason, toolCalls.length, usage, cap) }
-}
-
-/**
- * The terminal reason, inferred when the gateway omits the field.
- *
- * gpt-6-luna's non-streaming replies have no `finish_reason` at all — with
- * text or with tool calls — so its absence is normal, not a failure: tool calls
- * win, then an output that reached the requested cap, then a plain stop.
- */
-function finishReasonOf(
-  raw: unknown,
-  toolCallCount: number,
-  usage: TokenUsage | undefined,
-  cap: number,
-): FinishReason {
-  const spelling = typeof raw === 'string' ? raw : undefined
-  if (spelling === 'length' || spelling === 'max_tokens') return { kind: 'max-tokens' }
-  if (spelling === 'tool_calls' || spelling === 'function_call') return { kind: 'tool-calls' }
-  if (spelling !== undefined) return { kind: 'stop' }
-  if (toolCallCount > 0) return { kind: 'tool-calls' }
-  if (usage !== undefined && usage.outputTokens >= cap) return { kind: 'max-tokens' }
-  return { kind: 'stop' }
-}
-
-/** Disjoint token accounting: cached input and reasoning tokens are reported separately. */
-function usageOf(raw: unknown): TokenUsage | undefined {
-  if (!isRecord(raw)) return undefined
-  const prompt = numberValue(raw.prompt_tokens) ?? 0
-  const completion = numberValue(raw.completion_tokens) ?? 0
-  const cacheRead = isRecord(raw.prompt_tokens_details)
-    ? numberValue(raw.prompt_tokens_details.cached_tokens) ?? 0
-    : 0
-  const reasoning = isRecord(raw.completion_tokens_details)
-    ? numberValue(raw.completion_tokens_details.reasoning_tokens)
-    : undefined
-  const usage: TokenUsage = {
-    inputTokens: Math.max(0, prompt - cacheRead),
-    outputTokens: completion,
-    cacheReadTokens: cacheRead,
-  }
-  const total = numberValue(raw.total_tokens)
-  if (total !== undefined) usage.totalTokens = total
-  if (reasoning !== undefined) usage.reasoningTokens = reasoning
-  return usage
-}
-
-/** Join the text of one response's content (string or part array). */
-function textOf(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  const parts: string[] = []
-  for (const part of content) {
-    if (isRecord(part) && typeof part.text === 'string') parts.push(part.text)
-  }
-  return parts.join('')
-}
-
-/**
- * The thinking text, when the gateway sends it.
- *
- * The field is the non-standard `reasoning` (with `reasoning_details` alongside
- * it), not `reasoning_content`; the scalar is authoritative and the array is
- * the fallback for a gateway that only fills the structured half.
- */
-function reasoningText(message: Record<string, unknown>): string {
-  if (typeof message.reasoning === 'string') return message.reasoning
-  if (!Array.isArray(message.reasoning_details)) return ''
-  const parts: string[] = []
-  for (const detail of message.reasoning_details) {
-    if (isRecord(detail) && typeof detail.text === 'string') parts.push(detail.text)
-  }
-  return parts.join('')
-}
-
-/** Buffered tool calls, normalized so assembly always sees an id and JSON text. */
-function toolCallsOf(raw: unknown): Array<{ id: string; name: string; arguments: string }> {
-  if (!Array.isArray(raw)) return []
-  const calls: Array<{ id: string; name: string; arguments: string }> = []
-  for (const entry of raw) {
-    if (!isRecord(entry)) continue
-    const fn = isRecord(entry.function) ? entry.function : {}
-    const name = typeof fn.name === 'string' ? fn.name : ''
-    const args = fn.arguments
-    const argsText = typeof args === 'string'
-      ? args
-      : isRecord(args) || Array.isArray(args) ? JSON.stringify(args) : '{}'
-    calls.push({
-      id: typeof entry.id === 'string' && entry.id !== '' ? entry.id : randomUUID(),
-      name,
-      arguments: argsText,
-    })
-  }
-  return calls
-}
-
 /** One failed HTTP exchange, classified by status with an actionable diagnosis. */
 function httpFailure(status: number, raw: string): LlmError {
   const detail = upstreamDetail(raw)
@@ -602,10 +473,6 @@ function effortInfos(levels: readonly ReasoningLevel[]): Array<{ id: ReturnType<
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
 function truncate(text: string, max = 300): string {

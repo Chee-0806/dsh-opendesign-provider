@@ -2,7 +2,8 @@
  * Open Design 适配器（ticket 02）—— 只测 HTTP 边界与目录输出，不碰私有实现。
  *
  * 覆盖：选择器里的 12 个模型与过滤、模型解析（上下文/输出上限/档位/视觉）、
- * 非流式请求体与响应映射、错误分类、缺凭据文案。
+ * 流式请求体与消息映射、错误分类、缺凭据文案。响应事件序列本身在
+ * `tests/adapter-stream.test.ts` 里覆盖。
  */
 
 import { test } from 'node:test'
@@ -52,7 +53,7 @@ interface RecordedRequest {
 /** 真实 `/v1/models` 响应夹具（脱敏，ticket 03）：目录请求不再访问网络。 */
 const MODELS_FIXTURE = readFileSync(new URL('./fixtures/models.json', import.meta.url), 'utf8')
 
-/** A fetch stub that records the request and answers with a canned JSON body. */
+/** A fetch stub that records the request and answers with a canned body (SSE on success). */
 function recordingFetch(
   status: number,
   body: string,
@@ -65,7 +66,7 @@ function recordingFetch(
     }
     return new Response(body, {
       status,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': status === 200 ? 'text/event-stream' : 'application/json' },
     })
   }) as unknown as typeof fetch
 }
@@ -195,6 +196,18 @@ test('resolveModel 给出上下文窗口、输出上限、档位集合与视觉�
   )
 })
 
+test('思考不可见的模型（gpt-6-luna、claude-haiku-5.5）在目录与模型卡上标注，不让人以为没思考', async () => {
+  const models = await makeAdapter().listModels('open-design')
+  const byId = new Map(models.map((model) => [model.id, model]))
+  assert.match(byId.get('gpt-6-luna')?.description ?? '', /思考不可见/)
+  assert.match(byId.get('claude-haiku-5.5')?.description ?? '', /思考不可见/)
+  // 会吐 reasoning 的模型不加标注。
+  assert.doesNotMatch(byId.get('deepseek-v4.1-flash')?.description ?? '', /思考不可见/)
+
+  const resolved = await makeAdapter().resolveModel('open-design', 'gpt-6-luna')
+  assert.match(resolved.description ?? '', /思考不可见/)
+})
+
 test('自定义上下文长度（全局与逐模型）覆盖目录值', async () => {
   const adapter = makeAdapter({ options: () => connection({ contextWindow: 100_000 }) })
   assert.equal((await adapter.resolveModel('open-design', 'deepseek-v4.1-flash')).context?.contextWindow, 100_000)
@@ -222,27 +235,15 @@ test('快照外的模型不崩：无上下文宣告、按全档处理', async ()
 
 const fixture = (name: string): string => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')
 
-const OK_REPLY = JSON.stringify({
-  id: 'gen-1',
-  object: 'chat.completion',
-  model: 'deepseek-v4.1-flash',
-  choices: [
-    {
-      index: 0,
-      message: { role: 'assistant', content: '你好！有什么可以帮你？' },
-      finish_reason: 'stop',
-    },
-  ],
-  usage: {
-    prompt_tokens: 12,
-    completion_tokens: 9,
-    total_tokens: 21,
-    prompt_tokens_details: { cached_tokens: 4 },
-    completion_tokens_details: { reasoning_tokens: 3 },
-  },
-})
+/** 一次最小的成功流式应答：只求让请求走完，事件序列由 adapter-stream 测试覆盖。 */
+const OK_REPLY = [
+  'data: {"choices":[{"index":0,"delta":{"role":"assistant","content":"你好！有什么可以帮你？"}}]}',
+  'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+  'data: [DONE]',
+  '',
+].join('\n\n')
 
-test('非流式请求：URL、鉴权头与请求体字段（模型/消息/流开关/上限/思考档）', async () => {
+test('流式请求：URL、鉴权头与请求体字段（模型/消息/流开关与用量/上限/思考档）', async () => {
   const recorded: RecordedRequest[] = []
   const adapter = makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, recorded) })
   await collect(oneTurn('deepseek-v4.1-flash', { reasoningEffort: ReasoningEffortId('medium') }), adapter)
@@ -252,11 +253,13 @@ test('非流式请求：URL、鉴权头与请求体字段（模型/消息/流开
   const headers = chat?.init.headers as Record<string, string>
   assert.equal(headers.authorization, 'Bearer user_test_key')
   assert.equal(headers['content-type'], 'application/json')
+  assert.equal(headers.accept, 'text/event-stream')
   assert.match(headers['user-agent'] ?? '', /dsh|deepseek/i)
 
   const body = requestBody(recorded)
   assert.equal(body.model, 'deepseek-v4.1-flash')
-  assert.equal(body.stream, false)
+  assert.equal(body.stream, true)
+  assert.deepEqual(body.stream_options, { include_usage: true })
   assert.deepEqual(body.messages, [{ role: 'user', content: '你好' }])
   assert.equal(body.max_completion_tokens, 128_000)
   assert.equal(body.reasoning_effort, 'medium')
@@ -337,114 +340,6 @@ test('宿主给了工具就按 OpenAI function 形态透传；system 与工具�
     },
     { role: 'tool', tool_call_id: 'call_1', content: '12:00' },
   ])
-})
-
-// ---------------------------------------------------------------------------
-// 响应映射
-// ---------------------------------------------------------------------------
-
-test('回复映射：文本、用量（缓存与思考分开计）、正常结束', async () => {
-  const chunks = await collect(
-    oneTurn('deepseek-v4.1-flash'),
-    makeAdapter({ fetchImpl: recordingFetch(200, OK_REPLY, []) }),
-  )
-  assert.deepEqual(chunks, [
-    { type: 'block-start', index: 0, blockType: 'text' },
-    { type: 'text-delta', index: 0, text: '你好！有什么可以帮你？' },
-    { type: 'block-end', index: 0, block: { type: 'text', text: '你好！有什么可以帮你？' } },
-    {
-      type: 'usage',
-      usage: {
-        inputTokens: 8,
-        outputTokens: 9,
-        totalTokens: 21,
-        cacheReadTokens: 4,
-        reasoningTokens: 3,
-      },
-    },
-    { type: 'finish', reason: { kind: 'stop' } },
-  ])
-})
-
-test('真实响应夹具：非标准 reasoning 作为思考块排在正文之前，用量照实映射', async () => {
-  const chunks = await collect(
-    oneTurn('deepseek-v4.1-flash'),
-    makeAdapter({ fetchImpl: recordingFetch(200, fixture('chat-completion.json'), []) }),
-  )
-  assert.deepEqual(chunks, [
-    { type: 'block-start', index: 0, blockType: 'reasoning' },
-    { type: 'reasoning-delta', index: 0, text: '用户用中文打招呼，直接用中文回复。' },
-    { type: 'block-end', index: 0, block: { type: 'reasoning', text: '用户用中文打招呼，直接用中文回复。' } },
-    { type: 'block-start', index: 1, blockType: 'text' },
-    { type: 'text-delta', index: 1, text: '你好！有什么可以帮你？' },
-    { type: 'block-end', index: 1, block: { type: 'text', text: '你好！有什么可以帮你？' } },
-    {
-      type: 'usage',
-      usage: {
-        inputTokens: 8,
-        outputTokens: 9,
-        totalTokens: 21,
-        cacheReadTokens: 4,
-        reasoningTokens: 3,
-      },
-    },
-    { type: 'finish', reason: { kind: 'stop' } },
-  ])
-})
-
-test('工具调用：finish_reason 缺失时按 tool_calls 推断为工具调用，不判失败', async () => {
-  const body = JSON.stringify({
-    id: 'gen-3',
-    model: 'gpt-6-luna',
-    // gpt-6-luna 非流式实测缺 finish_reason，choices[0] 只有 index/message。
-    choices: [
-      {
-        index: 0,
-        message: {
-          role: 'assistant',
-          content: null,
-          tool_calls: [
-            { index: 0, type: 'function', id: 'call_abc', function: { name: 'get_time', arguments: '{"city":"Tokyo"}' } },
-          ],
-        },
-      },
-    ],
-  })
-  const chunks = await collect(
-    oneTurn('gpt-6-luna'),
-    makeAdapter({ fetchImpl: recordingFetch(200, body, []) }),
-  )
-  assert.deepEqual(chunks, [
-    { type: 'block-start', index: 0, blockType: 'tool-call' },
-    { type: 'tool-call-delta', index: 0, id: ToolCallId('call_abc'), name: 'get_time', argumentsDelta: '{"city":"Tokyo"}' },
-    {
-      type: 'block-end',
-      index: 0,
-      block: { type: 'tool-call', id: ToolCallId('call_abc'), name: 'get_time', arguments: '{"city":"Tokyo"}' },
-    },
-    { type: 'finish', reason: { kind: 'tool-calls' } },
-  ])
-})
-
-test('缺 finish_reason 但有正文时推断为正常结束', async () => {
-  const body = JSON.stringify({
-    id: 'gen-4',
-    model: 'gpt-6-luna',
-    choices: [{ index: 0, message: { role: 'assistant', content: 'Hi!' } }],
-  })
-  const chunks = await collect(oneTurn('gpt-6-luna'), makeAdapter({ fetchImpl: recordingFetch(200, body, []) }))
-  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
-})
-
-test('finish_reason=length 如实映射为因长度结束', async () => {
-  const body = JSON.stringify({
-    id: 'gen-5',
-    model: 'kimi-k2.7-code',
-    choices: [{ index: 0, message: { role: 'assistant', content: '部分' }, finish_reason: 'length' }],
-    usage: { prompt_tokens: 5, completion_tokens: 16, total_tokens: 21 },
-  })
-  const chunks = await collect(oneTurn('kimi-k2.7-code'), makeAdapter({ fetchImpl: recordingFetch(200, body, []) }))
-  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'max-tokens' } })
 })
 
 // ---------------------------------------------------------------------------
