@@ -14,7 +14,9 @@
  * The gateway address follows the source: an explicit `config.apiBase` always
  * wins; a key taken from the CLI login state uses that state's server-issued
  * `linkUrl` (never a guessed domain); everything else falls back to the
- * published gateway.
+ * published gateway. The live `linkUrl` is the model-plane HOST without the
+ * `/v1` prefix (`vela login` writes `https://amr-link.open-design.ai`), so a
+ * bare origin gets `/v1` appended — see {@link cliLoginApiBase}.
  *
  * This module READS that file and nothing else: it never writes it, never logs
  * a field value, and the diagnostic formatter emits only names, presence and
@@ -236,7 +238,7 @@ export async function resolveCredentialChain(
   const apiBase = apiBaseSource === 'config'
     ? explicitBase!
     : apiBaseSource === 'cli-login'
-      ? loginBase!
+      ? cliLoginApiBase(loginBase!)
       : DEFAULT_API_BASE
 
   return {
@@ -246,6 +248,29 @@ export async function resolveCredentialChain(
     apiBase,
     apiBaseSource,
     login: cliLoginFacts(login),
+  }
+}
+
+/**
+ * The model-plane base for a CLI login state's `linkUrl`.
+ *
+ * Measured shape (2026-10-20): `vela login` writes the model-plane HOST
+ * (`https://amr-link.open-design.ai`) while every model-plane route lives
+ * under `/v1` (`GET /v1/models`, `POST /v1/chat/completions`) — the host alone
+ * answers nginx's HTML 404. So a bare origin (or bare origin + `/`) gets `/v1`
+ * appended; a `linkUrl` that already carries a path is respected verbatim,
+ * because the server may hand out a versioned or self-hosted prefix.
+ */
+export function cliLoginApiBase(linkUrl: string): string {
+  const trimmed = linkUrl.trim().replace(/\/+$/u, '')
+  if (trimmed === '') return DEFAULT_API_BASE
+  try {
+    const url = new URL(trimmed)
+    return url.pathname === '' || url.pathname === '/'
+      ? `${trimmed}/v1`
+      : trimmed
+  } catch {
+    return trimmed
   }
 }
 

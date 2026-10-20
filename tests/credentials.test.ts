@@ -109,6 +109,33 @@ test('前两层都缺时复用 CLI 登录态的 runtimeKey，并使用其 linkUr
   assert.equal(result.login.hasControlKey, true)
 })
 
+test('真实的 linkUrl 是主机名（没有 /v1）：补 /v1；自带路径的原样使用', async () => {
+  const reader = (linkUrl: string): (() => Promise<string>) => readerFor(JSON.stringify({
+    profiles: { prod: { runtimeKey: 'sk-amr-runtime-value', linkUrl } },
+  }))
+
+  // 2026-10-20 本机实测：vela login 写的是主机名，模型面路由在 /v1 之下。
+  const hostOnly = await resolveCredentialChain(
+    {},
+    { readFile: reader('https://runtime.example'), resolveReference: () => undefined },
+  )
+  assert.equal(hostOnly.apiBase, 'https://runtime.example/v1')
+  assert.equal(hostOnly.apiBaseSource, 'cli-login')
+
+  const trailingSlash = await resolveCredentialChain(
+    {},
+    { readFile: reader('https://runtime.example/'), resolveReference: () => undefined },
+  )
+  assert.equal(trailingSlash.apiBase, 'https://runtime.example/v1')
+
+  // 服务端下发带路径的地址时不自作主张再拼一层。
+  const withPath = await resolveCredentialChain(
+    {},
+    { readFile: reader('https://gateway.example/openai'), resolveReference: () => undefined },
+  )
+  assert.equal(withPath.apiBase, 'https://gateway.example/openai')
+})
+
 test('显式 apiBase 覆盖 CLI 登录态下发的地址', async () => {
   const result = await resolveCredentialChain(
     { apiBase: 'https://self-hosted.example/v1' },

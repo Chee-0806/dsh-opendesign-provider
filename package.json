@@ -1,7 +1,7 @@
 {
   "name": "@mars-sea/dsh-opendesign-provider",
   "version": "0.1.0",
-  "description": "Unofficial DeepSeek Harness LLM provider plugin for Open Design: registers the 'open-design' provider route with a Models-page card, live model catalog and Design Plan quota.",
+  "description": "Unofficial DeepSeek Harness LLM provider plugin for Open Design: live model catalog, streaming with reasoning and tool calls, image input, a client-side output cap and a settings page.",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -51,6 +51,7 @@
     "test:install": "node scripts/verify-isolated-install.mjs",
     "test:engine": "node scripts/verify-engine-load.mjs",
     "test:pack": "node scripts/verify-package-exports.mjs",
+    "test:live": "node scripts/verify-live.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/**/*.test.ts"
   },
