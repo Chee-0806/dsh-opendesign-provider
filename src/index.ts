@@ -97,6 +97,12 @@ export {
   OpenDesignAdapter,
 } from './adapter.ts'
 export type { OpenDesignAdapterDeps, OpenDesignConnectionOptions } from './adapter.ts'
+export type {
+  GatewayCatalogEntry,
+  GatewayCatalogFailureReason,
+  GatewayCatalogSourceKind,
+  GatewayCatalogStatus,
+} from './gateway-facts.ts'
 
 export const name = 'llm-opendesign'
 export const inject = ['llm']

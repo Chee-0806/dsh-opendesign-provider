@@ -2,10 +2,9 @@
  * The 12 Open Design models this bundle ships knowledge about.
  *
  * The gateway's `GET /v1/models` is the authority once it answers (ticket 03
- * makes the picker read it); this snapshot is the offline truth the adapter
- * falls back to, and the source of display names, budgets and reasoning
- * domains in the meantime. Ticket 02 ships it as the live catalog directly, so
- * "choose a model and get a reply" works before the directory client exists.
+ * reads it); this snapshot is the offline truth the adapter falls back to when
+ * the gateway is unreachable, unauthorised or malformed, and it stays the
+ * source of display names, reasoning domains and modalities for ids it knows.
  *
  * Two readings in the table are deliberate and must not be "corrected":
  *
@@ -71,9 +70,8 @@ export interface CatalogModelSnapshot {
 export const DEFAULT_MODEL_ID = 'deepseek-v4.1-flash'
 
 /**
- * Output budget assumed for a model the snapshot does not know, matching the
- * gateway's own default when `metadata.output_budget` is absent (design §5.1).
- * Ticket 03 replaces it with whatever the live directory reports.
+ * Output budget assumed for a model whose `metadata.output_budget` is absent
+ * (design §5.1); the live directory's value wins whenever it publishes one.
  */
 export const DEFAULT_MAX_OUTPUT_TOKENS = 32_768
 
@@ -215,23 +213,44 @@ export function findCatalogModel(id: string): CatalogModelSnapshot | undefined {
   return CATALOG_SNAPSHOT.find((entry) => entry.id === id)
 }
 
+/** The fields every catalog row — snapshot or gateway-merged — orders and labels by. */
+export interface CatalogTierFacts {
+  /** Model id, the final tie-break. */
+  readonly id: string
+  /** Vendor cost word, shown as a tier rather than a price. */
+  readonly cost: ModelCostTier
+  /** Vendor capability word. */
+  readonly capability: ModelCapabilityTier
+  /** Usable input budget in tokens. */
+  readonly contextWindow: number
+  /** Whether the gateway marks this model default; absent reads as `false`. */
+  readonly default?: boolean | undefined
+}
+
 /**
  * The picker's order (design §5.4): the default model first, then `advanced`
  * ahead of `standard`, cheaper ahead of dearer, and the id as the tie-break so
  * two loads never disagree.
+ *
+ * Exported because the live catalog merges gateway rows into the same shape;
+ * both listings must sort through this one comparator or the picker would
+ * reorder itself when the gateway becomes reachable.
  */
-export function orderedCatalog(): readonly CatalogModelSnapshot[] {
+export function compareCatalogEntries(left: CatalogTierFacts, right: CatalogTierFacts): number {
   const costRank: Readonly<Record<ModelCostTier, number>> = { low: 0, medium: 1, high: 2 }
-  return [...CATALOG_SNAPSHOT].sort((left, right) => {
-    if (left.default === true || right.default === true) {
-      return left.default === true ? -1 : 1
-    }
-    if (left.capability !== right.capability) return left.capability === 'advanced' ? -1 : 1
-    const leftCost = costRank[left.cost]
-    const rightCost = costRank[right.cost]
-    if (leftCost !== rightCost) return leftCost - rightCost
-    return left.id.localeCompare(right.id)
-  })
+  if (left.default === true || right.default === true) {
+    return left.default === true ? -1 : 1
+  }
+  if (left.capability !== right.capability) return left.capability === 'advanced' ? -1 : 1
+  const leftCost = costRank[left.cost]
+  const rightCost = costRank[right.cost]
+  if (leftCost !== rightCost) return leftCost - rightCost
+  return left.id.localeCompare(right.id)
+}
+
+/** The snapshot in picker order; see {@link compareCatalogEntries}. */
+export function orderedCatalog(): readonly CatalogModelSnapshot[] {
+  return [...CATALOG_SNAPSHOT].sort(compareCatalogEntries)
 }
 
 /**
@@ -239,11 +258,13 @@ export function orderedCatalog(): readonly CatalogModelSnapshot[] {
  * `text` and `image` only, so `file`/`audio`/`video` are not advertised even
  * when the vendor lists them — the adapter refuses those attachments anyway.
  */
-export function hostInputModalities(entry: CatalogModelSnapshot): readonly ('text' | 'image')[] {
+export function hostInputModalities(entry: {
+  readonly inputModalities: readonly string[]
+}): readonly ('text' | 'image')[] {
   return entry.inputModalities.includes('image') ? ['text', 'image'] : ['text']
 }
 
 /** One-line picker subtitle: capability and cost tiers, then the usable window. */
-export function describeCatalogModel(entry: CatalogModelSnapshot): string {
+export function describeCatalogModel(entry: CatalogTierFacts): string {
   return `${entry.capability} · ${entry.cost} cost · ${Math.round(entry.contextWindow / 1000)}K context`
 }
