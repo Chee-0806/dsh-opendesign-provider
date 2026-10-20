@@ -1,22 +1,180 @@
 /**
  * Browser half of the dsh-opendesign-provider bundle.
  *
- * Ticket 01 keeps this half as a loadable skeleton: the module must export an
- * `apply` the client loader can call, and the package manifest keeps declaring
- * `dsh.client`, but no slot is registered yet. Ticket 08 adds the settings page
+ * Registers exactly two surfaces: the Open Design settings page
  * (`settings.section`, id `opendesign`) and the Models-page provider card
- * (`settings.models.provider-card`, key `llm-opendesign`); P1 adds the quota
- * panel. Registering a slot before its React implementation exists would mount
- * a blank surface, so the skeleton deliberately mounts nothing.
+ * (`settings.models.provider-card`, key `llm-opendesign`). Both share one
+ * controller over `remote.settings` (this plugin's own namespace) and one
+ * `opendesign/models` Remote for catalog provenance and credential-source
+ * facts; neither receives a key value.
+ *
+ * The `opendesign` namespace contribution is mounted once here. A profile
+ * whose Host predates it leaves the card and page in their unknown-catalog
+ * state, and one with no settings namespace leaves them read-only — the bundle
+ * never gates registration on a service a profile may not mount.
  *
  * @module dsh-opendesign-provider/client
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 
-/** Client plugin body. Intentionally empty until ticket 08. */
-export function apply(_ctx: Context): void {
-  // No surfaces in the pre-refactor skeleton. The export itself is the
-  // contract: the web client loader scans every bundle that declares
-  // `dsh.client` and calls this function once the plugin mounts.
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+
+import { MODEL_CARD_KEY, NS, SETTINGS_LOCALE_NS, SETTINGS_SECTION_ID } from '../identity.ts'
+import { MODELS_REMOTE_CONTRIBUTION, type OpenDesignModelsReport } from '../models-wire.ts'
+import type { SettingsRemoteNamespace, SettingsScopeContext } from './settings-scope.ts'
+import { createSettingsScope } from './settings-scope.ts'
+import { cardMode, OpenDesignSettingsController, type CredentialsApi, type ModelsApi, type SettingsPageState } from './settings.ts'
+import { OpenDesignSettingsPage, type SettingsPageInjected } from './section.tsx'
+import { OpenDesignProviderCard, type OpenDesignProviderCardProps } from './card.tsx'
+import { PAGE_CSS, PAGE_CSS_ID } from './page-styles.ts'
+import { en, zh } from './locales.ts'
+import type { SnapshotStore } from './snapshot-store.ts'
+
+/** Install one stylesheet by id and return a disposer for its owning effect. */
+function injectCss(id: string, css: string): () => void {
+  if (typeof document === 'undefined') return () => {}
+  if (document.querySelector(`style[data-plugin-css="${id}"]`) !== null) return () => {}
+  const tag = document.createElement('style')
+  tag.dataset.plugin = '@mars-sea/dsh-opendesign-provider'
+  tag.dataset.pluginCss = id
+  tag.textContent = css
+  document.head.appendChild(tag)
+  return () => tag.remove()
 }
+
+/** The `remote.opendesign` namespace slice this bundle calls. */
+interface ModelsRemoteNamespace {
+  models?: () => Promise<{ ok: boolean; value?: OpenDesignModelsReport; error?: { message?: string } }>
+}
+
+/** The mount face the Remote service exposes (the Gateway's client side). */
+interface RemoteMountFace {
+  $mount(contribution: typeof MODELS_REMOTE_CONTRIBUTION): Promise<() => Promise<void>>
+}
+
+/** Client plugin body. */
+export function apply(ctx: Context): void {
+  const removeCss = injectCss(PAGE_CSS_ID, PAGE_CSS)
+  ctx.effect(() => removeCss, 'dsh-opendesign-provider: page styles')
+  ctx.effect(
+    () => ctx.locale.register(SETTINGS_LOCALE_NS, { zh, en }),
+    'dsh-opendesign-provider: page copy',
+  )
+
+  // The namespace object must be captured from an inject-scoped context, never
+  // read off `ctx.remote` (a nested service read without inject throws).
+  let settingsNamespace: SettingsRemoteNamespace | undefined
+  let credentialsNamespace: CredentialsApi | undefined
+  let modelsNamespace: ModelsRemoteNamespace | undefined
+
+  const scope = createSettingsScope<Record<string, unknown>>(
+    ctx as unknown as SettingsScopeContext,
+    NS,
+    () => settingsNamespace,
+  )
+  ctx.effect(() => () => { void scope.dispose() }, 'dsh-opendesign-provider: settings scope')
+
+  // Structural proxies keep the controller constructed even when a namespace
+  // mounts later (or never): the surfaces degrade instead of disappearing.
+  const credentials: CredentialsApi = {
+    async describe(refs) {
+      return credentialsNamespace?.describe(refs) ?? { ok: false, error: { message: 'credentials remote is not mounted' } }
+    },
+    async set(ref, value) {
+      return credentialsNamespace?.set(ref, value) ?? { ok: false, error: { message: 'credentials remote is not mounted' } }
+    },
+    async unset(ref) {
+      return credentialsNamespace?.unset(ref) ?? { ok: false, error: { message: 'credentials remote is not mounted' } }
+    },
+  }
+  const models: ModelsApi = {
+    async models() {
+      return modelsNamespace?.models?.() ?? { ok: false, error: { message: 'opendesign/models remote is not mounted' } }
+    },
+  }
+
+  const controller = new OpenDesignSettingsController(scope, credentials, models)
+  ctx.effect(() => () => controller.dispose(), 'dsh-opendesign-provider: settings controller')
+
+  // The card and the page read the same controller; this adapter is the
+  // observable face both React entries consume.
+  const settingsStore: Pick<SnapshotStore<SettingsPageState>, 'getSnapshot' | 'subscribe'> = {
+    getSnapshot: () => controller.state(),
+    subscribe: (listener) => controller.subscribe(listener),
+  }
+
+  ctx.inject(['remote.settings'], (settingsCtx) => {
+    settingsNamespace = (settingsCtx.remote as unknown as { settings: SettingsRemoteNamespace }).settings
+    scope.refresh()
+    settingsCtx.effect(() => () => { settingsNamespace = undefined }, 'dsh-opendesign-provider: settings namespace')
+  })
+  ctx.inject(['remote.credentials'], (credentialsCtx) => {
+    credentialsNamespace = (credentialsCtx.remote as unknown as { credentials: CredentialsApi }).credentials
+    void controller.refreshCredentials()
+    credentialsCtx.effect(() => () => { credentialsNamespace = undefined }, 'dsh-opendesign-provider: credentials namespace')
+  })
+
+  const remote = ctx.remote as unknown as RemoteMountFace
+  ctx.effect(() => {
+    let cancelled = false
+    let unmount: (() => Promise<void>) | undefined
+    void remote.$mount(MODELS_REMOTE_CONTRIBUTION).then((dispose) => {
+      if (cancelled) {
+        void dispose()
+        return
+      }
+      unmount = dispose
+      ctx.inject(['remote.opendesign'], (modelsCtx) => {
+        modelsNamespace = (modelsCtx.remote as unknown as { opendesign: ModelsRemoteNamespace }).opendesign
+        void controller.refreshModels()
+        modelsCtx.effect(() => () => { modelsNamespace = undefined }, 'dsh-opendesign-provider: models namespace')
+      })
+    }).catch((error: unknown) => {
+      console.error('[dsh-opendesign-provider] could not mount opendesign/models:', error)
+    })
+    return () => {
+      cancelled = true
+      void unmount?.()
+    }
+  }, 'dsh-opendesign-provider: models remote')
+
+  const pageFace = (): SettingsPageInjected => ({
+    settingsStore,
+    state: () => controller.state(),
+    cardMode: () => cardMode(controller.state()),
+    edit: (field, text) => controller.edit(field, text),
+    resetField: (field) => controller.resetField(field),
+    toggleModel: (id) => controller.toggleModel(id),
+    editContextWindow: (text) => controller.editContextWindow(text),
+    editContextOverride: (model, text) => controller.editContextOverride(model, text),
+    setLanguage: (language) => controller.setLanguage(language),
+    setKey: (value) => controller.setKey(value),
+    clearKey: () => controller.clearKey(),
+    save: () => controller.save(),
+    discard: () => controller.discard(),
+    diagnosticText: () => controller.diagnosticText(),
+    refresh: () => controller.refresh(),
+  })
+
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: SETTINGS_SECTION_ID,
+    order: 12,
+    label: () => ctx.locale.bind(SETTINGS_LOCALE_NS)('nav'),
+    locale: SETTINGS_LOCALE_NS,
+    inject: pageFace,
+  }, OpenDesignSettingsPage))
+
+  ctx.slots.inject('settings.models.provider-card', () => ctx.slots.register({
+    name: 'settings.models.provider-card',
+    key: MODEL_CARD_KEY,
+    locale: SETTINGS_LOCALE_NS,
+    inject: (): Omit<OpenDesignProviderCardProps, 't'> & Partial<{ t: never }> => pageFace(),
+  }, OpenDesignProviderCard))
+}
+
+export const inject: readonly string[] = ['slots', 'locale', 'remote']

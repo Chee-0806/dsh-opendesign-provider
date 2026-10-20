@@ -126,8 +126,15 @@ export interface OpenDesignImageEncoder {
 export interface OpenDesignAdapterDeps {
   /** Read the live connection facts for one call. */
   options: () => OpenDesignConnectionOptions
-  /** Resolve the bearer key for one call (literal → credential ref). */
+  /** Resolve the bearer key for one call (literal → credential ref → CLI login). */
   resolveApiKey: (connection: OpenDesignConnectionOptions) => Promise<string>
+  /**
+   * Resolve request facts that depend on WHERE the key came from: a key from
+   * the CLI login state uses that state's server-issued `linkUrl`, while an
+   * explicit key keeps the configured/default gateway. Optional so tests and
+   * programmatic adapters can omit it; the plugin entry supplies it.
+   */
+  resolveConnection?: (connection: OpenDesignConnectionOptions) => Promise<OpenDesignConnectionOptions> | OpenDesignConnectionOptions
   /**
    * Read the host attachment service, when one is mounted. Read per call: the
    * service may be composed after this plugin. Without it, an image can only be
@@ -268,7 +275,8 @@ export class OpenDesignAdapter extends LlmAdapter {
    * being generated (ticket 04).
    */
   override async *stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
-    const connection = this.deps.options()
+    const base = this.deps.options()
+    const connection = await this.deps.resolveConnection?.(base) ?? base
     const apiKey = await this.deps.resolveApiKey(connection)
     // The catalog is read from memory only: a directory refresh must never
     // delay or fail a conversation turn.
@@ -333,8 +341,9 @@ export class OpenDesignAdapter extends LlmAdapter {
    * Load the catalog for listing/status. Never throws: a gateway failure is a
    * fallback to the static snapshot with the reason recorded for ticket 08.
    */
-  private loadCatalog(connection: OpenDesignConnectionOptions): Promise<GatewayCatalogStatus> {
-    return this.catalog.load(this.catalogTarget(connection), () => this.deps.resolveApiKey(connection))
+  private async loadCatalog(connection: OpenDesignConnectionOptions): Promise<GatewayCatalogStatus> {
+    const resolved = await this.deps.resolveConnection?.(connection) ?? connection
+    return this.catalog.load(this.catalogTarget(resolved), () => this.deps.resolveApiKey(resolved))
   }
 
   /** The in-memory catalog for the conversation path; never touches the network. */
