@@ -1,5 +1,5 @@
 /**
- * Opt-in raw-stream trace for the Command Code transports.
+ * Opt-in raw-stream trace for the Open Design Chat Completions transport.
  *
  * Why this exists: this route's failure mode of record is a response that ENDS
  * EARLY — the gateway, a proxy or the network closes the socket mid-generation,
@@ -11,8 +11,8 @@
  * Enable it per process:
  *
  * ```sh
- * DSH_COMMANDCODE_TRACE=/tmp/cc-stream.jsonl dsh web
- * DSH_COMMANDCODE_TRACE=1 dsh web     # -> $TMPDIR/dsh-commandcode-stream.jsonl
+ * DSH_OPENDESIGN_TRACE=/tmp/od-stream.jsonl dsh web
+ * DSH_OPENDESIGN_TRACE=1 dsh web     # -> $TMPDIR/dsh-opendesign-stream.jsonl
  * ```
  *
  * Any value that is not a flag is a path, and the explicit off-spellings
@@ -44,11 +44,13 @@ import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-/** Environment variable that turns the trace on. */
-export const STREAM_TRACE_ENV = 'DSH_COMMANDCODE_TRACE'
+import { STREAM_TRACE_ENV } from './identity.ts'
+
+/** Environment variable that turns the trace on (see {@link STREAM_TRACE_ENV}). */
+export { STREAM_TRACE_ENV }
 
 /** File used when the variable is set to a bare flag instead of a path. */
-export const STREAM_TRACE_DEFAULT_FILE = 'dsh-commandcode-stream.jsonl'
+export const STREAM_TRACE_DEFAULT_FILE = 'dsh-opendesign-stream.jsonl'
 
 /**
  * Ceiling for ONE request's trace, in bytes.

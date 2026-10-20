@@ -11,7 +11,7 @@
  * base64: bytes become context, latency, and progress against the gateway's
  * undocumented ~50 MB body cap (see the request image budget in `./adapter.ts`).
  *
- * @module dsh-commandcode-provider/image-request
+ * @module dsh-opendesign-provider/image-request
  */
 
 import type { ImageAttachmentRef, ImageRequestTarget } from '@deepseek-ai/dsh-attachment'

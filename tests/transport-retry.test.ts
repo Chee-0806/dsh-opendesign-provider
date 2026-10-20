@@ -35,7 +35,7 @@ function respond(agent: FakeAgent, code: string, signal: AbortSignal, maxRetries
   const decision = absorbTransportFailure(agent, code, maxRetries)
   if (decision === 'ignored') return undefined
   if (decision === 'retry') return { kind: 'retry' }
-  throw new Error(transportBudgetMessage('Command Code API request failed: fetch failed', maxRetries))
+  throw new Error(transportBudgetMessage('Open Design API request failed: fetch failed', maxRetries))
 }
 
 const live = (): AbortSignal => new AbortController().signal
@@ -132,7 +132,7 @@ test('the Host schema bound is the ceiling the module exports', async () => {
 })
 
 test('the capped failure names the budget, the proxy check, and is bilingual', () => {
-  const message = transportBudgetMessage('Command Code API request to https://api.commandcode.ai failed: fetch failed', 5)
+  const message = transportBudgetMessage('Open Design API request to https://gateway.invalid failed: fetch failed', 5)
   // The provider's own failure text survives: this replaces the retry chrome,
   // not the diagnosis.
   assert.match(message, /fetch failed/)

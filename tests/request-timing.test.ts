@@ -64,7 +64,7 @@ test('真实插件注册的预算处理器尊重提供商、取消以及每个�
   const session = {}, agent = { session }
   let delegated = 0
   const next = async () => { delegated++; return { kind: 'retry' } }
-  const payload = { agent, provider: 'commandcode', failure: { code: 'SERVER', message: 'test' }, signal: new AbortController().signal }
+  const payload = { agent, provider: 'open-design', failure: { code: 'SERVER', message: 'test' }, signal: new AbortController().signal }
   const aborted = new AbortController(); aborted.abort()
   for (let i = 0; i < 5; i++) {
     await handler({ ...payload, provider: 'other' }, next)

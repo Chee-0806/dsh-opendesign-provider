@@ -19,10 +19,10 @@ test('跳过 prepare 脚本打在 JSON 之前的 stdout 噪声', () => {
     '\u001b[32m✔\u001b[39m Build complete in 726ms',
     '',
   ].join('\n')
-  const payload = [{ filename: 'mars-sea-dsh-commandcode-provider-0.12.2.tgz', files: [] }]
+  const payload = [{ filename: 'mars-sea-dsh-opendesign-provider-0.1.0.tgz', files: [] }]
   const stdout = `${noise}\n${JSON.stringify(payload, null, 2)}\n`
   assert.deepEqual(parseJsonPrefix(stdout), payload)
-  assert.equal(packedEntry(stdout).filename, 'mars-sea-dsh-commandcode-provider-0.12.2.tgz')
+  assert.equal(packedEntry(stdout).filename, 'mars-sea-dsh-opendesign-provider-0.1.0.tgz')
 })
 
 test('噪声里的方括号和无括号文本都不会被误当成 JSON 起点', () => {

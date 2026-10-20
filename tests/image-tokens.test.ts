@@ -4,14 +4,14 @@
  * Both modules are pure, so they are driven directly: `image-tokens.ts` decides
  * what one image costs on the family that serves a catalog model and
  * `image-request.ts` what one request asks the encoder for. The adapter-level
- * wiring is pinned in `tests/adapter.test.ts`.
+ * wiring is pinned with the adapter's own tests in ticket 02.
  */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  commandCodeImageTokens,
+  openDesignImageTokens,
   imageTokenCost,
   imageTokenFamily,
 } from '../src/image-tokens.ts'
@@ -21,7 +21,6 @@ import {
   longEdgeDimensions,
   requestImageTarget,
 } from '../src/image-request.ts'
-import { KNOWN_IMAGE_MODELS } from '../src/capabilities.ts'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 
@@ -52,16 +51,24 @@ test('imageTokenFamily() reads the vendor out of the catalog id', () => {
 })
 
 test('every advertised vision model resolves to a family, and its cost is positive', () => {
-  // The pricing path is only reached for models this snapshot calls
-  // image-capable, so every one of them must price.
+  // The pricing path is only reached for models the catalog calls
+  // image-capable, so every one of these Open Design ids must price.
+  const imageModels = [
+    'claude-haiku-5.5',
+    'gpt-6-luna',
+    'deepseek-v4.1-flash',
+    'glm-5.3-flash',
+    'kimi-k2.7-code',
+  ]
   const families = new Set<string>()
-  for (const model of KNOWN_IMAGE_MODELS) {
+  for (const model of imageModels) {
     const family = imageTokenFamily(model)
     families.add(family)
-    assert.ok(commandCodeImageTokens(model, 1568, 980) > 0, `${model} priced zero tokens`)
+    assert.ok(openDesignImageTokens(model, 1568, 980) > 0, `${model} priced zero tokens`)
   }
-  // The families the catalog actually reaches, so a new vendor shows up here.
-  assert.deepEqual([...families].sort(), ['anthropic', 'deepseek', 'generic', 'google', 'openai'])
+  // Bare gateway ids only carry the vendor for the claude/gpt prefixes today,
+  // so the rest conservatively fall back to the generic rule.
+  assert.deepEqual([...families].sort(), ['anthropic', 'generic', 'openai'])
 })
 
 test('the Anthropic rule projects onto 1568 px, then charges one token per 750 px', () => {

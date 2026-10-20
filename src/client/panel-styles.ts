@@ -1,5 +1,5 @@
 /**
- * Stylesheet for the Command Code plans & quota panel (the sidebar footer card
+ * Stylesheet for the Open Design plans & quota panel (the sidebar footer card
  * and the dashboard it opens).
  *
  * Returned as a string, not injected here, so importing this module has no DOM
@@ -13,7 +13,7 @@
  * harness theme aliases with neutral fallbacks; the `ccp-` prefix keeps these
  * clear of the settings page's `cc-` set.
  *
- * @module dsh-commandcode-provider/client/panel-styles
+ * @module dsh-opendesign-provider/client/panel-styles
  */
 
 /**
@@ -23,7 +23,7 @@
  * (`PAGE_CSS_ID`); the two ids must also stay DISTINCT, since they key two
  * separate style tags and a shared id would make the second injection a no-op.
  */
-export const PANEL_CSS_ID = '@mars-sea/dsh-commandcode-provider/CommandCodePanel.module.css'
+export const PANEL_CSS_ID = '@mars-sea/dsh-opendesign-provider/OpenDesignPanel.module.css'
 
 /** The panel stylesheet. */
 export const PANEL_CSS = `

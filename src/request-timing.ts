@@ -3,7 +3,10 @@ import { appendFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-export const REQUEST_TIMING_ENV = 'DSH_COMMANDCODE_TIMING'
+import { REQUEST_TIMING_ENV } from './identity.ts'
+
+/** Environment variable that turns the timing trace on. */
+export { REQUEST_TIMING_ENV }
 type Phase = 'credentials' | 'images' | 'body' | 'serialization' | 'headers'
 type Outcome = 'finished' | 'error' | 'aborted' | 'cancelled'
 
@@ -73,7 +76,7 @@ export function openRequestTiming(model: string, sink?: RequestTimingSink): Requ
   const raw = process.env[REQUEST_TIMING_ENV]?.trim()
   if (!raw || ['0', 'false', 'no', 'off'].includes(raw.toLowerCase())) return new RequestTiming(model)
   const path = ['1', 'true', 'yes', 'on'].includes(raw.toLowerCase())
-    ? join(tmpdir(), 'dsh-commandcode-timing.jsonl') : raw
+    ? join(tmpdir(), 'dsh-opendesign-timing.jsonl') : raw
   return new RequestTiming(model, async (summary) => {
     await mkdir(dirname(path), { recursive: true })
     await appendFile(path, `${JSON.stringify(summary)}\n`, { mode: 0o600 })

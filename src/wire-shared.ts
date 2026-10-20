@@ -1,27 +1,29 @@
 /**
  * Shared boundary-validation and Remote-descriptor plumbing for the plugin's
- * hand-rolled Typert wire contracts (`commandcode/report`, `commandcode/models`,
- * `commandcode/prices`, `commandcode/login*`).
+ * hand-rolled Typert wire contracts (`opendesign/report`, `opendesign/models`,
+ * `opendesign/usage`, `opendesign/analytics`).
  *
  * Every Remote this plugin serves crosses the Typert Gateway with a strict
  * result schema: the Host half registers a descriptor against a Cordis service
- * (`src/usage-remote.ts`) and the browser half mounts the matching contribution
- * on `ctx.remote` (`src/client/index.ts`). This module is dependency-free so
- * the client bundle can inline it, and it holds the schema helpers and
- * descriptor boilerplate the wire files used to duplicate.
+ * and the browser half mounts the matching contribution on `ctx.remote`. This
+ * module is dependency-free (beyond type-only Typert imports) so the client
+ * bundle can inline it, and it holds the schema helpers and descriptor
+ * boilerplate the wire files used to duplicate.
  *
- * @module dsh-commandcode-provider/wire-shared
+ * Ticket 01 keeps this plumbing even though the P1 quota Remote is not mounted
+ * yet: the identity constants below are the single source for the namespace and
+ * service names every later wire file must reuse.
+ *
+ * @module dsh-opendesign-provider/wire-shared
  */
 import type { InvocationDescriptor, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
 
+import { PACKAGE_NAME, REMOTE_NAMESPACE, REMOTE_SERVICE } from './identity.ts'
+
 /** The npm package identity every contribution and descriptor claims. */
-export const REMOTE_PACKAGE = '@mars-sea/dsh-commandcode-provider'
+export const REMOTE_PACKAGE = PACKAGE_NAME
 
-/** The Cordis service key the Gateway resolves every Command Code Remote from. */
-export const REMOTE_SERVICE = 'commandcodeUsage'
-
-/** The wire namespace all Command Code endpoints share. */
-export const REMOTE_NAMESPACE = 'commandcode'
+export { REMOTE_NAMESPACE, REMOTE_SERVICE }
 
 /** The read/validate helpers one boundary codec needs. */
 export interface BoundaryValidator {
@@ -39,7 +41,7 @@ export interface BoundaryValidator {
 
 /**
  * Build the validator helpers one endpoint uses. `prefix` names the endpoint
- * in the rejection message (e.g. `commandcode/report result:`), so each wire
+ * in the rejection message (e.g. `opendesign/report result:`), so each wire
  * file keeps its own diagnostic phrasing while sharing the helper bodies.
  *
  * The helpers return the reject call directly in the failure branch: since
@@ -85,8 +87,8 @@ export function makeStrictCodec<Output>(typeSymbol: string, schema: TypertSchema
 }
 
 /**
- * Build one strict invocation descriptor. Every Command Code Remote shares the
- * `commandcode` namespace, the `commandcodeUsage` service, and a strict result
+ * Build one strict invocation descriptor. Every Open Design Remote shares the
+ * `opendesign` namespace, the `opendesignUsage` service, and a strict result
  * — only the endpoint, method, result type symbol, and schema differ.
  */
 export function makeRemoteDescriptor<Output>(

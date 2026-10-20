@@ -24,7 +24,7 @@
  * path behind `ctx.settings.update()`; see its own note for why the disk-backed
  * path is preferred.
  *
- * @module dsh-commandcode-provider/config-volatile
+ * @module dsh-opendesign-provider/config-volatile
  */
 
 /**

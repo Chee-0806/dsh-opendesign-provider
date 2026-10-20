@@ -17,7 +17,7 @@ export function resetTransientFailures(agent: object): void {
 }
 
 export function transientBudgetMessage(code: string, message: string): string {
-  return `Command Code 请求在 ${TRANSIENT_MAX_RETRIES} 次自动重试后仍失败，已停止重试（${code}）。`
+  return `Open Design 请求在 ${TRANSIENT_MAX_RETRIES} 次自动重试后仍失败，已停止重试（${code}）。`
     + '请稍后重新发送；若反复出现，请检查服务状态或请求耗时诊断。'
     + ` 原因：${message}`
 }

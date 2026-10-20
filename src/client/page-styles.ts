@@ -1,5 +1,5 @@
 /**
- * Stylesheet for the Command Code settings page — and the Models-page provider
+ * Stylesheet for the Open Design settings page — and the Models-page provider
  * card, which shares its `cc-` classes.
  *
  * Returned as a string, not injected here, so importing this module has no DOM
@@ -12,7 +12,7 @@
  * harness theme aliases with neutral fallbacks, and the `cc-` prefix keeps
  * these clear of the panel's `ccp-` set.
  *
- * @module dsh-commandcode-provider/client/page-styles
+ * @module dsh-opendesign-provider/client/page-styles
  */
 
 /**
@@ -22,7 +22,7 @@
  * (`PANEL_CSS_ID`); the two ids must also stay DISTINCT, since they key two
  * separate style tags and a shared id would make the second injection a no-op.
  */
-export const PAGE_CSS_ID = '@mars-sea/dsh-commandcode-provider/CommandCodeSettingsPage.module.css'
+export const PAGE_CSS_ID = '@mars-sea/dsh-opendesign-provider/OpenDesignSettingsPage.module.css'
 
 /**
  * The settings-page stylesheet.

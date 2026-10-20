@@ -225,7 +225,7 @@ for (const sheet of SHEETS) {
 test('the two stylesheets carry distinct ids under the plugin package prefix', () => {
   assert.notEqual(PAGE_CSS_ID, PANEL_CSS_ID)
   for (const id of [PAGE_CSS_ID, PANEL_CSS_ID]) {
-    assert.match(id, /^@mars-sea\/dsh-commandcode-provider\//)
+    assert.match(id, /^@mars-sea\/dsh-opendesign-provider\//)
   }
 })
 

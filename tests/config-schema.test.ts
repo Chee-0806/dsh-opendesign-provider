@@ -17,15 +17,11 @@ import assert from 'node:assert/strict'
 import { redactSecrets } from '@deepseek-ai/dsh-settings'
 import type z from '@deepseek-ai/schemastery'
 
-import { Config, resolveAdapterOptions } from '../src/index.ts'
+import { Config, DEFAULT_API_KEY_ENV, resolveAdapterOptions } from '../src/index.ts'
 import { unwrapVolatileConfig } from '../src/config-volatile.ts'
 
 test('literal API keys are declared secret and stripped from a settings descriptor', () => {
-  const value = {
-    apiKeyEnv: 'COMMANDCODE_API_KEY',
-    apiKey: 'sk-literal-SECRET-123',
-    accounts: [{ label: 'second', apiKeyEnv: 'COMMANDCODE_API_KEY_2', apiKey: 'sk-second-SECRET-456' }],
-  }
+  const value = { apiKeyEnv: DEFAULT_API_KEY_ENV, apiKey: 'sk-literal-SECRET-123' }
   // `redactSecrets` declares its schema parameter as `z<never>` because it only
   // walks the declared `role('secret')` positions; the plugin's own schema is
   // `z<Config>`, so the call states that widening explicitly at this boundary
@@ -35,19 +31,14 @@ test('literal API keys are declared secret and stripped from a settings descript
     secrets: Array<{ path: readonly (string | number)[] }>
   }
 
-  // The literals never reach the caller…
+  // The literal never reaches the caller…
   assert.equal(redacted.value.apiKey, undefined)
-  const accounts = redacted.value.accounts as Array<Record<string, unknown>>
-  assert.equal(accounts[0]?.apiKey, undefined)
-  // …while the reference (not a secret) and the rest of the profile survive.
-  assert.equal(redacted.value.apiKeyEnv, 'COMMANDCODE_API_KEY')
-  assert.equal(accounts[0]?.apiKeyEnv, 'COMMANDCODE_API_KEY_2')
-  assert.equal(accounts[0]?.label, 'second')
-  // Reported per path, so the page can show "set" without the value. Array
-  // segments are stringified — the harness spells them as keys.
+  // …while the rest of the profile survives.
+  assert.equal(redacted.value.apiKeyEnv, DEFAULT_API_KEY_ENV)
+  // Reported per path, so the page can show "set" without the value.
   assert.deepEqual(
     redacted.secrets.map((secret) => secret.path.map(String)),
-    [['apiKey'], ['accounts', '0', 'apiKey']],
+    [['apiKey']],
   )
 })
 
@@ -59,14 +50,11 @@ test('a literal API key still configures the route from a composition config', (
   const parsed = Config({ apiKey: 'sk-literal-123' })
   const config = unwrapVolatileConfig(parsed)
   assert.equal(config.apiKey, 'sk-literal-123')
-  assert.equal(resolveAdapterOptions(config).apiKeyEnv, 'COMMANDCODE_API_KEY')
+  const options = resolveAdapterOptions(config)
+  assert.equal(options.apiKeyEnv, DEFAULT_API_KEY_ENV)
+  assert.equal(options.apiBase, 'https://amr-link.open-design.ai/v1')
   // A write lands on the next read without re-parsing.
-  assert.equal(unwrapVolatileConfig(parsed).apiKeyEnv, 'COMMANDCODE_API_KEY')
-})
-
-test('cache-aware image offload is explicitly opt-in and resolves per config read', () => {
-  assert.equal(resolveAdapterOptions(unwrapVolatileConfig(Config({}))).offloadSeenImagesForCache, false)
-  assert.equal(resolveAdapterOptions(unwrapVolatileConfig(Config({ offloadSeenImagesForCache: true }))).offloadSeenImagesForCache, true)
+  assert.equal(unwrapVolatileConfig(parsed).apiKeyEnv, DEFAULT_API_KEY_ENV)
 })
 
 test('上下文配置只接受边界内整数，程序化调用另行清洗非法值', () => {
