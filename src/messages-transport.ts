@@ -104,6 +104,8 @@ export const MAX_UNKNOWN_EVENTS = 5_000
 type MessagesContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; tool_use_id: string; content: string }
 
 /** An Anthropic message, spelled only with fields the gateway understands. */
 interface MessagesWireMessage {
@@ -160,6 +162,16 @@ function systemTextOf(options: GenerateOptions): string {
   return parts.join('\n\n')
 }
 
+/** Tool-call arguments arrive as a JSON string; a malformed one becomes an empty object. */
+function parseToolArguments(raw: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(raw) as unknown
+    return isRecord(value) ? value : {}
+  } catch {
+    return {}
+  }
+}
+
 /** Every text block of one message, joined — the string form Anthropic accepts. */
 function textOfBlocks(content: GenerateOptions['messages'][number]['content']): string {
   const parts: string[] = []
@@ -190,6 +202,14 @@ async function toMessagesMessage(
   message: GenerateOptions['messages'][number],
   images: ImagePlan,
 ): Promise<MessagesWireMessage | undefined> {
+  // A tool result is its own wire shape in Anthropic: it travels as a `user`
+  // message whose single block answers one `tool_use` id.
+  if (message.role === 'tool') {
+    return {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: message.toolCallId, content: textOfBlocks(message.content) }],
+    }
+  }
   const parts: MessagesContentBlock[] = []
   for (const block of message.content) {
     switch (block.type) {
@@ -199,6 +219,14 @@ async function toMessagesMessage(
       case 'reasoning':
       case 'tool-addition':
       case 'tool-removal':
+        break
+      case 'tool-call':
+        parts.push({
+          type: 'tool_use',
+          id: block.id,
+          name: block.name,
+          input: parseToolArguments(block.arguments),
+        })
         break
       case 'image': {
         if (block.offloaded === true) {

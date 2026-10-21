@@ -69,7 +69,7 @@ function toolResult(callId: string, text: string): Message {
     role: 'tool',
     toolCallId: callId as never,
     content: [{ type: 'text', text }],
-    source: { kind: 'tool', name: 'get_time' },
+    source: { kind: 'tool', callId: callId as never },
   }
 }
 
@@ -570,7 +570,7 @@ test('Messages 面图片转 base64 source；不支持图片的模型与 file 附
     () => collect(oneTurn('gpt-6-luna', {
       messages: [userMessageWith([{
         type: 'file',
-        attachment: { attachmentId: 'sha256:ffeeddccbbaa9988', mediaType: 'application/pdf', bytes: 10, name: 'a.pdf' },
+        attachment: { attachmentId: 'sha256:ffeeddccbbaa9988' as never, bytes: 10, name: 'a.pdf' },
       }])],
     }), withFile),
     (error: unknown) => error instanceof LlmError && error.code === 'UNSUPPORTED_CONTENT',
