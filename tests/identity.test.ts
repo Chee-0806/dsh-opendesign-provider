@@ -18,6 +18,7 @@ import {
   NS,
   PACKAGE_NAME,
   PANEL_ID,
+  PANEL_LOCALE_NS,
   PLUGIN_ID,
   PROVIDER,
   PROVIDER_DISPLAY_NAME,
@@ -47,6 +48,7 @@ test('identity constants pin the Open Design provider surface', () => {
   assert.equal(SETTINGS_SECTION_ID, 'opendesign')
   assert.equal(MODEL_CARD_KEY, 'llm-opendesign')
   assert.equal(PANEL_ID, 'opendesign-panel')
+  assert.equal(PANEL_LOCALE_NS, 'panel.opendesign')
   assert.equal(REQUEST_TIMING_ENV, 'DSH_OPENDESIGN_TIMING')
   assert.equal(STREAM_TRACE_ENV, 'DSH_OPENDESIGN_TRACE')
 })

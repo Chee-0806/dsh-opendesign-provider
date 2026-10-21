@@ -31,6 +31,7 @@ export interface SettingsPageInjected {
   editContextWindow(text: string): void
   editContextOverride(model: string, text: string): void
   setLanguage(language: string): void
+  setShowSidebarQuota(value: boolean): void
   setKey(value: string): void
   clearKey(): void
   save(): Promise<SettingsSaveOutcome>
@@ -299,7 +300,24 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
               </select>
             </span>
           </label>
-          <p className="cc-hint">{t('quotaComing')}</p>
+          <label className="cc-row">
+            <span className="cc-rowText">
+              <span className="cc-rowTitle">{t('sidebarQuota')}</span>
+              <span className="cc-rowDesc">{t('sidebarQuotaHint')}</span>
+            </span>
+            <span className="cc-rowControl">
+              <input
+                className="cc-check"
+                type="checkbox"
+                checked={state.showSidebarQuotaDraft}
+                disabled={disabled}
+                onChange={(event) => props.setShowSidebarQuota(event.target.checked)}
+              />
+            </span>
+          </label>
+          {state.showSidebarQuotaDraft && state.controlKeyWarning
+            ? <p className="cc-rowError">{t('controlKeyWarn')}</p>
+            : null}
         </div>
       </div>
 

@@ -111,6 +111,10 @@ export interface SettingsPageState {
   fields: Record<SettingsField, FieldDraft>
   /** Host-side language for text surfaces; the web page follows the browser. */
   language: string
+  /** Stored `showSidebarQuota` — the fact the quota panel gates its render on. */
+  showSidebarQuota: boolean
+  /** The Display checkbox's staged value (may differ from the stored fact until saved). */
+  showSidebarQuotaDraft: boolean
   keyDraft: string
   keyAction: 'none' | 'set' | 'clear'
   dirty: boolean
@@ -264,6 +268,8 @@ function initialPageState(): SettingsPageState {
     contextOverrides: [],
     fields: emptyFields(),
     language: 'zh',
+    showSidebarQuota: false,
+    showSidebarQuotaDraft: false,
     keyDraft: '',
     keyAction: 'none',
     dirty: false,
@@ -285,6 +291,7 @@ export class OpenDesignSettingsController {
   private modelsChanged = false
   private overridesChanged = false
   private languageChanged = false
+  private sidebarQuotaChanged = false
   private overrides: Record<string, string> = {}
   private modelCatalog: readonly ModelsReportEntry[] = []
   private snapshot: SettingsScopeSnapshot<Record<string, unknown>>
@@ -383,6 +390,13 @@ export class OpenDesignSettingsController {
     if (language !== 'zh' && language !== 'en') return
     this.languageChanged = true
     this.publish({ ...this.state(), language, dirty: true, notice: undefined })
+  }
+
+  /** Stage the Display section's sidebar-quota switch (one batch with every other field). */
+  setShowSidebarQuota(value: boolean): void {
+    if (this.disposed) return
+    this.sidebarQuotaChanged = true
+    this.publish({ ...this.state(), showSidebarQuotaDraft: value, dirty: true, notice: undefined })
   }
 
   /** Stage the key field (write-only; the value is never rendered back). */
@@ -655,6 +669,7 @@ export class OpenDesignSettingsController {
     this.modelsChanged = false
     this.overridesChanged = false
     this.languageChanged = false
+    this.sidebarQuotaChanged = false
     this.publish({
       ...this.derivedDrafts(),
       keyDraft: '',
@@ -680,6 +695,10 @@ export class OpenDesignSettingsController {
       status: this.snapshot.status === 'ready' ? 'ready' : this.snapshot.status === 'unavailable' ? 'unavailable' : 'loading',
       writable: this.snapshot.writable,
       language: typeof value.lang === 'string' ? value.lang : 'zh',
+      showSidebarQuota: value.showSidebarQuota === true,
+      showSidebarQuotaDraft: this.sidebarQuotaChanged
+        ? page.showSidebarQuotaDraft
+        : value.showSidebarQuota === true,
       apiKeyReference: referenceOf(value),
       fields: Object.fromEntries(
         Object.entries(fields).map(([field, draft]) => [field, this.validateField(field as SettingsField, draft)]),
@@ -810,6 +829,9 @@ export class OpenDesignSettingsController {
     if (this.languageChanged) {
       ops.push({ op: 'set', path: ['lang'], value: state.language })
     }
+    if (this.sidebarQuotaChanged) {
+      ops.push({ op: 'set', path: ['showSidebarQuota'], value: state.showSidebarQuotaDraft })
+    }
     if (this.overridesChanged) {
       const overrides: Record<string, number> = {}
       for (const row of state.contextOverrides) {
@@ -856,7 +878,7 @@ export class OpenDesignSettingsController {
   private stateDirty(state: SettingsPageState): boolean {
     if (state.keyAction !== 'none') return true
     if (state.keyDraft !== '') return true
-    if (this.modelsChanged || this.overridesChanged || this.languageChanged) return true
+    if (this.modelsChanged || this.overridesChanged || this.languageChanged || this.sidebarQuotaChanged) return true
     return Object.values(state.fields).some((draft) => draft.changed)
   }
 }

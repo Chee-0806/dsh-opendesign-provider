@@ -23,15 +23,27 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
-import { MODEL_CARD_KEY, NS, SETTINGS_LOCALE_NS, SETTINGS_SECTION_ID } from '../identity.ts'
+import { MODEL_CARD_KEY, NS, PANEL_ID, SETTINGS_LOCALE_NS, SETTINGS_SECTION_ID } from '../identity.ts'
 import { MODELS_REMOTE_CONTRIBUTION, type OpenDesignModelsReport } from '../models-wire.ts'
+import { QUOTA_REMOTE_CONTRIBUTION } from '../quota-wire.ts'
+import type { QuotaSnapshot } from '../control-plane.ts'
 import type { SettingsRemoteNamespace, SettingsScopeContext } from './settings-scope.ts'
 import { createSettingsScope } from './settings-scope.ts'
 import { cardMode, OpenDesignSettingsController, type CredentialsApi, type ModelsApi, type SettingsPageState } from './settings.ts'
 import { OpenDesignSettingsPage, type SettingsPageInjected } from './section.tsx'
 import { OpenDesignProviderCard, type OpenDesignProviderCardProps } from './card.tsx'
 import { PAGE_CSS, PAGE_CSS_ID } from './page-styles.ts'
+import { PANEL_CSS, PANEL_CSS_ID } from './panel-styles.ts'
 import { en, zh } from './locales.ts'
+import { EN as PANEL_EN, PANEL_LOCALE_NS, ZH as PANEL_ZH } from './panel-locales.ts'
+import {
+  OpenDesignQuotaPanelController,
+  type QuotaPanelInjected,
+  type QuotaPanelLoadResult,
+  type QuotaPanelState,
+} from './panel.ts'
+import { OpenDesignQuotaCard, OpenDesignQuotaDashboard } from './panel-ui.tsx'
+import type { QuotaCardProps, QuotaDashboardProps } from './panel-slots.ts'
 import type { SnapshotStore } from './snapshot-store.ts'
 
 /** Install one stylesheet by id and return a disposer for its owning effect. */
@@ -49,11 +61,22 @@ function injectCss(id: string, css: string): () => void {
 /** The `remote.opendesign` namespace slice this bundle calls. */
 interface ModelsRemoteNamespace {
   models?: () => Promise<{ ok: boolean; value?: OpenDesignModelsReport; error?: { message?: string } }>
+  usage?: () => Promise<{ ok: boolean; value?: QuotaSnapshot; error?: { message?: string } }>
 }
 
 /** The mount face the Remote service exposes (the Gateway's client side). */
 interface RemoteMountFace {
-  $mount(contribution: typeof MODELS_REMOTE_CONTRIBUTION): Promise<() => Promise<void>>
+  $mount(contribution: { package: string; descriptors: readonly unknown[] }): Promise<() => Promise<void>>
+}
+
+/**
+ * The one client-face contribution: both Host descriptors live under the same
+ * package, so they mount together — the Gateway merges the `opendesign`
+ * namespace once, and neither half can land without the other.
+ */
+const CLIENT_REMOTE_CONTRIBUTION = {
+  package: MODELS_REMOTE_CONTRIBUTION.package,
+  descriptors: [...MODELS_REMOTE_CONTRIBUTION.descriptors, ...QUOTA_REMOTE_CONTRIBUTION.descriptors],
 }
 
 /** Client plugin body. */
@@ -64,6 +87,12 @@ export function apply(ctx: Context): void {
     () => ctx.locale.register(SETTINGS_LOCALE_NS, { zh, en }),
     'dsh-opendesign-provider: page copy',
   )
+  ctx.effect(
+    () => ctx.locale.register(PANEL_LOCALE_NS, { zh: PANEL_ZH, en: PANEL_EN }),
+    'dsh-opendesign-provider: panel copy',
+  )
+  const removePanelCss = injectCss(PANEL_CSS_ID, PANEL_CSS)
+  ctx.effect(() => removePanelCss, 'dsh-opendesign-provider: panel styles')
 
   // The namespace object must be captured from an inject-scoped context, never
   // read off `ctx.remote` (a nested service read without inject throws).
@@ -96,6 +125,11 @@ export function apply(ctx: Context): void {
       return modelsNamespace?.models?.() ?? { ok: false, error: { message: 'opendesign/models remote is not mounted' } }
     },
   }
+  const loadQuota = async (): Promise<QuotaPanelLoadResult> => {
+    const usage = modelsNamespace?.usage
+    if (usage === undefined) return { ok: false, error: { message: 'opendesign/usage remote is not mounted' } }
+    return usage()
+  }
 
   const controller = new OpenDesignSettingsController(scope, credentials, models)
   ctx.effect(() => () => controller.dispose(), 'dsh-opendesign-provider: settings controller')
@@ -106,6 +140,40 @@ export function apply(ctx: Context): void {
     getSnapshot: () => controller.state(),
     subscribe: (listener) => controller.subscribe(listener),
   }
+
+  // One panel controller for both seats. `layout` is read reflectively at call
+  // time: a profile whose client has no layout service keeps the card hidden
+  // (the registration is gated on it below), and a layout that predates the
+  // `selectPanel(null)` form falls back to the reserved conversation key.
+  const selectPanel = (panelId: string | null): void => {
+    const layout = ctx.get('layout') as { selectPanel?: (id: string | null) => void } | undefined
+    const select = layout?.selectPanel
+    if (typeof select !== 'function') return
+    try {
+      select(panelId)
+    } catch {
+      if (panelId !== null) return
+      try { select('conversation') } catch { /* layout unavailable: no navigation */ }
+    }
+  }
+  const panel = new OpenDesignQuotaPanelController({
+    load: loadQuota,
+    settings: settingsStore,
+    selectPanel,
+  })
+  ctx.effect(() => () => panel.dispose(), 'dsh-opendesign-provider: quota panel controller')
+  const panelStore: Pick<SnapshotStore<QuotaPanelState>, 'getSnapshot' | 'subscribe'> = {
+    getSnapshot: () => panel.state(),
+    subscribe: (listener) => panel.subscribe(listener),
+  }
+  const panelFace = (): QuotaPanelInjected => ({
+    panelStore,
+    panelState: () => panel.state(),
+    panelOpen: () => panel.openPanel(),
+    panelClose: () => panel.closePanel(),
+    panelRefresh: () => { void panel.refresh(true) },
+    panelLocale: () => (ctx.locale.getLocale().active === 'en' ? 'en' : 'zh'),
+  })
 
   ctx.inject(['remote.settings'], (settingsCtx) => {
     settingsNamespace = (settingsCtx.remote as unknown as { settings: SettingsRemoteNamespace }).settings
@@ -122,7 +190,7 @@ export function apply(ctx: Context): void {
   ctx.effect(() => {
     let cancelled = false
     let unmount: (() => Promise<void>) | undefined
-    void remote.$mount(MODELS_REMOTE_CONTRIBUTION).then((dispose) => {
+    void remote.$mount(CLIENT_REMOTE_CONTRIBUTION).then((dispose) => {
       if (cancelled) {
         void dispose()
         return
@@ -131,10 +199,14 @@ export function apply(ctx: Context): void {
       ctx.inject(['remote.opendesign'], (modelsCtx) => {
         modelsNamespace = (modelsCtx.remote as unknown as { opendesign: ModelsRemoteNamespace }).opendesign
         void controller.refreshModels()
+        // The panel may have asked before the namespace landed (its first read
+        // failed with "not mounted"); one forced read heals that, and it is a
+        // no-op while the switch is off.
+        void panel.refresh(true)
         modelsCtx.effect(() => () => { modelsNamespace = undefined }, 'dsh-opendesign-provider: models namespace')
       })
     }).catch((error: unknown) => {
-      console.error('[dsh-opendesign-provider] could not mount opendesign/models:', error)
+      console.error('[dsh-opendesign-provider] could not mount opendesign remotes:', error)
     })
     return () => {
       cancelled = true
@@ -152,6 +224,7 @@ export function apply(ctx: Context): void {
     editContextWindow: (text) => controller.editContextWindow(text),
     editContextOverride: (model, text) => controller.editContextOverride(model, text),
     setLanguage: (language) => controller.setLanguage(language),
+    setShowSidebarQuota: (value) => controller.setShowSidebarQuota(value),
     setKey: (value) => controller.setKey(value),
     clearKey: () => controller.clearKey(),
     save: () => controller.save(),
@@ -175,6 +248,30 @@ export function apply(ctx: Context): void {
     locale: SETTINGS_LOCALE_NS,
     inject: (): Omit<OpenDesignProviderCardProps, 't'> & Partial<{ t: never }> => pageFace(),
   }, OpenDesignProviderCard))
+
+  // The dashboard cell always registers: a profile whose layout never declares
+  // `main` simply renders no cell, and the card below is the only trigger.
+  ctx.slots.inject('main', () => ctx.slots.register({
+    name: 'main',
+    key: PANEL_ID,
+    locale: PANEL_LOCALE_NS,
+    inject: (): Omit<QuotaDashboardProps, 't'> & Partial<{ t: never }> => panelFace(),
+  }, OpenDesignQuotaDashboard))
+
+  // The sidebar card is gated on the `layout` SERVICE, not on the slot: on a
+  // profile without a layout the card can never open anything, so it must not
+  // render at all. The registration stays a normal slot effect so a landed
+  // settings save shows/hides the card live (the gate is the controller's
+  // stored `showSidebarQuota`, never this registration).
+  ctx.inject(['layout'], () => {
+    ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+      name: 'sidebar.footer.action',
+      id: PANEL_ID,
+      order: 1,
+      locale: PANEL_LOCALE_NS,
+      inject: (): Omit<QuotaCardProps, 't'> & Partial<{ t: never }> => panelFace(),
+    }, OpenDesignQuotaCard))
+  })
 }
 
 export const inject: readonly string[] = ['slots', 'locale', 'remote']
