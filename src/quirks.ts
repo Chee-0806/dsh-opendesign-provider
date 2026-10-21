@@ -113,6 +113,45 @@ export function thinkingVisibleInChat(model: string): boolean {
   return !CHAT_THINKING_HIDDEN.includes(model)
 }
 
+/**
+ * Messages 面「能给出可读思考、而 Chat 面看不到」的模型（ticket 13 的自动选路依据）。
+ *
+ * 实测（2026-10-21，真实 Key）：
+ * - `claude-haiku-5.5` 只有请求里显式开 `thinking` 才会吐 `thinking_delta`，且
+ *   Chat 面从不发 `reasoning`——换传输才是多出来的能力；
+ * - `gpt-6-luna` 在 Messages 面只回 `redacted_thinking`（加密块，无可读文本），
+ *   它的思考要在 `/v1/responses` 的 reasoning 项里才看得到，本插件不做那条协议，
+ *   所以它留在 Chat 面，不制造「切了也看不见」的传输；
+ * - `deepseek` 等模型两面都有可读思考，没有切过去的理由。
+ */
+export function messagesThinkingVisible(model: string): boolean {
+  return model === 'claude-haiku-5.5'
+}
+
+/**
+ * 显式思考档在 Messages 面要发的 `thinking.budget_tokens`。
+ *
+ * Anthropic 要求 `budget_tokens >= 1024` 且严格小于 `max_tokens`，两者都给不出
+ * 时就不发这个字段（宁可不显式开思考，也不发一个会被 400 拒掉的预算）。
+ */
+const MESSAGES_THINKING_BUDGETS: Readonly<Record<ReasoningLevel, number>> = {
+  off: 0,
+  minimal: 1_024,
+  low: 1_024,
+  medium: 2_048,
+  high: 4_096,
+  xhigh: 8_192,
+  max: 16_384,
+}
+
+/** 该档在 Messages 面的思考预算；`undefined` = 不显式开思考。 */
+export function messagesThinkingBudget(level: ReasoningLevel | undefined, cap: number): number | undefined {
+  if (level === undefined || level === 'off') return undefined
+  const wanted = MESSAGES_THINKING_BUDGETS[level]
+  const budget = Math.min(wanted, Math.floor(cap) - 1)
+  return budget >= 1_024 ? budget : undefined
+}
+
 /** kimi 是唯一有思考预算门限的模型（设计件 §4.3）。 */
 const KIMI_MODEL_ID = 'kimi-k2.7-code'
 
