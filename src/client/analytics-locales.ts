@@ -68,6 +68,7 @@ export type AnalyticsKey =
   | 'truncated'
   | 'partialUsage'
   | 'unknownModels'
+  | 'hiddenModels'
   | 'costNote'
 
 /** Chinese copy. */
@@ -119,6 +120,7 @@ export const zh: Record<AnalyticsKey, string> = {
   truncated: '历史读取达到上限，结果不完整（最多 100 个会话、20 万个事件）。',
   partialUsage: '有请求未上报用量，缺失部分不计入 Token 合计。',
   unknownModels: '有模型不在当前目录中，成本档位与能力档标为未知。',
+  hiddenModels: '有已从模型选择器隐藏的模型出现在这段历史里，仍按实际用量列出。',
   costNote: '成本档位来自目录的 low/medium/high 词，只表示档位，不含任何金额。',
 }
 
@@ -171,5 +173,6 @@ export const en: Record<AnalyticsKey, string> = {
   truncated: 'The history read hit its limit and is incomplete (at most 100 sessions and 200,000 events).',
   partialUsage: 'Some requests reported no usage; the missing part is not counted as tokens.',
   unknownModels: 'Some models are not in the current catalog, so their cost tier and capability are unknown.',
+  hiddenModels: 'Some models hidden from the picker appear in this history and are still listed with their real usage.',
   costNote: 'The cost tier is the catalog low/medium/high word. It is a tier only and carries no amount.',
 }

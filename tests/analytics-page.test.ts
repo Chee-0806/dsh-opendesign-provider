@@ -173,6 +173,8 @@ test('最近会话数收敛到 1–100，坏输入不改已提交值', async () 
   assert.equal(page.state().recentSessions, 100)
   page.setRecentSessions('abc')
   assert.equal(page.state().recentSessions, 100)
+  page.setRecentSessions('')
+  assert.equal(page.state().recentSessions, 100)
   page.setRecentSessions('0')
   assert.equal(page.state().recentSessions, 1)
   await page.refresh()
@@ -246,6 +248,7 @@ test('就绪视图按比较列渲染档位标签，缺样本显示缺失而不�
   assert.equal(view.rows[1]!.cells.capability, 't:capabilityUnknown')
   assert.equal(view.rows[1]!.cells.firstToken, 't:missing')
   assert.match(view.notices.join('\n'), /t:partialUsage/)
+  assert.match(view.notices.join('\n'), /t:hiddenModels/)
 })
 
 test('空历史、不可用历史与截断都给出如实提示', () => {

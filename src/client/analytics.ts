@@ -90,6 +90,7 @@ function dayStartEpoch(text: string, offsetMinutes: number): number | undefined 
 
 /** Clamp a draft session count; a non-numeric draft keeps the previous value. */
 function clampSessions(text: string, previous: number): number {
+  if (text.trim() === '') return previous
   const parsed = Number(text)
   if (!Number.isInteger(parsed)) return previous
   return Math.min(MAX_RECENT_SESSIONS, Math.max(MIN_RECENT_SESSIONS, parsed))
