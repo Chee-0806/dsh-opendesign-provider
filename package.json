@@ -47,7 +47,7 @@
   ],
   "scripts": {
     "build": "tsdown",
-    "prepare": "tsdown",
+    "prepack": "tsdown",
     "test:install": "node scripts/verify-isolated-install.mjs",
     "test:engine": "node scripts/verify-engine-load.mjs",
     "test:pack": "node scripts/verify-package-exports.mjs",
