@@ -39,3 +39,6 @@ issue-replies.local.md
 
 # /implement-spec 的临时 worktree（不入库）
 .worktrees/
+
+# worktree 里的 node_modules 是软链，node_modules/ 规则匹配不到软链，这里再挡一次
+node_modules
