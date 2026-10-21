@@ -16,15 +16,17 @@
 ## 安装
 
 ```sh
-# 发布到 npm 之后
-dsh plugin add @mars-sea/dsh-opendesign-provider
+# 直接从仓库安装（推荐）
+dsh plugin add git+https://github.com/Chee-0806/dsh-opendesign-provider.git#feat/opendesign
 
-# 或从本地构建安装
+# 或从本地检出安装
 npm ci
 npm run build
-npm pack
-dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
+dsh plugin add "$PWD"
 ```
+
+`lib/` 已随仓库提交，git 安装不需要构建步骤；`npm pack` 仍会通过 `prepack` 脚本重新构建，
+保证 tarball 与 `src/` 一致。
 
 装完重启应用，然后确认：
 

@@ -17,15 +17,17 @@ cost/capability tiers — never an amount; ADR-0002) are all delivered.
 ## Install
 
 ```sh
-# once the package is published
-dsh plugin add @mars-sea/dsh-opendesign-provider
+# install straight from the repository (recommended)
+dsh plugin add git+https://github.com/Chee-0806/dsh-opendesign-provider.git#feat/opendesign
 
-# or from a local build
+# or from a local checkout
 npm ci
 npm run build
-npm pack
-dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
+dsh plugin add "$PWD"
 ```
+
+`lib/` is committed, so a git install needs no build step. `npm pack` still rebuilds it through the
+`prepack` script, which keeps the tarball in sync with `src/`.
 
 Restart the app after installing. Then check:
 
