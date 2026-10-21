@@ -188,7 +188,9 @@ Open Design 控制台。
 - **file/audio/video 输入会被拒绝**，即使网关公布了该模态。
 - **暂无插件图标。**
 - **没有 TUI 设置页**；设置页就是 Web UI（需要时 P2 再做）。
-- **只做 Chat Completions。** Messages 传输是 P2 可选项，Responses 不在范围内。
+- **默认 Chat Completions，另有一条可选的 Anthropic Messages 传输**（`config.protocol: chat | messages |
+  auto`）：`auto` 只把 `claude-haiku-5.5` 送去 Messages 拿可读思考，网关不支持时自动回落 Chat 一次；
+  Responses 不在范围内（ADR-0001）。
 - 不发 `temperature`、`stop`、`logprobs`、`store`。`developer` 消息统一降级为 `system`（glm 会拒该角色）。
 - **429 / `Retry-After` 已实现但未在真机触发**（探测从未触发限流），也没有 `x-ratelimit-*` 响应头可依赖。
 - **设置页交互由测试验证，未做浏览器会话验收**；真实 profile 安装与 Command Code 共存由维护者在合并后验证。

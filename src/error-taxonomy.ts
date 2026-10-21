@@ -14,6 +14,7 @@
  * @module dsh-opendesign-provider/error-taxonomy
  */
 
+import { formatSeconds } from './display-format.ts'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 
 /** 一次失败的 HTTP 交换：状态、原始响应体、`content-type` 与 `Retry-After`。 */
@@ -223,9 +224,6 @@ function retryAfterMsOf(raw: string | null | undefined): number | undefined {
   return Math.round(seconds * 1000)
 }
 
-function formatSeconds(ms: number): string {
-  return `${ms % 1000 === 0 ? ms / 1000 : (ms / 1000).toFixed(1)} 秒`
-}
 
 /** 上游原因里明显属于临时故障的措辞：先判它们，避免被下面的否定式误判成确定性。 */
 const TRANSIENT_REASON = /timeout|timed out|connection|reset|unavailable|overload|try again|temporar|rate limit|too many requests|internal error/iu

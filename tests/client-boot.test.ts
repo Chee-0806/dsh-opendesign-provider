@@ -129,7 +129,12 @@ async function boot(options: BootOptions = {}) {
     mountCredentials = true,
     mountSettings = true,
     mountModels = true,
-    declaredSlots = new Set(['settings.section', 'settings.models.provider-card']),
+    declaredSlots = new Set([
+      'settings.section',
+      'settings.models.provider-card',
+      'main',
+      'sidebar.footer.action',
+    ]),
     writable = true,
     credentialConfigured = true,
   } = options
@@ -268,6 +273,7 @@ async function boot(options: BootOptions = {}) {
     ],
   })
 
+  ctx.provide('layout', { selectPanel() {} })
   ctx.provide('locale', {
     register(ns: string) { localeNamespaces.push(ns); return () => {} },
     bind: (ns: string) => (key: string) => `${ns}:${key}`,
@@ -329,12 +335,14 @@ const analyticsFace = (registered: Awaited<ReturnType<typeof boot>>['registered'
   return page.inject() as AnalyticsFace
 }
 
-test('apply 只注册自己的三个插槽，并各声明 locale 命名空间', async () => {
+test('apply 只注册自己的五个插槽，并各声明 locale 命名空间', async () => {
   const { registered, localeNamespaces } = await boot()
   assert.deepEqual(registered.map((entry) => entry.name).sort(), [
+    'main',
     'settings.models.provider-card',
     'settings.section',
     'settings.section',
+    'sidebar.footer.action',
   ])
   const section = registered.find((entry) => entry.id === 'opendesign')!
   assert.equal(section.name, 'settings.section')
@@ -345,7 +353,13 @@ test('apply 只注册自己的三个插槽，并各声明 locale 命名空间', 
   const card = registered.find((entry) => entry.name === 'settings.models.provider-card')!
   assert.equal(card.key, 'llm-opendesign')
   assert.equal(card.locale, 'settings.opendesign')
-  assert.deepEqual(localeNamespaces, ['settings.opendesign', 'analytics.opendesign'])
+  const panel = registered.find((entry) => entry.name === 'main')!
+  assert.equal(panel.key, 'opendesign-panel')
+  assert.equal(panel.locale, 'panel.opendesign')
+  const footer = registered.find((entry) => entry.name === 'sidebar.footer.action')!
+  assert.equal(footer.id, 'opendesign-panel')
+  assert.equal(footer.locale, 'panel.opendesign')
+  assert.deepEqual(localeNamespaces.slice().sort(), ['analytics.opendesign', 'panel.opendesign', 'settings.opendesign'])
 })
 
 test('分析页在用户读取前不扫描历史，读取后把筛选条件发给 opendesign/analytics', async () => {

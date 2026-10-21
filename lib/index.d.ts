@@ -70,6 +70,23 @@ interface GatewayCatalogStatus {
   readonly reason?: GatewayCatalogFailureReason | undefined;
 }
 //#endregion
+//#region src/request-content.d.ts
+/**
+ * 宿主附件服务里本插件用到的那一片：把一张托管图片编码成请求版本。
+ *
+ * 故意只声明用到的能力，`ctx.attachments` 天然满足它。
+ */
+interface OpenDesignImageEncoder {
+  /** Encode one normalized attachment to the request target (dimensions + byte budget). */
+  readImageRequest(ref: ImageAttachmentRef, target: ImageRequestTarget, signal?: AbortSignal): Promise<RequestImageAttachment>;
+}
+//#endregion
+//#region src/messages-transport.d.ts
+/** Which wire protocol one call uses. */
+type TransportKind = 'chat' | 'messages';
+/** The user-visible protocol setting (design §4.1, ticket 13). */
+type ProtocolSetting = TransportKind | 'auto';
+//#endregion
 //#region src/credentials.d.ts
 /**
  * The credential chain and the Open Design CLI login state.
@@ -202,6 +219,7 @@ declare function diagnosticsSnapshot(facts: DiagnosticsFacts): DiagnosticsSnapsh
  * the engine may retry, which is what a stall or a retry storm is diagnosed on.
  */
 declare function formatDiagnostics(snapshot: DiagnosticsSnapshot): string;
+/** Milliseconds as seconds, collapsing whole seconds (`300 秒`). */
 //#endregion
 //#region src/adapter.d.ts
 /** Default budget for the first byte of a response. */
@@ -221,6 +239,19 @@ interface OpenDesignConnectionOptions {
   maxOutputTokens?: number | undefined;
   /** Transport failures one request absorbs; absent reports the default in diagnostics. */
   transportMaxRetries?: number | undefined;
+  /**
+   * Which wire protocol conversations use (ticket 13): `'auto'` (default) keeps
+   * Chat Completions and sends only the models whose thinking is invisible there
+   * to Anthropic Messages; `'chat'` / `'messages'` force one face for every model.
+   */
+  protocol?: ProtocolSetting | undefined;
+}
+/** One observed automatic fallback, as handed to `onTransportFallback`. */
+interface TransportFallbackEvent {
+  readonly model: string;
+  readonly from: TransportKind;
+  readonly to: TransportKind;
+  readonly reason: string;
 }
 /**
  * Credential observability for the diagnostics snapshot (ticket 06): the reference
@@ -236,16 +267,6 @@ interface OpenDesignCredentialState {
     readonly status: CliLoginStatus;
     readonly hasRuntimeKey: boolean;
   };
-}
-/**
- * The slice of the host attachment service that image input needs: one
- * deterministic request version of a stored image, encoded to a route target.
- * Declared narrowly here so the adapter depends on the capability it uses, not
- * on attachment storage as a whole; `ctx.attachments` satisfies it as-is.
- */
-interface OpenDesignImageEncoder {
-  /** Encode one normalized attachment to the request target (dimensions + byte budget). */
-  readImageRequest(ref: ImageAttachmentRef, target: ImageRequestTarget, signal?: AbortSignal): Promise<RequestImageAttachment>;
 }
 /** Everything the adapter needs from its owning plugin instance. */
 interface OpenDesignAdapterDeps {
@@ -272,6 +293,12 @@ interface OpenDesignAdapterDeps {
    * unconfigured. Read per call, exactly like {@link OpenDesignAdapterDeps.options}.
    */
   credentialState?: (() => Promise<OpenDesignCredentialState> | OpenDesignCredentialState) | undefined;
+  /**
+   * Observe one automatic transport fallback (`auto`/`messages` → `chat`,
+   * ticket 13). The plugin entry turns it into a single log line; a test can
+   * read {@link OpenDesignAdapter.transportFallbacks} instead.
+   */
+  onTransportFallback?: ((event: TransportFallbackEvent) => void) | undefined;
   /** Test seam for the HTTP call. */
   fetchImpl?: typeof fetch;
   /** Test seam for catalog TTLs; defaults to `Date.now`. */
@@ -281,6 +308,8 @@ interface OpenDesignAdapterDeps {
 declare class OpenDesignAdapter extends LlmAdapter {
   private readonly deps;
   private readonly catalog;
+  /** Models that asked for Messages and found the gateway not serving it (ticket 13). */
+  private readonly fallbacks;
   constructor(deps: OpenDesignAdapterDeps);
   /**
    * The engine's retry decision for this route, declared from the classification
@@ -352,6 +381,39 @@ declare class OpenDesignAdapter extends LlmAdapter {
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
   /**
+   * The automatic transports that fell back to Chat, as data (ticket 13).
+   *
+   * One entry per model that ever asked for Messages and found the gateway not
+   * serving it; the settings page's diagnostics and the plugin's log line both
+   * read this instead of a mutable global.
+   */
+  transportFallbacks(): ReadonlyArray<{
+    model: string;
+    from: TransportKind;
+    reason: string;
+  }>;
+  /**
+   * One streaming Chat Completions call (ticket 04), the default transport.
+   *
+   * The request sends only the fields the gateway actually honours: the model
+   * id, the mapped messages, `stream: true` with `stream_options.include_usage`
+   * so the usage tail frame arrives, `max_completion_tokens` and the model's own
+   * `reasoning_effort`. It never sends `max_tokens` (no model honours it),
+   * `store` (server-side default) or `temperature` (unverified).
+   */
+  private streamChat;
+  /**
+   * One streaming Anthropic Messages call (ticket 13), the optional transport.
+   *
+   * The endpoint and body are Anthropic-shaped (see `./messages-transport.ts`):
+   * `{apiBase}/messages`, a mandatory `anthropic-version` header, `max_tokens`
+   * carrying the same effective output cap, and none of the Chat-only fields.
+   * The bearer key comes from the same credential chain.
+   */
+  private streamMessages;
+  /** Remember that Messages did not work for this model, and say so once. */
+  private rememberFallback;
+  /**
    * Load the catalog for listing/status. Never throws: a gateway failure is a
    * fallback to the static snapshot with the reason recorded for ticket 08.
    */
@@ -403,7 +465,7 @@ declare const REMOTE_NAMESPACE = "opendesign";
  */
 declare const REMOTE_SERVICE = "opendesignUsage";
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */
-declare const REMOTE_ENDPOINTS: readonly ["report", "usage", "models", "analytics"];
+declare const REMOTE_ENDPOINTS: readonly ["usage", "models", "analytics"];
 /** The settings-page slot id (`settings.section`). */
 declare const SETTINGS_SECTION_ID = "opendesign";
 /** The analytics page's own `settings.section` id (ticket 12). */
@@ -848,11 +910,24 @@ interface Config {
    */
   maxOutputTokens?: number;
   /**
+   * Which wire protocol conversations use (ticket 13). `'auto'` (the default)
+   * keeps Chat Completions and sends only the two models whose thinking the
+   * Chat face hides (`gpt-6-luna`, `claude-haiku-5.5`) to Anthropic Messages;
+   * `'chat'` / `'messages'` force one face for every model.
+   */
+  protocol?: ProtocolSetting;
+  /**
    * Language override for Host-side user-facing copy (`'zh'` or `'en'`,
    * default `'zh'`). The web settings page follows the browser preference on
    * its own; this knob is for commands and text surfaces.
    */
   lang?: string;
+  /**
+   * The opt-in sidebar quota card (default `false`). The panel only reads the
+   * control plane and never touches inference; when the switch is off it renders
+   * nothing and starts no refresh.
+   */
+  showSidebarQuota?: boolean;
 }
 /**
  * The Config schema: every field volatile except the composition-only `apiKey`

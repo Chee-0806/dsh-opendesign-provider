@@ -83,6 +83,15 @@ test('输出预算接受 0（无宿主预算）到 262144 绝对上限，越界�
   }
 })
 
+test('额度卡开关默认关闭，且是设置页可写的易变字段', () => {
+  // 默认 false 是「不强迫所有人看额度」的口径；volatile 标记让设置页能写它
+  // （未标记的字段既不可见也不可写）。
+  assert.equal(unwrapVolatileConfig(Config({})).showSidebarQuota, false)
+  assert.equal(unwrapVolatileConfig(Config({ showSidebarQuota: true })).showSidebarQuota, true)
+  const parsed = Config({ showSidebarQuota: false })
+  assert.equal(unwrapVolatileConfig(parsed).showSidebarQuota, false)
+})
+
 test('程序化构造越过配置校验时，非法输出预算回落到「未设置」', () => {
   // A connection built by hand never passes through Schemastery, so the resolve
   // step re-judges: a budget the gateway would refuse becomes "unset" (the
@@ -93,4 +102,22 @@ test('程序化构造越过配置校验时，非法输出预算回落到「未�
   assert.equal(resolveAdapterOptions({ maxOutputTokens: 0 }).maxOutputTokens, 0)
   assert.equal(resolveAdapterOptions({ maxOutputTokens: 64_000 }).maxOutputTokens, 64_000)
   assert.equal(resolveAdapterOptions({}).maxOutputTokens, undefined)
+})
+
+test('协议选路是 chat/messages/auto 三态，缺省 auto；非法值在解析时回落 auto', async () => {
+  const { DEFAULT_PROTOCOL, isProtocolSetting } = await import('../src/messages-transport.ts')
+  // 缺省：仍是 Chat 为主、两个思考不可见的模型走 Messages。
+  assert.equal(resolveAdapterOptions({}).protocol, DEFAULT_PROTOCOL)
+  assert.equal(unwrapVolatileConfig(Config({})).protocol, DEFAULT_PROTOCOL)
+
+  assert.equal(resolveAdapterOptions({ protocol: 'messages' }).protocol, 'messages')
+  assert.equal(resolveAdapterOptions({ protocol: 'chat' }).protocol, 'chat')
+  assert.equal(resolveAdapterOptions({ protocol: 'auto' }).protocol, 'auto')
+
+  // 程序化构造（绕过 schemastery）带来的非法值一律回落 auto，不让 JSON 里的一
+  // 个手滑值把整条路由变成「未知协议」。
+  const bogus = { protocol: 'graphql' } as unknown as Parameters<typeof resolveAdapterOptions>[0]
+  assert.equal(resolveAdapterOptions(bogus).protocol, 'auto')
+  assert.equal(isProtocolSetting('graphql'), false)
+  assert.throws(() => Config({ protocol: 'graphql' } as unknown as Parameters<typeof Config>[0]))
 })

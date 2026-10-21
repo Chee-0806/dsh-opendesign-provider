@@ -79,6 +79,7 @@ import {
 } from './transport-retry.ts'
 import { absorbTransientFailure, resetTransientFailures, transientBudgetMessage } from './transient-retry.ts'
 import { markVolatileFields, unwrapVolatileConfig } from './config-volatile.ts'
+import { DEFAULT_PROTOCOL, isProtocolSetting, type ProtocolSetting } from './messages-transport.ts'
 import {
   CONTEXT_WINDOW_MAX,
   CONTEXT_WINDOW_MIN,
@@ -218,11 +219,24 @@ export interface Config {
    */
   maxOutputTokens?: number
   /**
+   * Which wire protocol conversations use (ticket 13). `'auto'` (the default)
+   * keeps Chat Completions and sends only the two models whose thinking the
+   * Chat face hides (`gpt-6-luna`, `claude-haiku-5.5`) to Anthropic Messages;
+   * `'chat'` / `'messages'` force one face for every model.
+   */
+  protocol?: ProtocolSetting
+  /**
    * Language override for Host-side user-facing copy (`'zh'` or `'en'`,
    * default `'zh'`). The web settings page follows the browser preference on
    * its own; this knob is for commands and text surfaces.
    */
   lang?: string
+  /**
+   * The opt-in sidebar quota card (default `false`). The panel only reads the
+   * control plane and never touches inference; when the switch is off it renders
+   * nothing and starts no refresh.
+   */
+  showSidebarQuota?: boolean
 }
 
 /**
@@ -254,7 +268,10 @@ export const Config: z<Config> = z.object(markVolatileFields({
   // 输出预算：0 表示「没有宿主预算」（不是 0 token 的预算），正数只会收紧模型预算，
   // 两者都不得超过网关的绝对上限 262144。
   maxOutputTokens: z.number().min(OMIT_OUTPUT_TOKENS).max(MAX_OUTPUT_TOKEN_LIMIT).step(1),
+  // 传输选路：默认 auto（Chat 为主，两个思考不可见的模型走 Messages）。
+  protocol: z.union([z.const('chat'), z.const('messages'), z.const('auto')]).default('auto'),
   lang: z.string().pattern(/^(zh|en)$/).default('zh' as const),
+  showSidebarQuota: z.boolean().default(false),
 }, ['apiKey']))
 
 /** One resolution's complete request facts: connection plus credential reference. */
@@ -286,6 +303,8 @@ export function resolveAdapterOptions(config: Config): ResolvedOpenDesignOptions
     contextWindowOverrides: readContextWindowOverrides(config.contextWindowOverrides),
     maxOutputTokens: isValidMaxOutputTokens(config.maxOutputTokens) ? config.maxOutputTokens : undefined,
     transportMaxRetries: readTransportMaxRetries(config.transportMaxRetries),
+    // 程序化构造可能绕过 schemastery：非法值回落 auto，不让手滑值变成未知协议。
+    protocol: isProtocolSetting(config.protocol) ? config.protocol : DEFAULT_PROTOCOL,
   }
 }
 
@@ -380,7 +399,23 @@ export function apply(ctx: Context, config: Config): void {
     }
   }
 
-  const adapter = new OpenDesignAdapter({ options, resolveApiKey, resolveConnection, attachments, credentialState })
+  // 选路回落是「配置/网关不提供 Messages」的证据，不是错误：记一行日志，让维护
+  // 者能解释为什么这个模型最后走的是 Chat。只记模型与原因，不含请求体与密钥。
+  const onTransportFallback = (event: { model: string; from: string; to: string; reason: string }): void => {
+    console.warn(
+      `[llm-opendesign] ${event.from} 传输不可用，已回落到 ${event.to}（${event.model}）：`
+      + `${event.reason.slice(0, 200)}`,
+    )
+  }
+
+  const adapter = new OpenDesignAdapter({
+    options,
+    resolveApiKey,
+    resolveConnection,
+    attachments,
+    credentialState,
+    onTransportFallback,
+  })
 
   // The Models page card. An empty `settingsPath` means the whole
   // `llm-opendesign` section configures this provider.

@@ -52,7 +52,7 @@ export const REMOTE_NAMESPACE = 'opendesign'
 export const REMOTE_SERVICE = 'opendesignUsage'
 
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */
-export const REMOTE_ENDPOINTS = ['report', 'usage', 'models', 'analytics'] as const
+export const REMOTE_ENDPOINTS = ['usage', 'models', 'analytics'] as const
 
 /** The settings-page slot id (`settings.section`). */
 export const SETTINGS_SECTION_ID = 'opendesign'
@@ -71,6 +71,9 @@ export const MODEL_CARD_KEY = 'llm-opendesign'
 
 /** The quota panel's `main` / `sidebar.footer.action` id. */
 export const PANEL_ID = 'opendesign-panel'
+
+/** Locale namespace the two quota-panel surfaces declare (distinct from the settings page's). */
+export const PANEL_LOCALE_NS = 'panel.opendesign'
 
 /** Opt-in raw request-timing trace environment variable. */
 export const REQUEST_TIMING_ENV = 'DSH_OPENDESIGN_TIMING'

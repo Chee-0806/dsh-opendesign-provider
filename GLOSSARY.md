@@ -62,3 +62,7 @@
 13. **能力档（Capability tier）**：模型元数据里的 `standard/advanced`，只表达客观能力分档。
 14. **思考等级（Reasoning effort）**：模型接受的思考强度枚举；各模型合法档位不同，`off` 以字面量 `none` 表达。
 15. **客户端硬截断（Client-side output cap）**：上游不遵守输出上限时，由适配器在累计输出达到上限时主动结束生成。
+16. **额度面板（Quota panel）**：展示套餐档位、额度窗口、钱包余额与计费口径的侧栏卡与中间栏仪表盘；默认关闭，可一键开启。
+17. **计费口径（Funding mode）**：当前请求先扣哪份额度——Design Plan 额度还是钱包余额；控制面 `funding` 字段如实转述。
+18. **额度当量（Quota equivalent）**：把控制面报出的 credits 按其 `creditsPerUsd` 换算出的展示用美元数，只用于额度窗口与余额，
+不得用于重建模型价格（见 ADR-0002 范围澄清）。

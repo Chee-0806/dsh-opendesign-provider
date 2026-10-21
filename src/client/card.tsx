@@ -54,7 +54,7 @@ export interface OpenDesignProviderCardProps extends SettingsPageInjected, Parti
 
 /** One compact status pill. */
 function Badge({ ok, children }: { ok: boolean; children: React.ReactNode }) {
-  return <span className={ok ? 'cc-badge' : 'cc-badgeMuted'}>{children}</span>
+  return <span className={ok ? 'od-badge' : 'od-badgeMuted'}>{children}</span>
 }
 
 /** The Models-page provider card. */
@@ -83,28 +83,28 @@ export function OpenDesignProviderCard(props: OpenDesignProviderCardProps) {
   }
 
   if (mode === 'unavailable') {
-    return <div className="cc-providerCard"><p className="cc-hint">{t('apiKeyUnknown')}</p></div>
+    return <div className="od-providerCard"><p className="od-hint">{t('apiKeyUnknown')}</p></div>
   }
 
   return (
-    <div className="cc-providerCard">
-      <div className="cc-row">
-        <div className="cc-rowText">
-          <span className="cc-rowTitleLine">
-            <span className="cc-rowTitle">{t('cardTitle')}</span>
+    <div className="od-providerCard">
+      <div className="od-row">
+        <div className="od-rowText">
+          <span className="od-rowTitleLine">
+            <span className="od-rowTitle">{t('cardTitle')}</span>
             <Badge ok={keySet}>{keySet ? t('apiKeySet') : state.apiKeyKnown ? t('apiKeyUnset') : t('apiKeyUnknown')}</Badge>
           </span>
-          <span className="cc-rowDesc">{t('apiKeyHint')}</span>
+          <span className="od-rowDesc">{t('apiKeyHint')}</span>
         </div>
-        <div className="cc-rowControl">
+        <div className="od-rowControl">
           {keySet ? (
-            <button className="cc-linkButton" type="button" disabled={disabled} onClick={() => { props.clearKey(); props.save() }}>
+            <button className="od-linkButton" type="button" disabled={disabled} onClick={() => { props.clearKey(); props.save() }}>
               {t('clearKey')}
             </button>
           ) : (
             <>
               <input
-                className="cc-input cc-rowInput"
+                className="od-input od-rowInput"
                 type="password"
                 autoComplete="off"
                 value={paste}
@@ -112,34 +112,34 @@ export function OpenDesignProviderCard(props: OpenDesignProviderCardProps) {
                 disabled={disabled || !state.apiKeyWritable}
                 onChange={(event) => setPaste(event.target.value)}
               />
-              <button className="cc-linkButton" type="button" disabled={disabled || paste.trim() === ''} onClick={save}>
+              <button className="od-linkButton" type="button" disabled={disabled || paste.trim() === ''} onClick={save}>
                 {t('cardSave')}
               </button>
             </>
           )}
         </div>
       </div>
-      <div className="cc-row">
-        <div className="cc-rowText">
-          <span className="cc-rowTitleLine">
-            <span className="cc-rowTitle">{t('cardCatalog')}</span>
-            <span className="cc-badgeMuted">{catalogLabel}</span>
-            {state.catalogCached ? <span className="cc-badgeMuted">{t('catalogCached')}</span> : null}
+      <div className="od-row">
+        <div className="od-rowText">
+          <span className="od-rowTitleLine">
+            <span className="od-rowTitle">{t('cardCatalog')}</span>
+            <span className="od-badgeMuted">{catalogLabel}</span>
+            {state.catalogCached ? <span className="od-badgeMuted">{t('catalogCached')}</span> : null}
           </span>
-          <span className="cc-rowDesc">
+          <span className="od-rowDesc">
             {state.catalogApiBase ?? ''}
             {state.catalogReason === undefined ? '' : ` · ${t('catalogReason')}: ${state.catalogReason}`}
           </span>
         </div>
         {uncalibrated > 0 ? (
-          <div className="cc-rowControl">
-            <span className="cc-badgeWarn">{t('cardUncalibrated')} {uncalibrated}</span>
+          <div className="od-rowControl">
+            <span className="od-badgeWarn">{t('cardUncalibrated')} {uncalibrated}</span>
           </div>
         ) : null}
       </div>
-      {state.controlKeyWarning ? <p className="cc-hint">{t('controlKeyWarn')}</p> : null}
+      {state.controlKeyWarning ? <p className="od-hint">{t('controlKeyWarn')}</p> : null}
       {state.notice === undefined ? null : (
-        <p className={state.notice.kind === 'error' ? 'cc-rowError' : 'cc-hint'}>{noticeText(t, state.notice.key)}</p>
+        <p className={state.notice.kind === 'error' ? 'od-rowError' : 'od-hint'}>{noticeText(t, state.notice.key)}</p>
       )}
     </div>
   )

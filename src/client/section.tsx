@@ -31,6 +31,7 @@ export interface SettingsPageInjected {
   editContextWindow(text: string): void
   editContextOverride(model: string, text: string): void
   setLanguage(language: string): void
+  setShowSidebarQuota(value: boolean): void
   setKey(value: string): void
   clearKey(): void
   save(): Promise<SettingsSaveOutcome>
@@ -71,20 +72,20 @@ function FieldRow(props: {
 }) {
   const error = fieldError(props.t, props.draft)
   return (
-    <label className="cc-field">
-      <span className="cc-fieldHead">
-        <span className="cc-label">{props.label}</span>
+    <label className="od-field">
+      <span className="od-fieldHead">
+        <span className="od-label">{props.label}</span>
       </span>
       <input
-        className={error === undefined ? 'cc-input' : 'cc-input cc-inputInvalid'}
+        className={error === undefined ? 'od-input' : 'od-input od-inputInvalid'}
         type={props.type ?? 'text'}
         value={props.draft.text}
         placeholder={props.placeholder}
         disabled={props.disabled}
         onChange={(event) => props.onChange(event.target.value)}
       />
-      <p className="cc-hint">{props.hint}</p>
-      {error === undefined ? null : <p className="cc-rowError">{error}</p>}
+      <p className="od-hint">{props.hint}</p>
+      {error === undefined ? null : <p className="od-rowError">{error}</p>}
     </label>
   )
 }
@@ -97,16 +98,16 @@ function ModelRow(props: {
   onToggle(): void
 }) {
   return (
-    <label className="cc-checkRow">
+    <label className="od-checkRow">
       <input
-        className="cc-check"
+        className="od-check"
         type="checkbox"
         checked={props.model.visible}
         disabled={props.disabled}
         onChange={props.onToggle}
       />
-      <span className="cc-checkName">{props.model.name}</span>
-      {props.model.calibrated ? null : <span className="cc-badgeWarn">{props.t('uncalibrated')}</span>}
+      <span className="od-checkName">{props.model.name}</span>
+      {props.model.calibrated ? null : <span className="od-badgeWarn">{props.t('uncalibrated')}</span>}
     </label>
   )
 }
@@ -121,17 +122,17 @@ function ContextRow(props: {
 }) {
   const error = fieldError(props.t, props.row)
   return (
-    <div className="cc-contextItem">
-      <span className="cc-label">{props.modelName}</span>
+    <div className="od-contextItem">
+      <span className="od-label">{props.modelName}</span>
       <input
-        className={error === undefined ? 'cc-input cc-contextValue' : 'cc-input cc-contextValue cc-inputInvalid'}
+        className={error === undefined ? 'od-input od-contextValue' : 'od-input od-contextValue od-inputInvalid'}
         type="text"
         inputMode="numeric"
         value={props.row.text}
         disabled={props.disabled}
         onChange={(event) => props.onChange(event.target.value)}
       />
-      {error === undefined ? null : <p className="cc-rowError cc-contextError">{error}</p>}
+      {error === undefined ? null : <p className="od-rowError od-contextError">{error}</p>}
     </div>
   )
 }
@@ -165,20 +166,20 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
   }
 
   return (
-    <section className="cc-section" aria-label={t('title')}>
-      <h2 className="cc-title">{t('title')}</h2>
-      <p className="cc-intro">{t('intro')}</p>
-      {state.writable ? null : <p className="cc-readOnly">{t('readOnly')}</p>}
+    <section className="od-section" aria-label={t('title')}>
+      <h2 className="od-title">{t('title')}</h2>
+      <p className="od-intro">{t('intro')}</p>
+      {state.writable ? null : <p className="od-readOnly">{t('readOnly')}</p>}
 
-      <div className="cc-group">
-        <div className="cc-groupHead"><h3 className="cc-groupTitle">{t('connection')}</h3></div>
-        <p className="cc-groupDesc">{t('connectionDesc')}</p>
-        <div className="cc-rows">
-          <div className="cc-row">
-            <div className="cc-rowText">
-              <span className="cc-rowTitleLine">
-                <span className="cc-rowTitle">{t('apiKey')}</span>
-                <span className={state.apiKeyConfigured ? 'cc-badge' : 'cc-badgeMuted'}>
+      <div className="od-group">
+        <div className="od-groupHead"><h3 className="od-groupTitle">{t('connection')}</h3></div>
+        <p className="od-groupDesc">{t('connectionDesc')}</p>
+        <div className="od-rows">
+          <div className="od-row">
+            <div className="od-rowText">
+              <span className="od-rowTitleLine">
+                <span className="od-rowTitle">{t('apiKey')}</span>
+                <span className={state.apiKeyConfigured ? 'od-badge' : 'od-badgeMuted'}>
                   {state.apiKeyConfigured
                     ? t('apiKeySet')
                     : state.apiKeyKnown
@@ -186,11 +187,11 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
                       : t('apiKeyUnknown')}
                 </span>
               </span>
-              <span className="cc-rowDesc">{t('apiKeyHint')}</span>
+              <span className="od-rowDesc">{t('apiKeyHint')}</span>
             </div>
-            <div className="cc-rowControl">
+            <div className="od-rowControl">
               <input
-                className="cc-input cc-rowInputWide"
+                className="od-input od-rowInputWide"
                 type="password"
                 autoComplete="off"
                 value={state.keyDraft}
@@ -198,7 +199,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
                 disabled={disabled || !state.apiKeyWritable}
                 onChange={(event) => props.setKey(event.target.value)}
               />
-              <button className="cc-linkButton" type="button" disabled={disabled} onClick={() => props.clearKey()}>
+              <button className="od-linkButton" type="button" disabled={disabled} onClick={() => props.clearKey()}>
                 {t('clearKey')}
               </button>
             </div>
@@ -212,31 +213,31 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             placeholder="https://amr-link.open-design.ai/v1"
             onChange={(text) => props.edit('apiBase', text)}
           />
-          <div className="cc-row">
-            <div className="cc-rowText">
-              <span className="cc-rowTitle">{t('loginStatus')}</span>
-              <span className="cc-rowDesc">{t('loginHint')}</span>
-              <span className="cc-rowDesc">{t('loginUse')}</span>
+          <div className="od-row">
+            <div className="od-rowText">
+              <span className="od-rowTitle">{t('loginStatus')}</span>
+              <span className="od-rowDesc">{t('loginHint')}</span>
+              <span className="od-rowDesc">{t('loginUse')}</span>
             </div>
-            <div className="cc-rowControl">
-              <span className={state.loginStatus === 'ok' ? 'cc-badge' : 'cc-badgeMuted'}>{loginLabel}</span>
+            <div className="od-rowControl">
+              <span className={state.loginStatus === 'ok' ? 'od-badge' : 'od-badgeMuted'}>{loginLabel}</span>
             </div>
           </div>
-          {state.controlKeyWarning ? <p className="cc-rowError">{t('controlKeyWarn')}</p> : null}
+          {state.controlKeyWarning ? <p className="od-rowError">{t('controlKeyWarn')}</p> : null}
         </div>
       </div>
 
-      <div className="cc-group cc-groupDivided">
-        <div className="cc-groupHead">
-          <h3 className="cc-groupTitle">{t('modelsSection')}</h3>
-          <span className="cc-badgeMuted">{catalogLabel}</span>
+      <div className="od-group od-groupDivided">
+        <div className="od-groupHead">
+          <h3 className="od-groupTitle">{t('modelsSection')}</h3>
+          <span className="od-badgeMuted">{catalogLabel}</span>
         </div>
-        <p className="cc-groupDesc">{t('modelsSectionDesc')}</p>
-        <div className="cc-rows">
-          <div className="cc-field">
-            <span className="cc-fieldHead"><span className="cc-label">{t('visibleModels')}</span></span>
+        <p className="od-groupDesc">{t('modelsSectionDesc')}</p>
+        <div className="od-rows">
+          <div className="od-field">
+            <span className="od-fieldHead"><span className="od-label">{t('visibleModels')}</span></span>
             {state.models.length === 0
-              ? <p className="cc-hint">{t('modelsSectionDesc')}</p>
+              ? <p className="od-hint">{t('modelsSectionDesc')}</p>
               : state.models.map((model) => (
                 <ModelRow
                   key={model.id}
@@ -246,7 +247,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
                   onToggle={() => props.toggleModel(model.id)}
                 />
               ))}
-            <p className="cc-hint">{t('visibleModelsHint')}</p>
+            <p className="od-hint">{t('visibleModelsHint')}</p>
           </div>
           <FieldRow
             t={t}
@@ -256,8 +257,8 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             disabled={disabled}
             onChange={(text) => props.editContextWindow(text)}
           />
-          <div className="cc-field">
-            <span className="cc-fieldHead"><span className="cc-label">{t('contextOverrides')}</span></span>
+          <div className="od-field">
+            <span className="od-fieldHead"><span className="od-label">{t('contextOverrides')}</span></span>
             {state.contextOverrides.map((row) => (
               <ContextRow
                 key={row.model}
@@ -268,7 +269,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
                 onChange={(text) => props.editContextOverride(row.model, text)}
               />
             ))}
-            <p className="cc-hint">{t('contextOverridesHint')}</p>
+            <p className="od-hint">{t('contextOverridesHint')}</p>
           </div>
           <FieldRow
             t={t}
@@ -281,15 +282,15 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
         </div>
       </div>
 
-      <div className="cc-group cc-groupDivided">
-        <div className="cc-groupHead"><h3 className="cc-groupTitle">{t('displaySection')}</h3></div>
-        <p className="cc-groupDesc">{t('displaySectionDesc')}</p>
-        <div className="cc-rows">
-          <label className="cc-row">
-            <span className="cc-rowText"><span className="cc-rowTitle">{t('language')}</span></span>
-            <span className="cc-rowControl">
+      <div className="od-group od-groupDivided">
+        <div className="od-groupHead"><h3 className="od-groupTitle">{t('displaySection')}</h3></div>
+        <p className="od-groupDesc">{t('displaySectionDesc')}</p>
+        <div className="od-rows">
+          <label className="od-row">
+            <span className="od-rowText"><span className="od-rowTitle">{t('language')}</span></span>
+            <span className="od-rowControl">
               <select
-                className="cc-input"
+                className="od-input"
                 value={state.language}
                 disabled={disabled}
                 onChange={(event) => props.setLanguage(event.target.value)}
@@ -299,14 +300,31 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
               </select>
             </span>
           </label>
-          <p className="cc-hint">{t('quotaComing')}</p>
+          <label className="od-row">
+            <span className="od-rowText">
+              <span className="od-rowTitle">{t('sidebarQuota')}</span>
+              <span className="od-rowDesc">{t('sidebarQuotaHint')}</span>
+            </span>
+            <span className="od-rowControl">
+              <input
+                className="od-check"
+                type="checkbox"
+                checked={state.showSidebarQuotaDraft}
+                disabled={disabled}
+                onChange={(event) => props.setShowSidebarQuota(event.target.checked)}
+              />
+            </span>
+          </label>
+          {state.showSidebarQuotaDraft && state.controlKeyWarning
+            ? <p className="od-rowError">{t('controlKeyWarn')}</p>
+            : null}
         </div>
       </div>
 
-      <div className="cc-group cc-groupDivided">
-        <div className="cc-groupHead"><h3 className="cc-groupTitle">{t('advanced')}</h3></div>
-        <p className="cc-groupDesc">{t('advancedDesc')}</p>
-        <div className="cc-rows">
+      <div className="od-group od-groupDivided">
+        <div className="od-groupHead"><h3 className="od-groupTitle">{t('advanced')}</h3></div>
+        <p className="od-groupDesc">{t('advancedDesc')}</p>
+        <div className="od-rows">
           <FieldRow
             t={t}
             label={t('requestTimeout')}
@@ -339,13 +357,13 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             disabled={disabled}
             onChange={(text) => props.edit('modelsCachePath', text)}
           />
-          <div className="cc-row">
-            <div className="cc-rowText">
-              <span className="cc-rowTitle">{t('diagnostics')}</span>
-              <span className="cc-rowDesc">{t('diagnosticsHint')}</span>
+          <div className="od-row">
+            <div className="od-rowText">
+              <span className="od-rowTitle">{t('diagnostics')}</span>
+              <span className="od-rowDesc">{t('diagnosticsHint')}</span>
             </div>
-            <div className="cc-rowControl">
-              <button className="cc-linkButton" type="button" onClick={copyDiagnostics}>
+            <div className="od-rowControl">
+              <button className="od-linkButton" type="button" onClick={copyDiagnostics}>
                 {t('copyDiagnostics')}
               </button>
             </div>
@@ -354,14 +372,14 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
       </div>
 
       {state.dirty ? (
-        <div className="cc-saveBarDock">
-          <div className="cc-saveBar cc-saveBarShown">
-            <p className="cc-saveBarText">{state.notice === undefined ? t('intro') : noticeText(t, state.notice.key)}</p>
-            <div className="cc-saveBarActions">
-              <button className="cc-saveBarButton cc-saveBarGhost" type="button" disabled={state.saving} onClick={() => props.discard()}>
+        <div className="od-saveBarDock">
+          <div className="od-saveBar od-saveBarShown">
+            <p className="od-saveBarText">{state.notice === undefined ? t('intro') : noticeText(t, state.notice.key)}</p>
+            <div className="od-saveBarActions">
+              <button className="od-saveBarButton od-saveBarGhost" type="button" disabled={state.saving} onClick={() => props.discard()}>
                 {t('discard')}
               </button>
-              <button className="cc-saveBarButton cc-saveBarPrimary" type="button" disabled={disabled} onClick={() => props.save()}>
+              <button className="od-saveBarButton od-saveBarPrimary" type="button" disabled={disabled} onClick={() => props.save()}>
                 {state.saving ? t('saving') : t('save')}
               </button>
             </div>

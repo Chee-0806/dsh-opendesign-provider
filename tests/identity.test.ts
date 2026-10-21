@@ -18,6 +18,7 @@ import {
   NS,
   PACKAGE_NAME,
   PANEL_ID,
+  PANEL_LOCALE_NS,
   PLUGIN_ID,
   PROVIDER,
   PROVIDER_DISPLAY_NAME,
@@ -43,10 +44,11 @@ test('identity constants pin the Open Design provider surface', () => {
   assert.equal(MODELS_CACHE_RELATIVE_PATH, '.opendesign/models-cache.json')
   assert.equal(REMOTE_NAMESPACE, 'opendesign')
   assert.equal(REMOTE_SERVICE, 'opendesignUsage')
-  assert.deepEqual(REMOTE_ENDPOINTS, ['report', 'usage', 'models', 'analytics'])
+  assert.deepEqual(REMOTE_ENDPOINTS, ['usage', 'models', 'analytics'])
   assert.equal(SETTINGS_SECTION_ID, 'opendesign')
   assert.equal(MODEL_CARD_KEY, 'llm-opendesign')
   assert.equal(PANEL_ID, 'opendesign-panel')
+  assert.equal(PANEL_LOCALE_NS, 'panel.opendesign')
   assert.equal(REQUEST_TIMING_ENV, 'DSH_OPENDESIGN_TIMING')
   assert.equal(STREAM_TRACE_ENV, 'DSH_OPENDESIGN_TRACE')
 })

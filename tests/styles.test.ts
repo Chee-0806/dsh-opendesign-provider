@@ -8,7 +8,7 @@
  * matched the ask-user-question dialog's button row and stacked its buttons.
  *
  * So containment is pinned in two layers: a STRUCTURAL audit (every compound of
- * every selector must be qualified by our own `cc-`/`ccp-` class, or be one of
+ * every selector must be qualified by our own `od-`/`odp-` class, or be one of
  * the documented sidebar region anchors, and the shared `footerActions` stem
  * may only appear alongside the `footArea` anchor that scopes it), and a
  * SIMULATION — a miniature selector matcher against the real foreign class
@@ -142,8 +142,8 @@ function compoundParts(compound: string): { classes: string[]; type: string } {
 
 // Containment policy
 
-/** Our own class namespaces: `cc-` (settings page) and `ccp-` (panel). */
-const OWN_CLASS = /^(?:cc|ccp)-/
+/** Our own class namespaces: `od-` (settings page) and `odp-` (panel). */
+const OWN_CLASS = /^(?:od|odp)-/
 
 /**
  * The two sidebar class stems this plugin's stylesheet may reach, measured
@@ -198,7 +198,7 @@ for (const sheet of SHEETS) {
     assert.deepEqual(
       offenders,
       [],
-      `${sheet.name} carries selector compounds that can match foreign markup — qualify them with a cc-/ccp- class, or anchor them to the sidebar region and document them here:\n${offenders.join('\n')}`,
+      `${sheet.name} carries selector compounds that can match foreign markup — qualify them with a od-/odp- class, or anchor them to the sidebar region and document them here:\n${offenders.join('\n')}`,
     )
   })
 

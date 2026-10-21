@@ -1,11 +1,8 @@
 /** Shared, dependency-free formatting for Host commands and browser surfaces. */
 
-export function formatMoney(value: number): string {
-  return `$${value.toFixed(2)}`
-}
-
-export function formatMoneyExact(value: number): string {
-  return `$${value.toFixed(4)}`
+/** 毫秒 → 人类可读的秒数；整秒不带小数，其余保留一位。诊断与错误文案共用这一份。 */
+export function formatSeconds(ms: number): string {
+  return ms % 1000 === 0 ? `${ms / 1000} 秒` : `${(ms / 1000).toFixed(1)} 秒`
 }
 
 /**
