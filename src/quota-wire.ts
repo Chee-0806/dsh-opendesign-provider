@@ -99,6 +99,7 @@ export const QUOTA_DESCRIPTOR: InvocationDescriptor = makeRemoteDescriptor<Quota
   'usage',
   `${REMOTE_PACKAGE}#QuotaSnapshot`,
   quotaSchema,
+  [],
   QUOTA_SERVICE,
 )
 

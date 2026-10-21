@@ -55,6 +55,8 @@ import {
   type CredentialChainResult,
 } from './credentials.ts'
 import { applyModelsRemote } from './models-remote.ts'
+import { modelIsVisible } from './model-visibility.ts'
+import type { SessionQueryLike } from './analytics-history.ts'
 import { OpenDesignControlPlane, type QuotaReading } from './control-plane.ts'
 import { applyQuotaRemote } from './quota-remote.ts'
 import { applyCommands, resolveCommandLocale } from './commands.ts'
@@ -90,6 +92,8 @@ import {
 } from './output-budget.ts'
 
 export {
+  ANALYTICS_LOCALE_NS,
+  ANALYTICS_SECTION_ID,
   DEFAULT_API_BASE,
   DEFAULT_API_KEY_ENV,
   MODELS_CACHE_RELATIVE_PATH,
@@ -138,6 +142,19 @@ export type {
   GatewayCatalogSourceKind,
   GatewayCatalogStatus,
 } from './gateway-facts.ts'
+export type {
+  AnalyticsCapabilityTier,
+  AnalyticsCostTier,
+  AnalyticsHistoryCoverage,
+  AnalyticsModelRow,
+  AnalyticsQuery,
+  AnalyticsScope,
+  AnalyticsTotals,
+  OpenDesignAnalyticsReport,
+} from './analytics-wire.ts'
+export { parseAnalyticsQuery, parseAnalyticsReport } from './analytics-wire.ts'
+export { foldAnalytics } from './analytics-fold.ts'
+export type { AnalyticsFoldResult, AnalyticsModelStats } from './analytics-fold.ts'
 
 export const name = 'llm-opendesign'
 export const inject = ['llm']
@@ -379,12 +396,24 @@ export function apply(ctx: Context, config: Config): void {
   ])
   ctx.llm.registerAdapter([PROVIDER], adapter)
 
-  // Browser surfaces read two Host-only facts: the catalog's provenance and
-  // the credential chain's safe projection. A profile without a Typert
-  // registry (headless) simply never mounts this Remote.
+  // Browser surfaces read Host-only facts through one `opendesign` namespace:
+  // the catalog provenance and credential projection for `opendesign/models`,
+  // plus the history aggregate for `opendesign/analytics`. A profile without a
+  // Typert registry (headless) simply never mounts them. Both methods share one
+  // `opendesignUsage` Service because Cordis registers one Service per key; the
+  // analytics page reads the host's own history, never the model plane, and
+  // joins the catalog's cost/capability words — no money anywhere.
   applyModelsRemote(ctx, {
     catalogStatus: () => adapter.catalogStatus(),
     credentialStatus: resolveChain,
+    analytics: {
+      sessionQuery: () => ctx.get('sessionQuery') as SessionQueryLike | undefined,
+      catalogStatus: () => adapter.catalogStatus(),
+      isVisible: (id) => {
+        const connection = options()
+        return modelIsVisible(id, connection.visibleModels ?? [], connection.modelVisibility)
+      },
+    },
   })
 
   // P1 quota: ONE read-only control-plane client backs both surfaces — the

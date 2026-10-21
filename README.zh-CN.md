@@ -9,8 +9,9 @@
 本项目是社区集成，**与 Open Design / Powerformer 没有隶属或背书关系**；使用 Open Design 服务时适用其
 自身的服务条款。
 
-**状态：P0 与 P1 额度面已交付。** Chat Completions 传输、实时模型目录、凭据链、设置页、可选的侧栏额度卡
-与其仪表盘、以及 `/opendesign` 命令都已交付；P2 的模型分析尚未交付。
+**状态：P0、P1 额度面与 P2 无金额分析均已交付。** Chat Completions 传输、实时模型目录、凭据链、设置页、
+可选的侧栏额度卡与其仪表盘、`/opendesign` 命令，以及模型分析读口（token、速度、失败/重试、用量覆盖率、
+成本档位与能力档，任何金额都不显示也不计算；见 ADR-0002）全部就绪。
 
 ## 安装
 
@@ -29,6 +30,9 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 
 - **设置 → Open Design** 出现设置页（连接、模型与上下文、显示、高级）。
 - **设置 → 模型** 出现 Open Design 卡片，显示密钥状态与目录来源。
+- **设置 → 模型分析** 比较本机历史中出现的 Open Design 模型。它只读宿主自己的会话日志、不碰模型面，
+  展示 token、首字/总时长、失败、重试与用量覆盖率。成本列只取目录的 `low`/`medium`/`high` 档位词，
+  不显示也不折算任何美元金额。
 
 发布产物包含 `lib/`、`cordis.patch.yml` 里的插件行与 `dsh.client` 声明。补丁只 insert 自己这一行
 （`llm-opendesign`），不会改写其它提供方的路由，因此与已安装的 Command Code 插件共存。
@@ -47,7 +51,7 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 | 默认网关 | `https://amr-link.open-design.ai/v1` |
 | 模型目录缓存 | `~/.opendesign/models-cache.json` |
 | CLI 登录态（只读） | `~/.amr/config.json` |
-| Remote 命名空间 | `opendesign`（`models`；`report`/`usage`/`analytics` 预留） |
+| Remote 命名空间 | `opendesign`（`models`、`analytics`；`report`/`usage` 预留） |
 | 遥测开关 | `DSH_OPENDESIGN_TIMING`、`DSH_OPENDESIGN_TRACE` |
 
 ## 凭据
@@ -94,6 +98,24 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 
 上下文取网关的 `context_budget`（可用输入预算），不是名义上的 `context_limit`。kimi 的 65536 输出上限高于
 其 32000 的 `output_budget`，是为了容纳思考档位。成本档与能力档是分档标签，**不是价格**。
+
+## 模型分析
+
+**设置 → 模型分析** 比较本机历史里出现的 Open Design 模型。它通过可选的 `sessionQuery` 服务读宿主自己的
+会话日志、从不接触模型面，而且只在用户点 **读取** 时扫描；启动时不扫描，也没有后台轮询。
+
+- 筛选：最近 1–100 个含 Open Design 请求的会话，或本地日历的日期范围（界面上开始/结束日都包含，线上是
+  半开区间 `[from, to)`，最长 366 天）。
+- 列：请求数、Token 总量、平均首字延迟、平均总时长、失败率、重试数，以及目录的成本档位
+  （`low`/`medium`/`high`）与能力档（`standard`/`advanced`）。
+- 缺数据就显示缺失：适配器没上报用量的请求仍算一条请求，但不贡献 Token；目录里没有的模型档位显示
+  `未知`，不会编造数值。
+- 扫描有上限（100 个候选会话、20 万个自有事件）并会标注截断。分支会话只计自己的事件，继承前缀不会把
+  父会话的请求重复计数。
+- 没有会话查询服务的 profile 会显示「不可用」和原因；模型对话本身不受影响。
+
+这里**没有金额维度**：没有价表、没有美元金额、也没有 `≈` 估算。这是 ADR-0002 的刻意决定——账单请看
+Open Design 控制台。
 
 ## 思考等级
 

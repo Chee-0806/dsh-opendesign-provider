@@ -267,5 +267,26 @@ export const PAGE_CSS = `
 .cc-saveBarGhost:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .cc-saveBarPrimary{background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary));color:var(--dsw-alias-label-primary-foreground,#fff)}
 .cc-saveBarPrimary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover,var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary)))}
+/* Analytics page (ticket 12): a draft filter row, a summary strip and one
+ * comparison table. The table lives in a horizontal scroll container so a wide
+ * nine-column comparison never forces the settings panel to scroll sideways. */
+.cc-analyticsFilters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}
+.cc-analyticsModes{display:inline-flex;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
+.cc-modeButton{box-sizing:border-box;height:32px;padding:0 12px;border:0;border-radius:8px;background:0 0;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer}
+.cc-modeButtonActive{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.cc-modeButton:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
+.cc-analyticsField{display:flex;flex-direction:column;gap:4px}
+.cc-analyticsNumber{width:96px}
+.cc-analyticsNotices{margin:12px 0 0}
+.cc-analyticsSummary{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;margin:12px 0}
+.cc-analyticsStat{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2)}
+.cc-analyticsStatLabel{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
+.cc-analyticsStatValue{color:var(--dsw-alias-label-primary);font-size:16px;line-height:24px;font-variant-numeric:tabular-nums}
+.cc-analyticsTableWrap{overflow-x:auto}
+.cc-analyticsTable{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.cc-analyticsTable th,.cc-analyticsTable td{padding:8px 10px;border-bottom:0.5px solid var(--dsw-alias-border-l2);text-align:right;white-space:nowrap}
+.cc-analyticsTable th:first-child,.cc-analyticsTable td:first-child{text-align:left}
+.cc-analyticsTable th{color:var(--dsw-alias-label-secondary);font-weight:500}
+.cc-analyticsTable td{color:var(--dsw-alias-label-primary)}
 @media (prefers-reduced-motion:reduce){.cc-chevron,.cc-toggle::after,.cc-usageBarFill,.cc-saveBar,.cc-saveBarShown{transition:none}}
 `

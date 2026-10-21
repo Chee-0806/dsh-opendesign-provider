@@ -202,7 +202,7 @@ test('注册 main 与 sidebar.footer.action 两个坐席，键与文案命名空
   assert.deepEqual({ key: main?.key, locale: main?.locale }, { key: PANEL_ID, locale: PANEL_LOCALE_NS })
   const footer = registered.find((entry) => entry.name === 'sidebar.footer.action')
   assert.deepEqual({ id: footer?.id, locale: footer?.locale }, { id: PANEL_ID, locale: PANEL_LOCALE_NS })
-  assert.deepEqual(localeNamespaces.sort(), ['panel.opendesign', 'settings.opendesign'])
+  assert.deepEqual(localeNamespaces.slice().sort(), ['analytics.opendesign', 'panel.opendesign', 'settings.opendesign'])
   assert.ok(ctx.get('layout'))
 })
 

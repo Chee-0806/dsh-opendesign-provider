@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { OpenDesignModelsReport } from '../src/models-wire.ts'
+import type { AnalyticsQuery, OpenDesignAnalyticsReport } from '../src/analytics-wire.ts'
 
 const { apply, inject } = await import('../src/client/index.ts')
 
@@ -62,6 +63,58 @@ const REPORT: OpenDesignModelsReport = {
   },
 }
 
+const ANALYTICS: OpenDesignAnalyticsReport = {
+  generatedAt: 1_760_000_000_000,
+  scope: { kind: 'recent', sessions: 20 },
+  history: {
+    available: true,
+    sessionsScanned: 1,
+    sessionsSkipped: 0,
+    eventsScanned: 3,
+    inheritedEventsSkipped: 0,
+    truncated: false,
+  },
+  totals: {
+    requests: 1,
+    sessions: 1,
+    succeeded: 1,
+    failed: 0,
+    interrupted: 0,
+    retries: 0,
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+    requestsWithUsage: 1,
+    requestsWithoutUsage: 0,
+    firstTokenSamples: 1,
+    avgFirstTokenMs: 300,
+    durationSamples: 1,
+    avgDurationMs: 900,
+  },
+  models: [{
+    model: 'deepseek-v4.1-flash',
+    name: 'DeepSeek V4.1 Flash',
+    cost: 'low',
+    capability: 'advanced',
+    visible: true,
+    calibrated: true,
+    requests: 1,
+    succeeded: 1,
+    failed: 0,
+    interrupted: 0,
+    retries: 0,
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+    requestsWithUsage: 1,
+    requestsWithoutUsage: 0,
+    firstTokenSamples: 1,
+    avgFirstTokenMs: 300,
+    durationSamples: 1,
+    avgDurationMs: 900,
+  }],
+}
+
 interface BootOptions {
   mountCredentials?: boolean
   mountSettings?: boolean
@@ -100,6 +153,7 @@ async function boot(options: BootOptions = {}) {
     mutate: [] as Array<{ ns: string; ops: readonly { op: string; path: readonly string[]; value?: unknown }[]; revision: number | undefined }>,
   }
   const modelCalls = { models: 0 }
+  const analyticsCalls = { analytics: [] as AnalyticsQuery[] }
   const settingsRow = {
     ns: 'llm-opendesign',
     value: {
@@ -143,6 +197,10 @@ async function boot(options: BootOptions = {}) {
           if (!mountModels) continue
           await mountNamespace('opendesign', {
             models: async () => { modelCalls.models += 1; return { ok: true, value: REPORT } },
+            analytics: async (query: AnalyticsQuery) => {
+              analyticsCalls.analytics.push(query)
+              return { ok: true, value: ANALYTICS }
+            },
           })
           continue
         }
@@ -240,7 +298,7 @@ async function boot(options: BootOptions = {}) {
   })
   for (let i = 0; i < 6; i += 1) await new Promise((resolve) => setTimeout(resolve, 0))
 
-  return { ctx, registered, localeNamespaces, credentialCalls, settingsCalls, modelCalls }
+  return { ctx, registered, localeNamespaces, credentialCalls, settingsCalls, modelCalls, analyticsCalls }
 }
 
 type Face = {
@@ -257,22 +315,41 @@ type Face = {
 }
 
 const pageFace = (registered: Awaited<ReturnType<typeof boot>>['registered']): Face => {
-  const page = registered.find((entry) => entry.name === 'settings.section')
+  const page = registered.find((entry) => entry.id === 'opendesign')
   assert.ok(page?.inject, 'settings.section must carry an inject face')
   return page.inject() as Face
 }
 
-test('apply 只注册自己的四个插槽，并分别声明设置页与面板的 locale 命名空间', async () => {
+type AnalyticsFace = {
+  store: { getSnapshot(): import('../src/client/analytics.ts').AnalyticsPageState }
+  setMode(mode: 'recent' | 'range'): void
+  setRecentSessions(text: string): void
+  setRangeFrom(text: string): void
+  setRangeTo(text: string): void
+  refresh(): Promise<unknown>
+}
+
+const analyticsFace = (registered: Awaited<ReturnType<typeof boot>>['registered']): AnalyticsFace => {
+  const page = registered.find((entry) => entry.id === 'opendesign-analytics')
+  assert.ok(page?.inject, 'analytics settings.section must carry an inject face')
+  return page.inject() as AnalyticsFace
+}
+
+test('apply 只注册自己的五个插槽，并各声明 locale 命名空间', async () => {
   const { registered, localeNamespaces } = await boot()
   assert.deepEqual(registered.map((entry) => entry.name).sort(), [
     'main',
     'settings.models.provider-card',
     'settings.section',
+    'settings.section',
     'sidebar.footer.action',
   ])
-  const section = registered.find((entry) => entry.name === 'settings.section')!
-  assert.equal(section.id, 'opendesign')
+  const section = registered.find((entry) => entry.id === 'opendesign')!
+  assert.equal(section.name, 'settings.section')
   assert.equal(section.locale, 'settings.opendesign')
+  const analytics = registered.find((entry) => entry.id === 'opendesign-analytics')!
+  assert.equal(analytics.name, 'settings.section')
+  assert.equal(analytics.locale, 'analytics.opendesign')
   const card = registered.find((entry) => entry.name === 'settings.models.provider-card')!
   assert.equal(card.key, 'llm-opendesign')
   assert.equal(card.locale, 'settings.opendesign')
@@ -282,7 +359,19 @@ test('apply 只注册自己的四个插槽，并分别声明设置页与面板�
   const footer = registered.find((entry) => entry.name === 'sidebar.footer.action')!
   assert.equal(footer.id, 'opendesign-panel')
   assert.equal(footer.locale, 'panel.opendesign')
-  assert.deepEqual(localeNamespaces.sort(), ['panel.opendesign', 'settings.opendesign'])
+  assert.deepEqual(localeNamespaces.slice().sort(), ['analytics.opendesign', 'panel.opendesign', 'settings.opendesign'])
+})
+
+test('分析页在用户读取前不扫描历史，读取后把筛选条件发给 opendesign/analytics', async () => {
+  const { registered, analyticsCalls } = await boot()
+  const face = analyticsFace(registered)
+  assert.equal(face.store.getSnapshot().status, 'idle')
+  assert.deepEqual(analyticsCalls.analytics, [])
+  face.setRecentSessions('5')
+  await face.refresh()
+  assert.deepEqual(analyticsCalls.analytics, [{ scope: { kind: 'recent', sessions: 5 } }])
+  assert.equal(face.store.getSnapshot().status, 'ready')
+  assert.equal(face.store.getSnapshot().report?.totals.requests, 1)
 })
 
 test('引擎没声明插槽时不注册（不硬造坐席）', async () => {

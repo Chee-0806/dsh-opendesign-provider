@@ -9,9 +9,10 @@ can use Open Design models next to every other provider without route or namespa
 This project is a community integration. It is **not affiliated with or endorsed by Open Design /
 Powerformer**, and your use of the Open Design service is governed by Open Design's own terms.
 
-**Status: P0 and the P1 quota surface are in.** Chat Completions transport, live model catalog, credential
-chain, settings page, the opt-in sidebar quota card with its dashboard, and the `/opendesign` command are
-delivered. The P2 model analytics are not.
+**Status: P0, the P1 quota surface and the P2 money-free analytics are in.** Chat Completions transport, live
+model catalog, credential chain, settings page, the opt-in sidebar quota card with its dashboard, the
+`/opendesign` command, and the model analytics read (tokens, speed, failures/retries, usage coverage,
+cost/capability tiers — never an amount; ADR-0002) are all delivered.
 
 ## Install
 
@@ -30,6 +31,10 @@ Restart the app after installing. Then check:
 
 - **Settings → Open Design** shows the page (connection, models and context, display, advanced).
 - **Settings → Models** shows the Open Design card with the key state and the catalog source.
+- **Settings → Model analytics** compares the Open Design models found in local history. It reads only the
+  host's own session log, never the model plane, and reports tokens, first-token/total latency, failures,
+  retries and usage coverage. The cost column is the catalog `low`/`medium`/`high` word; no dollar amount is
+  shown or computed.
 
 The bundle ships `lib/`, its `cordis.patch.yml` row and the `dsh.client` declaration. It only inserts its own
 `llm-opendesign` row and never rewrites another provider's route, so it coexists with an already installed
@@ -50,7 +55,7 @@ Command Code plugin.
 | Default API base | `https://amr-link.open-design.ai/v1` |
 | Model catalog cache | `~/.opendesign/models-cache.json` |
 | CLI login state (read-only) | `~/.amr/config.json` |
-| Remote namespace | `opendesign` (`models`; `report`/`usage`/`analytics` reserved) |
+| Remote namespace | `opendesign` (`models`, `analytics`; `report`/`usage` reserved) |
 | Telemetry switches | `DSH_OPENDESIGN_TIMING`, `DSH_OPENDESIGN_TRACE` |
 
 ## Credentials
@@ -102,6 +107,25 @@ attachments are refused as `UNSUPPORTED_CONTENT` with the model's declared capab
 Context is the gateway's `context_budget` (usable input), not the nominal `context_limit`. Kimi's 65536 output
 budget is raised above its 32000 `output_budget` so its thinking levels fit. Cost and capability are tier
 labels, **not** prices.
+
+## Model analytics
+
+**Settings → Model analytics** compares the Open Design models present in local history. It reads the host's
+own session log through the optional `sessionQuery` service — never the model plane — and only when the user
+presses **Read**; nothing is scanned at boot or polled in the background.
+
+- Filters: the most recent 1–100 sessions that contain an Open Design request, or a local-calendar date range
+  (start/end inclusive on screen, half-open `[from, to)` on the wire, at most 366 days).
+- Columns: requests, total tokens, average first-token latency, average total duration, failure rate, retries,
+  the catalog's cost tier (`low`/`medium`/`high`) and capability tier (`standard`/`advanced`).
+- Missing data stays missing: a request whose adapter reported no usage counts as a request but contributes no
+  tokens, and a model absent from the current catalog shows `unknown` tiers instead of a made-up value.
+- The scan is bounded (100 candidate sessions, 200 000 own events) and reports truncation. A forked session
+  counts only its own events, so branch inheritance never double-counts an ancestor's requests.
+- A profile without a session-query service shows "unavailable" with the reason; conversations are unaffected.
+
+There is **no money dimension**: no price table, no dollar amount and no `≈` estimate. ADR-0002 keeps this
+deliberate — use the Open Design control plane for billing.
 
 ## Reasoning levels
 
