@@ -29,21 +29,16 @@ import { createRoot } from 'react-dom/client'
 import { OpenDesignSettingsPage } from '../../src/client/section.tsx'
 import { OpenDesignProviderCard } from '../../src/client/card.tsx'
 import { OpenDesignQuotaCard, OpenDesignQuotaDashboard } from '../../src/client/panel-ui.tsx'
-import { OpenDesignAnalyticsPage } from '../../src/client/analytics-section.tsx'
 import { cardMode, OpenDesignSettingsController } from '../../src/client/settings.ts'
 import { OpenDesignQuotaPanelController } from '../../src/client/panel.ts'
-import { OpenDesignAnalyticsController } from '../../src/client/analytics.ts'
 import { PAGE_CSS } from '../../src/client/page-styles.ts'
 import { PANEL_CSS } from '../../src/client/panel-styles.ts'
 import { zh as zhSettings } from '../../src/client/locales.ts'
 import { panelTranslate } from '../../src/client/panel-locales.ts'
-import { zh as zhAnalytics } from '../../src/client/analytics-locales.ts'
 
 import type { OpenDesignModelsReport } from '../../src/models-wire.ts'
-import type { OpenDesignAnalyticsReport } from '../../src/analytics-wire.ts'
 import type { QuotaSnapshot } from '../../src/control-plane.ts'
 import type { SettingsPageState } from '../../src/client/settings.ts'
-import type { AnalyticsPageState } from '../../src/client/analytics.ts'
 
 // ---------------------------------------------------------------- translation
 
@@ -59,7 +54,6 @@ function translate(dictionary: Record<string, string>) {
 
 const tSettings = translate(zhSettings)
 const tPanel = panelTranslate('zh')
-const tAnalytics = translate(zhAnalytics)
 
 // -------------------------------------------------------------------- fixtures
 
@@ -191,104 +185,6 @@ const QUOTA_WALLET: QuotaSnapshot = {
   funding: 'wallet',
   windows: [],
   fetchedAt: '2026-10-21T02:58:00.000Z',
-}
-
-const ANALYTICS: OpenDesignAnalyticsReport = {
-  generatedAt: NOW,
-  scope: { kind: 'recent', sessions: 20 },
-  history: {
-    available: true,
-    sessionsScanned: 6,
-    sessionsSkipped: 1,
-    eventsScanned: 42,
-    inheritedEventsSkipped: 2,
-    truncated: false,
-  },
-  totals: {
-    requests: 42,
-    sessions: 6,
-    succeeded: 40,
-    failed: 1,
-    interrupted: 1,
-    retries: 3,
-    inputTokens: 812_400,
-    outputTokens: 96_300,
-    totalTokens: 908_700,
-    requestsWithUsage: 42,
-    requestsWithoutUsage: 0,
-    firstTokenSamples: 41,
-    avgFirstTokenMs: 640,
-    durationSamples: 41,
-    avgDurationMs: 7400,
-  },
-  models: [
-    {
-      model: 'deepseek-v4.1-flash',
-      name: 'DeepSeek V4.1 Flash',
-      cost: 'low',
-      capability: 'advanced',
-      visible: true,
-      calibrated: true,
-      requests: 31,
-      succeeded: 30,
-      failed: 1,
-      interrupted: 0,
-      retries: 2,
-      inputTokens: 702_100,
-      outputTokens: 81_900,
-      totalTokens: 784_000,
-      requestsWithUsage: 31,
-      requestsWithoutUsage: 0,
-      firstTokenSamples: 30,
-      avgFirstTokenMs: 520,
-      durationSamples: 30,
-      avgDurationMs: 6100,
-    },
-    {
-      model: 'gpt-6-luna',
-      name: 'GPT-6 Luna',
-      cost: 'medium',
-      capability: 'advanced',
-      visible: true,
-      calibrated: true,
-      requests: 11,
-      succeeded: 10,
-      failed: 0,
-      interrupted: 1,
-      retries: 1,
-      inputTokens: 110_300,
-      outputTokens: 14_400,
-      totalTokens: 124_700,
-      requestsWithUsage: 11,
-      requestsWithoutUsage: 0,
-      firstTokenSamples: 11,
-      avgFirstTokenMs: 980,
-      durationSamples: 11,
-      avgDurationMs: 10_900,
-    },
-    {
-      model: 'hy4-preview',
-      name: 'Hunyuan H4 Preview',
-      cost: 'medium',
-      capability: 'standard',
-      visible: false,
-      calibrated: false,
-      requests: 0,
-      succeeded: 0,
-      failed: 0,
-      interrupted: 0,
-      retries: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-      requestsWithUsage: 0,
-      requestsWithoutUsage: 0,
-      firstTokenSamples: 0,
-      avgFirstTokenMs: undefined,
-      durationSamples: 0,
-      avgDurationMs: undefined,
-    },
-  ],
 }
 
 // ------------------------------------------------------------------ assemblies
@@ -428,34 +324,6 @@ function panelFace(controller: OpenDesignQuotaPanelController) {
     panelClose: () => controller.closePanel(),
     panelRefresh: () => { void controller.refresh(true) },
     panelLocale: () => 'zh' as const,
-  }
-}
-
-/** Build an analytics controller and optionally perform one read. */
-async function analytics(options: { read?: boolean } = {}): Promise<OpenDesignAnalyticsController> {
-  const controller = new OpenDesignAnalyticsController(
-    () => ({ analytics: async () => ({ ok: true, value: ANALYTICS }) }),
-    { now: () => NOW, localOffsetMinutes: -480 },
-  )
-  if (options.read !== false) {
-    controller.setRecentSessions('20')
-    await controller.refresh()
-  }
-  return controller
-}
-
-/** The injected face the analytics page receives. */
-function analyticsFace(controller: OpenDesignAnalyticsController) {
-  return {
-    store: {
-      getSnapshot: (): AnalyticsPageState => controller.state(),
-      subscribe: (listener: () => void) => controller.subscribe(listener),
-    },
-    setMode: (mode: never) => controller.setMode(mode),
-    setRecentSessions: (text: string) => controller.setRecentSessions(text),
-    setRangeFrom: (text: string) => controller.setRangeFrom(text),
-    setRangeTo: (text: string) => controller.setRangeTo(text),
-    refresh: () => controller.refresh(),
   }
 }
 
@@ -718,22 +586,6 @@ async function buildCases(): Promise<Case[]> {
       note: '没有额度窗口、funding=wallet：卡片只剩一行计费口径',
       frame: 'pane sidebar',
       body: <OpenDesignQuotaCard {...panelFace(await quota({ snapshot: QUOTA_WALLET }))} t={tPanel as never} wide />,
-    },
-    {
-      id: 'analytics-ready',
-      title: '分析页 · 有数据',
-      short: '分析 · 有数据',
-      note: '最近 20 个会话的聚合：总量、每模型表、成本档位（无金额）；可切「日期范围」看空态提示',
-      frame: 'pane page',
-      body: <OpenDesignAnalyticsPage {...analyticsFace(await analytics())} t={tAnalytics as never} />,
-    },
-    {
-      id: 'analytics-idle',
-      title: '分析页 · 未读取',
-      short: '分析 · 未读',
-      note: '用户没点「读取」前的空态；点一下「读取」就会拿到上面那份数据',
-      frame: 'pane page',
-      body: <OpenDesignAnalyticsPage {...analyticsFace(await analytics({ read: false }))} t={tAnalytics as never} />,
     },
   ]
 }

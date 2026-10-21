@@ -468,13 +468,9 @@ declare const REMOTE_NAMESPACE = "opendesign";
  */
 declare const REMOTE_SERVICE = "opendesignUsage";
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */
-declare const REMOTE_ENDPOINTS: readonly ["usage", "models", "analytics"];
+declare const REMOTE_ENDPOINTS: readonly ["usage", "models"];
 /** The settings-page slot id (`settings.section`). */
 declare const SETTINGS_SECTION_ID = "opendesign";
-/** The analytics page's own `settings.section` id (ticket 12). */
-declare const ANALYTICS_SECTION_ID = "opendesign-analytics";
-/** Locale namespace the analytics page declares for its own copy. */
-declare const ANALYTICS_LOCALE_NS = "analytics.opendesign";
 /** The Models-page provider-card key (`settings.models.provider-card`). */
 declare const MODEL_CARD_KEY = "llm-opendesign";
 /** The quota panel's `main` / `sidebar.footer.action` id. */
@@ -660,178 +656,6 @@ type FailureCode = 'AUTH' | 'QUOTA_EXHAUSTED' | 'BAD_REQUEST' | 'PROTOCOL_ERROR'
 /** The retryable set, as data, for the route's `providerRetryPolicy`. */
 declare function retryableFailureCodes(): readonly FailureCode[];
 //#endregion
-//#region src/analytics-wire.d.ts
-/** The cheapest-to-most-expensive catalog word; `unknown` = catalog has no entry. */
-type AnalyticsCostTier = 'low' | 'medium' | 'high' | 'unknown';
-/** The catalog capability word; `unknown` = catalog has no entry. */
-type AnalyticsCapabilityTier = 'standard' | 'advanced' | 'unknown';
-/** The most recent N sessions that contain at least one Open Design request. */
-interface AnalyticsRecentScope {
-  readonly kind: 'recent';
-  /** 1–100, newest first by the session's last Open Design request. */
-  readonly sessions: number;
-}
-/** Half-open `[from, to)` local-calendar window, at most 366 days. */
-interface AnalyticsRangeScope {
-  readonly kind: 'range';
-  readonly from: number;
-  readonly to: number;
-}
-/** The one filter the page submits; a scope, never free text. */
-type AnalyticsScope = AnalyticsRecentScope | AnalyticsRangeScope;
-/** One `opendesign/analytics` invocation. */
-interface AnalyticsQuery {
-  readonly scope: AnalyticsScope;
-}
-/** Token, timing, outcome and usage-coverage counters for one model. */
-interface AnalyticsModelRow {
-  readonly model: string;
-  readonly name: string;
-  readonly cost: AnalyticsCostTier;
-  readonly capability: AnalyticsCapabilityTier;
-  /** Whether the current model-visibility rule would list this id. */
-  readonly visible: boolean;
-  /** Whether the static snapshot knows this id. */
-  readonly calibrated: boolean;
-  readonly requests: number;
-  readonly succeeded: number;
-  readonly failed: number;
-  readonly interrupted: number;
-  readonly retries: number;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly totalTokens: number;
-  readonly requestsWithUsage: number;
-  readonly requestsWithoutUsage: number;
-  readonly firstTokenSamples: number;
-  readonly avgFirstTokenMs?: number | undefined;
-  readonly durationSamples: number;
-  readonly avgDurationMs?: number | undefined;
-}
-/** The same counters over every model in the report. */
-interface AnalyticsTotals {
-  readonly requests: number;
-  readonly sessions: number;
-  readonly succeeded: number;
-  readonly failed: number;
-  readonly interrupted: number;
-  readonly retries: number;
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly totalTokens: number;
-  readonly requestsWithUsage: number;
-  readonly requestsWithoutUsage: number;
-  readonly firstTokenSamples: number;
-  readonly avgFirstTokenMs?: number | undefined;
-  readonly durationSamples: number;
-  readonly avgDurationMs?: number | undefined;
-}
-/** How complete the history read was, so a partial scan never looks complete. */
-interface AnalyticsHistoryCoverage {
-  /** Whether the Host's optional session-query service answered at all. */
-  readonly available: boolean;
-  /** `unsupported` = no session-query service; `unreadable` = the read failed. */
-  readonly reason?: 'unsupported' | 'unreadable' | undefined;
-  readonly sessionsScanned: number;
-  readonly sessionsSkipped: number;
-  readonly eventsScanned: number;
-  readonly inheritedEventsSkipped: number;
-  readonly truncated: boolean;
-}
-/** The whole `opendesign/analytics` result. */
-interface OpenDesignAnalyticsReport {
-  readonly generatedAt: number;
-  readonly scope: AnalyticsScope;
-  readonly history: AnalyticsHistoryCoverage;
-  readonly totals: AnalyticsTotals;
-  readonly models: AnalyticsModelRow[];
-}
-/** Strictly parse one untrusted `opendesign/analytics` query. */
-declare function parseAnalyticsQuery(value: unknown): AnalyticsQuery;
-/** Strictly parse one untrusted `opendesign/analytics` result. */
-declare function parseAnalyticsReport(value: unknown): OpenDesignAnalyticsReport;
-//#endregion
-//#region src/analytics-fold.d.ts
-/**
- * Fold already-read session history into per-model request facts (ticket 12).
- *
- * The analytics page compares models on tokens, speed, failures and retries.
- * The Host already records every model attempt in the session log, so this
- * module is the only place that interprets it: one `assistant/message`, one
- * `assistant/attempt` and one `compaction/summary` each count as one request.
- * Nothing here knows a price, a provider price table or a dollar figure — the
- * cost dimension is the catalog's own `low/medium/high` word, joined later.
- *
- * Two rules protect the numbers:
- *
- * - A request whose adapter reported no `usage` still counts as a request, but
- *   contributes no tokens. Summing it as zero would make "no data" look like
- *   "zero tokens", so the row carries `requestsWithoutUsage` instead.
- * - Only a session's OWN events count: a forked child re-reads its inherited
- *   prefix, and `inheritedEventCount` is the exact cut the host publishes.
- *   Counting the prefix again would double every ancestor request.
- *
- * @module dsh-opendesign-provider/analytics-fold
- */
-/** One raw session event, structurally typed so tests need no host package. */
-interface HistoryEvent {
-  readonly type: string;
-  readonly time: number;
-  readonly data?: unknown;
-}
-/** One logical session's own events, plus the host's exact inheritance cut. */
-interface HistorySession {
-  readonly id: string;
-  readonly createdAt: number;
-  readonly events: readonly HistoryEvent[];
-  /** Leading events inherited from a parent session; never counted here. */
-  readonly inheritedEventCount?: number;
-}
-/** Token, timing and outcome facts for one model. */
-interface AnalyticsModelStats {
-  readonly model: string;
-  requests: number;
-  succeeded: number;
-  failed: number;
-  interrupted: number;
-  retries: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  requestsWithUsage: number;
-  requestsWithoutUsage: number;
-  firstTokenSamples: number;
-  firstTokenMsTotal: number;
-  durationSamples: number;
-  durationMsTotal: number;
-}
-/** The complete fold: model rows plus the read-coverage facts. */
-interface AnalyticsFoldResult {
-  readonly models: AnalyticsModelStats[];
-  /** Sessions that contributed at least one request. */
-  sessions: number;
-  sessionsScanned: number;
-  eventsScanned: number;
-  inheritedEventsSkipped: number;
-}
-/** Which requests a fold counts. */
-interface AnalyticsFoldOptions {
-  /** The only provider whose requests count; defaults to `open-design`. */
-  provider?: string;
-  /** Half-open `[from, to)` request-time window; omitted means no time bound. */
-  range?: {
-    readonly from: number;
-    readonly to: number;
-  } | undefined;
-}
-/**
- * Fold every session into per-model facts.
- * @param sessions - already-read logs, in any order.
- * @param options - provider restriction and optional request-time window.
- * @returns deterministic rows (model id order) and read-coverage counters.
- */
-declare function foldAnalytics(sessions: readonly HistorySession[], options?: AnalyticsFoldOptions): AnalyticsFoldResult;
-//#endregion
 //#region src/index.d.ts
 declare const name = "llm-opendesign";
 declare const inject: string[];
@@ -934,5 +758,5 @@ interface ResolvedOpenDesignOptions extends OpenDesignConnectionOptions {
 declare function resolveAdapterOptions(config: Config): ResolvedOpenDesignOptions;
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { ANALYTICS_LOCALE_NS, ANALYTICS_SECTION_ID, type AnalyticsCapabilityTier, type AnalyticsCostTier, type AnalyticsFoldResult, type AnalyticsHistoryCoverage, type AnalyticsModelRow, type AnalyticsModelStats, type AnalyticsQuery, type AnalyticsScope, type AnalyticsTotals, CONTROL_PLANE_TIMEOUT_MS, Config, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, DEFAULT_CONTROL_PLANE_API_URL, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, type DiagnosticsFacts, type DiagnosticsSnapshot, type FailureCode, type GatewayCatalogEntry, type GatewayCatalogFailureReason, type GatewayCatalogSourceKind, type GatewayCatalogStatus, type HttpFailureInput, MODELS_CACHE_RELATIVE_PATH, MODEL_CARD_KEY, NS, OpenDesignAdapter, type OpenDesignAdapterDeps, type OpenDesignAnalyticsReport, type OpenDesignConnectionOptions, OpenDesignControlPlane, type OpenDesignCredentialState, type OpendesignCommandDeps, PACKAGE_NAME, PANEL_ID, PLUGIN_ID, PROVIDER, PROVIDER_DISPLAY_NAME, QUOTA_CACHE_TTL_MS, QUOTA_DESCRIPTOR, QUOTA_ENDPOINT, QUOTA_FIVE_HOUR_SECONDS, QUOTA_SEVEN_DAY_SECONDS, type QuotaReading, type QuotaSnapshot, type QuotaWindow, type QuotaWindowKind, REMOTE_ENDPOINTS, REMOTE_NAMESPACE, REMOTE_SERVICE, REQUEST_TIMING_ENV, ResolvedOpenDesignOptions, SETTINGS_SECTION_ID, STREAM_TRACE_ENV, apply, applyCommands, classifyQuotaWindow, commandDefinition, diagnosticsSnapshot, foldAnalytics, formatDiagnostics, inject, name, parseAnalyticsQuery, parseAnalyticsReport, parseQuotaSnapshot, renderQuota, resolveAdapterOptions, retryableFailureCodes };
+export { CONTROL_PLANE_TIMEOUT_MS, Config, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, DEFAULT_CONTROL_PLANE_API_URL, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, type DiagnosticsFacts, type DiagnosticsSnapshot, type FailureCode, type GatewayCatalogEntry, type GatewayCatalogFailureReason, type GatewayCatalogSourceKind, type GatewayCatalogStatus, type HttpFailureInput, MODELS_CACHE_RELATIVE_PATH, MODEL_CARD_KEY, NS, OpenDesignAdapter, type OpenDesignAdapterDeps, type OpenDesignConnectionOptions, OpenDesignControlPlane, type OpenDesignCredentialState, type OpendesignCommandDeps, PACKAGE_NAME, PANEL_ID, PLUGIN_ID, PROVIDER, PROVIDER_DISPLAY_NAME, QUOTA_CACHE_TTL_MS, QUOTA_DESCRIPTOR, QUOTA_ENDPOINT, QUOTA_FIVE_HOUR_SECONDS, QUOTA_SEVEN_DAY_SECONDS, type QuotaReading, type QuotaSnapshot, type QuotaWindow, type QuotaWindowKind, REMOTE_ENDPOINTS, REMOTE_NAMESPACE, REMOTE_SERVICE, REQUEST_TIMING_ENV, ResolvedOpenDesignOptions, SETTINGS_SECTION_ID, STREAM_TRACE_ENV, apply, applyCommands, classifyQuotaWindow, commandDefinition, diagnosticsSnapshot, formatDiagnostics, inject, name, parseQuotaSnapshot, renderQuota, resolveAdapterOptions, retryableFailureCodes };
 //# sourceMappingURL=index.d.ts.map

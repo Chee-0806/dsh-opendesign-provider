@@ -1,13 +1,11 @@
 /**
  * Browser half of the dsh-opendesign-provider bundle.
  *
- * Registers three surfaces: the Open Design settings page (`settings.section`,
- * id `opendesign`), the Models-page provider card
- * (`settings.models.provider-card`, key `llm-opendesign`) and the analytics
- * page (`settings.section`, id `opendesign-analytics`, ticket 12). The first
- * two share one controller over `remote.settings` (this plugin's own
- * namespace) and one `opendesign/models` Remote; the analytics page reads only
- * the aggregate `opendesign/analytics` Remote. No surface receives a key
+ * Registers two surfaces: the Open Design settings page (`settings.section`,
+ * id `opendesign`) and the Models-page provider card
+ * (`settings.models.provider-card`, key `llm-opendesign`). Both share one
+ * controller over `remote.settings` (this plugin's own namespace) and the
+ * `opendesign/models` + `opendesign/usage` Remotes. No surface receives a key
  * value and none can render a monetary amount.
  *
  * The `opendesign` namespace contribution is mounted once here. A profile
@@ -26,8 +24,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 
 import {
-  ANALYTICS_LOCALE_NS,
-  ANALYTICS_SECTION_ID,
   MODEL_CARD_KEY,
   NS,
   PANEL_ID,
@@ -37,11 +33,6 @@ import {
 import { MODELS_REMOTE_CONTRIBUTION, type OpenDesignModelsReport } from '../models-wire.ts'
 import { QUOTA_REMOTE_CONTRIBUTION } from '../quota-wire.ts'
 import type { QuotaSnapshot } from '../control-plane.ts'
-import {
-  ANALYTICS_REMOTE_CONTRIBUTION,
-  type AnalyticsQuery,
-  type OpenDesignAnalyticsReport,
-} from '../analytics-wire.ts'
 import type { SettingsRemoteNamespace, SettingsScopeContext } from './settings-scope.ts'
 import { createSettingsScope } from './settings-scope.ts'
 import { cardMode, OpenDesignSettingsController, type CredentialsApi, type ModelsApi, type SettingsPageState } from './settings.ts'
@@ -59,9 +50,6 @@ import {
 } from './panel.ts'
 import { OpenDesignQuotaCard, OpenDesignQuotaDashboard } from './panel-ui.tsx'
 import type { QuotaCardProps, QuotaDashboardProps } from './panel-slots.ts'
-import { en as analyticsEn, zh as analyticsZh } from './analytics-locales.ts'
-import { OpenDesignAnalyticsController } from './analytics.ts'
-import { OpenDesignAnalyticsPage, type AnalyticsPageInjected } from './analytics-section.tsx'
 import type { SnapshotStore } from './snapshot-store.ts'
 
 /** Install one stylesheet by id and return a disposer for its owning effect. */
@@ -83,7 +71,6 @@ type Envelope<T> = { ok: true; value: T } | { ok: false; error?: { message?: str
 interface ModelsRemoteNamespace {
   models?: () => Promise<Envelope<OpenDesignModelsReport>>
   usage?: () => Promise<Envelope<QuotaSnapshot>>
-  analytics?: (query: AnalyticsQuery) => Promise<Envelope<OpenDesignAnalyticsReport>>
 }
 
 /** The mount face the Remote service exposes (the Gateway's client side). */
@@ -101,7 +88,6 @@ const CLIENT_REMOTE_CONTRIBUTION = {
   descriptors: [
     ...MODELS_REMOTE_CONTRIBUTION.descriptors,
     ...QUOTA_REMOTE_CONTRIBUTION.descriptors,
-    ...ANALYTICS_REMOTE_CONTRIBUTION.descriptors,
   ],
 }
 
@@ -119,17 +105,12 @@ export function apply(ctx: Context): void {
   )
   const removePanelCss = injectCss(PANEL_CSS_ID, PANEL_CSS)
   ctx.effect(() => removePanelCss, 'dsh-opendesign-provider: panel styles')
-  ctx.effect(
-    () => ctx.locale.register(ANALYTICS_LOCALE_NS, { zh: analyticsZh, en: analyticsEn }),
-    'dsh-opendesign-provider: analytics copy',
-  )
 
   // The namespace object must be captured from an inject-scoped context, never
   // read off `ctx.remote` (a nested service read without inject throws).
   let settingsNamespace: SettingsRemoteNamespace | undefined
   let credentialsNamespace: CredentialsApi | undefined
   let modelsNamespace: ModelsRemoteNamespace | undefined
-  let analyticsNamespace: ModelsRemoteNamespace | undefined
 
   const scope = createSettingsScope<Record<string, unknown>>(
     ctx as unknown as SettingsScopeContext,
@@ -166,16 +147,6 @@ export function apply(ctx: Context): void {
 
   const controller = new OpenDesignSettingsController(scope, credentials, models)
   ctx.effect(() => () => controller.dispose(), 'dsh-opendesign-provider: settings controller')
-
-  // The analytics Remote is resolved lazily: before it mounts (or in a profile
-  // without a Typert registry) the page reports `unavailable` instead of
-  // claiming the history is empty. No read happens until the user asks.
-  const analytics = new OpenDesignAnalyticsController(() => {
-    const namespace = analyticsNamespace
-    if (namespace?.analytics === undefined) return undefined
-    return { analytics: (query) => namespace.analytics!(query) }
-  })
-  ctx.effect(() => () => analytics.dispose(), 'dsh-opendesign-provider: analytics controller')
 
   // The card and the page read the same controller; this adapter is the
   // observable face both React entries consume.
@@ -246,15 +217,13 @@ export function apply(ctx: Context): void {
       ctx.inject(['remote.opendesign'], (modelsCtx) => {
         const namespace = (modelsCtx.remote as unknown as { opendesign: ModelsRemoteNamespace }).opendesign
         modelsNamespace = namespace
-        analyticsNamespace = namespace
         void controller.refreshModels()
         // The panel may have asked before the namespace landed (its first read
         // failed with "not mounted"); one forced read heals that, and it is a
-        // no-op while the switch is off. The analytics page re-reads on demand.
+        // no-op while the switch is off.
         void panel.refresh(true)
         modelsCtx.effect(() => () => {
           modelsNamespace = undefined
-          analyticsNamespace = undefined
         }, 'dsh-opendesign-provider: models namespace')
       })
     }).catch((error: unknown) => {
@@ -286,36 +255,14 @@ export function apply(ctx: Context): void {
     refresh: () => controller.refresh(),
   })
 
-  const analyticsFace = (): AnalyticsPageInjected => ({
-    store: { getSnapshot: () => analytics.state(), subscribe: (listener) => analytics.subscribe(listener) },
-    setMode: (mode) => analytics.setMode(mode),
-    setRecentSessions: (text) => analytics.setRecentSessions(text),
-    setRangeFrom: (text) => analytics.setRangeFrom(text),
-    setRangeTo: (text) => analytics.setRangeTo(text),
-    refresh: () => analytics.refresh(),
-  })
-
-  // Both pages share the one `settings.section` seat the engine declares, so
-  // they register inside the same inject callback: asking the slot kit for the
-  // same seat twice would depend on behaviour its contract does not promise.
-  ctx.slots.inject('settings.section', () => [
-    ctx.slots.register({
-      name: 'settings.section',
-      id: SETTINGS_SECTION_ID,
-      order: 12,
-      label: () => ctx.locale.bind(SETTINGS_LOCALE_NS)('nav'),
-      locale: SETTINGS_LOCALE_NS,
-      inject: pageFace,
-    }, OpenDesignSettingsPage),
-    ctx.slots.register({
-      name: 'settings.section',
-      id: ANALYTICS_SECTION_ID,
-      order: 13,
-      label: () => ctx.locale.bind(ANALYTICS_LOCALE_NS)('nav'),
-      locale: ANALYTICS_LOCALE_NS,
-      inject: analyticsFace,
-    }, OpenDesignAnalyticsPage),
-  ])
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: SETTINGS_SECTION_ID,
+    order: 12,
+    label: () => ctx.locale.bind(SETTINGS_LOCALE_NS)('nav'),
+    locale: SETTINGS_LOCALE_NS,
+    inject: pageFace,
+  }, OpenDesignSettingsPage))
 
   ctx.slots.inject('settings.models.provider-card', () => ctx.slots.register({
     name: 'settings.models.provider-card',

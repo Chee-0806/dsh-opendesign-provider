@@ -134,13 +134,13 @@ test('apply registers the Open Design provider, adapter, models Remote and setti
     name: 'Open Design',
   })
 
-  // 合并后装配面：models(+analytics) Remote 与 quota Remote 各占一条可选 typert
+  // 合并后装配面：models Remote 与 quota Remote 各占一条可选 typert
   // fiber（各自拥有自己的服务键），`/opendesign` 挂在可选 commands 上，settings
   // 最后。旧 provider 的 login / enrollment / 账号池 / web search 仍不得回来。
   assert.deepEqual(
     injected,
     [['typert'], ['commands'], ['settings']],
-    'one optional Remote service (models + analytics + usage), the quota command and the settings bridge remain',
+    'one optional Remote service (models + usage), the quota command and the settings bridge remain',
   )
   assert.deepEqual(configured, [{ auto: false }], 'the plugin ships its own page, so no auto form')
 })

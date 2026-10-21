@@ -15,7 +15,6 @@
 
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 
-import type { AnalyticsQuery, OpenDesignAnalyticsReport } from './analytics-wire.ts'
 import type { QuotaSnapshot } from './control-plane.ts'
 import type { OpenDesignModelsReport } from './models-wire.ts'
 
@@ -23,15 +22,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteMap {
     'opendesign/models': () => Promise<RemoteResult<OpenDesignModelsReport>>
     'opendesign/usage': () => Promise<RemoteResult<QuotaSnapshot>>
-    'opendesign/analytics': (query: AnalyticsQuery) => Promise<RemoteResult<OpenDesignAnalyticsReport>>
   }
 
   interface TypertRemoteNamespaceMap {
     opendesign: {
       models?: () => Promise<RemoteResult<OpenDesignModelsReport>>
       usage?: () => Promise<RemoteResult<QuotaSnapshot>>
-      /** Ticket 12 analytics read; optional like the other two. */
-      analytics?: (query: AnalyticsQuery) => Promise<RemoteResult<OpenDesignAnalyticsReport>>
     }
   }
 }

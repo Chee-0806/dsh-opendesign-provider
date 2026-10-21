@@ -92,7 +92,7 @@ function FieldRow(props: {
 }) {
   const error = fieldError(props.t, props.draft)
   return (
-    <label className="od-row od-fieldRow">
+    <label className="od-row od-fieldRow od-inputRow">
       <RowText title={props.label} desc={props.hint} error={error} />
       <span className="od-rowControl">
         <input
@@ -500,7 +500,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
 
       <SettingsGroup title={t('connection')} desc={t('connectionDesc')} defaultOpen first>
         <div className="od-rows">
-          <div className="od-row">
+          <div className="od-row od-fieldRow od-inputRow">
             <div className="od-rowText">
               <span className="od-rowTitleLine">
                 <span className="od-rowTitle">{t('apiKey')}</span>
@@ -534,7 +534,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             placeholder="https://amr-link.open-design.ai/v1"
             onChange={(text) => props.edit('apiBase', text)}
           />
-          <div className="od-row">
+          <div className="od-row od-fieldRow">
             <RowText title={t('loginStatus')} desc={`${t('loginHint')} ${t('loginUse')}`} />
             <div className="od-rowControl">
               <span className={state.loginStatus === 'ok' ? 'od-badge' : 'od-badgeMuted'}>{loginLabel}</span>
@@ -596,7 +596,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
 
       <SettingsGroup title={t('displaySection')} desc={t('displaySectionDesc')} defaultOpen>
         <div className="od-rows">
-          <label className="od-row">
+          <label className="od-row od-fieldRow">
             <RowText title={t('language')} />
             <span className="od-rowControl">
               <select
@@ -610,7 +610,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
               </select>
             </span>
           </label>
-          <label className="od-row">
+          <label className="od-row od-fieldRow">
             <RowText title={t('sidebarQuota')} desc={t('sidebarQuotaHint')} />
             <span className="od-rowControl">
               <input
@@ -662,7 +662,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             disabled={disabled}
             onChange={(text) => props.edit('modelsCachePath', text)}
           />
-          <div className="od-row">
+          <div className="od-row od-fieldRow">
             <RowText title={t('diagnostics')} desc={t('diagnosticsHint')} />
             <div className="od-rowControl">
               <button className="od-linkButton" type="button" onClick={copyDiagnostics}>

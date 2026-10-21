@@ -52,19 +52,13 @@ export const REMOTE_NAMESPACE = 'opendesign'
 export const REMOTE_SERVICE = 'opendesignUsage'
 
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */
-export const REMOTE_ENDPOINTS = ['usage', 'models', 'analytics'] as const
+export const REMOTE_ENDPOINTS = ['usage', 'models'] as const
 
 /** The settings-page slot id (`settings.section`). */
 export const SETTINGS_SECTION_ID = 'opendesign'
 
-/** The analytics page's own `settings.section` id (ticket 12). */
-export const ANALYTICS_SECTION_ID = 'opendesign-analytics'
-
 /** Locale namespace both browser surfaces declare for their copy. */
 export const SETTINGS_LOCALE_NS = 'settings.opendesign'
-
-/** Locale namespace the analytics page declares for its own copy. */
-export const ANALYTICS_LOCALE_NS = 'analytics.opendesign'
 
 /** The Models-page provider-card key (`settings.models.provider-card`). */
 export const MODEL_CARD_KEY = 'llm-opendesign'

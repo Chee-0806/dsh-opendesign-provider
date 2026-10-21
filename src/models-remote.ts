@@ -1,6 +1,6 @@
 /**
  * Host half of the `opendesign` namespace: `opendesign/models` (ticket 08) and,
- * when the plugin supplies analytics deps, `opendesign/analytics` (ticket 12).
+ * when the plugin supplies quota deps, `opendesign/usage` (ticket 10).
  *
  * The settings page and the Models-page card need two Host-only facts: the
  * catalog's provenance (`OpenDesignAdapter.catalogStatus()`, ticket 03) and
@@ -23,12 +23,6 @@ import type { GatewayCatalogStatus } from './gateway-facts.ts'
 import { REMOTE_NAMESPACE, REMOTE_SERVICE } from './identity.ts'
 import type { QuotaSnapshot } from './control-plane.ts'
 import { QUOTA_DESCRIPTOR } from './quota-wire.ts'
-import { analyticsReport, type OpenDesignAnalyticsDeps } from './analytics-remote.ts'
-import {
-  ANALYTICS_DESCRIPTOR,
-  type AnalyticsQuery,
-  type OpenDesignAnalyticsReport,
-} from './analytics-wire.ts'
 import {
   MODELS_DESCRIPTOR,
   type ModelsReportCatalog,
@@ -42,13 +36,6 @@ export interface OpenDesignModelsDeps {
   catalogStatus: () => Promise<GatewayCatalogStatus>
   /** The credential chain's safe projection; never contains the key values. */
   credentialStatus: () => Promise<CredentialChainResult>
-  /**
-   * Ticket 12's analytics read. Supplying it adds the `analytics` method to
-   * this one Service and registers its descriptor. It lives here because
-   * Cordis allows exactly one Service per key (`opendesignUsage`) and two
-   * `ctx.inject(['typert'])` scopes cannot see each other's services.
-   */
-  analytics?: OpenDesignAnalyticsDeps | undefined
   /**
    * Ticket 10's quota read. Supplying it adds the `usage` method to this one
    * Service and registers its descriptor — the Typert Gateway resolves one
@@ -114,23 +101,12 @@ export function buildModelsReport(
 export class OpenDesignModelsService extends TypertRemoteService {
   private readonly deps: OpenDesignModelsDeps
 
-  /**
-   * The ticket 12 analytics invocation, present only when the plugin supplied
-   * analytics deps. It shares this Service because one Cordis key cannot host
-   * two instances; the `opendesign/models` method and descriptor are untouched.
-   */
-  readonly analytics?: ((query: AnalyticsQuery) => Promise<OpenDesignAnalyticsReport>) | undefined
-
   /** The ticket 10 quota read, present only when the plugin supplied quota deps. */
   readonly usage?: (() => Promise<QuotaSnapshot>) | undefined
 
   constructor(ctx: Context, deps: OpenDesignModelsDeps) {
     super(ctx, REMOTE_SERVICE, { namespace: REMOTE_NAMESPACE })
     this.deps = deps
-    if (deps.analytics !== undefined) {
-      const analyticsDeps = deps.analytics
-      this.analytics = (query: AnalyticsQuery) => analyticsReport(analyticsDeps, query)
-    }
     if (deps.quota !== undefined) {
       const quota = deps.quota
       this.usage = () => quota()
@@ -158,7 +134,7 @@ interface TypertContributionRegistry {
   }): () => void | Promise<void>
 }
 
-/** The Host-face contribution: the models descriptor, plus analytics when wired. */
+/** The Host-face contribution: the models descriptor, plus quota when wired. */
 function hostContribution(deps: OpenDesignModelsDeps): {
   package: string
   face: 'host'
@@ -173,7 +149,6 @@ function hostContribution(deps: OpenDesignModelsDeps): {
     model: { services: [], events: [], objects: [] },
     invocations: [
       MODELS_DESCRIPTOR,
-      ...(deps.analytics === undefined ? [] : [ANALYTICS_DESCRIPTOR]),
       ...(deps.quota === undefined ? [] : [QUOTA_DESCRIPTOR]),
     ],
   }

@@ -45,11 +45,11 @@ export const PAGE_CSS = `
 .od-intro{margin:6px 0 0;color:var(--dsw-alias-label-tertiary);font-size:14px;line-height:22px}
 .od-readOnly{margin:8px 0 0;color:var(--dsw-alias-state-warn-label,var(--dsw-alias-label-tertiary));font-size:13px;line-height:20px}
 .od-spacer{flex:1}
-.od-group{flex-direction:column;display:flex;margin-top:32px}
-.od-groupDivided{margin-top:28px;padding-top:24px;border-top:.5px solid var(--dsw-alias-border-l2)}
+.od-group{flex-direction:column;display:flex;margin-top:24px}
+.od-groupDivided{margin-top:24px;padding-top:20px;border-top:.5px solid var(--dsw-alias-border-l2)}
 .od-groupHead{align-items:center;gap:8px;display:flex;min-height:32px;padding-bottom:6px}
-.od-groupTitle{margin:0;color:var(--dsw-alias-label-primary);font-size:16px;font-weight:500;line-height:24px}
-.od-groupDesc{margin:0 0 12px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}
+.od-groupTitle{margin:0;color:var(--dsw-alias-label-primary);font-size:15px;font-weight:500;line-height:22px}
+.od-groupDesc{margin:0 0 8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 .od-rows>.od-groupDesc{margin:0;padding:4px 0 0}
 .od-disclosure{width:100%;padding:0 0 4px;border:0;background:0 0;font:inherit;text-align:left;cursor:pointer;border-radius:8px}
 .od-disclosure:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
@@ -65,18 +65,18 @@ export const PAGE_CSS = `
 .od-disclosureSummary{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
 .od-groupTitleToggle{flex:1;min-width:0}
 .od-rows{flex-direction:column;display:flex}
-.od-row{align-items:center;gap:8px;display:flex;padding:16px 0}
+.od-row{align-items:center;gap:8px;display:flex;padding:12px 0}
 .od-rowFlush{padding:0}
-.od-rowText{flex-direction:column;flex:1;gap:5px;min-width:0;padding-right:24px;display:flex}
+.od-rowText{flex-direction:column;flex:1;gap:3px;min-width:0;padding-right:16px;display:flex}
 .od-rowTitleLine{align-items:center;gap:8px;display:flex;min-width:0}
-.od-rowTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:15px;font-weight:400;line-height:24px}
-.od-rowDesc{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}
+.od-rowTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}
+.od-rowDesc{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
 .od-rowDesc p{margin:0}
 .od-rowDesc p+p{margin-top:4px}
-.od-rowError{margin:0;color:var(--dsw-alias-state-error-primary);font-size:13px;line-height:20px}
+.od-rowError{margin:0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}
 .od-rowControl{flex:none;align-items:center;justify-content:flex-end;gap:8px;display:inline-flex;max-width:60%}
-.od-rowInput{width:200px}
-.od-rowInputWide{width:280px}
+.od-rowInput{width:180px}
+.od-rowInputWide{width:240px}
 .od-linkButton{box-sizing:border-box;flex:none;align-items:center;display:inline-flex;height:28px;padding:0 10px;border:0;border-radius:999px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer}
 .od-linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
 .od-linkButton:disabled{cursor:default;opacity:.4}
@@ -88,28 +88,42 @@ export const PAGE_CSS = `
 /* An outline, not a filled block: the amber fill read as an error where the
    fact is only "calibration unknown", and it pulled the eye off the row. */
 .od-badgeWarn{border:.5px solid var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-label,var(--dsw-alias-label-secondary))}
-.od-field{flex-direction:column;gap:6px;padding:16px 0;display:flex}
+.od-field{flex-direction:column;gap:4px;padding:12px 0;display:flex}
 .od-field+.od-field{border-top:.5px solid var(--dsw-alias-border-l2)}
 .od-label{min-width:0;color:var(--dsw-alias-label-primary);flex:1;font-size:13px;font-weight:500;line-height:1.5}
-.od-input{box-sizing:border-box;height:40px;min-width:0;padding:0 12px;border:.5px solid var(--dsw-alias-border-l3);border-radius:10px;background:var(--dsw-alias-bg-layer-1);font:inherit;color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}
+.od-input{box-sizing:border-box;height:32px;min-width:0;padding:0 10px;border:.5px solid var(--dsw-alias-border-l4);border-radius:8px;background:var(--dsw-alias-bg-layer-1);font:inherit;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}
 .od-input::placeholder{color:var(--dsw-alias-label-dimmed)}
 .od-input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}
 .od-input:disabled{opacity:.6;cursor:default}
 .od-inputInvalid{border-color:var(--dsw-alias-state-error-primary)}
-.od-hint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:13px;line-height:20px}
+.od-hint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}
 /* ---------------------------------------------- two-column field rows */
 /* The page's default shape: title and description on the left, one control on
-   the right. A full-width input under its label left half of every row empty. */
+   the right. A full-width input under its label left half of every row empty.
+   The control column is a FIXED width and its contents are left-aligned: right
+   alignment made every row's input start at a different x, because each had its
+   own width, and the stack of left edges is what the eye reads as ragged. */
 .od-fieldRow{align-items:flex-start}
-.od-fieldRow>.od-rowControl{padding-top:2px}
-.od-fieldInput{width:320px}
+/* Only the single-input field rows get the fixed column; a row whose control is
+   a dropdown or a button pair sizes itself. The od-inputRow class is set by FieldRow. */
+.od-inputRow>.od-rowControl{flex:0 0 288px;justify-content:flex-start;min-width:0}
+.od-inputRow>.od-rowControl>.od-input{width:100%;min-width:0;flex:1 1 auto}
+/* The API-key row pairs its input with a Clear button; the input yields width to
+   the button instead of pushing it out of the column. */
+.od-inputRow>.od-rowControl>.od-input+.od-linkButton{margin-left:8px}
+/* Every other row's control (badge, select, switch, button) shares the same
+   fixed column as the input rows, so all controls start on one vertical line.
+   Without this each row right-aligned its own width: the select sat at 100px
+   from the right, the switch at 50px, and the page read as a zigzag. */
+.od-fieldRow>.od-rowControl{flex:0 0 288px;justify-content:flex-start;min-width:0}
+.od-fieldInput{width:100%}
 /* The allowlist trigger and the panel it opens; the panel overlays the page
    instead of pushing the fields below it down (twelve models did). */
 .od-allowlist{flex:none;align-items:center;justify-content:flex-end;gap:12px;display:inline-flex}
 .od-allowlistAnchor{position:relative;display:inline-flex}
 /* A filled pill: on bg-layer-1 the shared .od-selector is white-on-white and
    stops reading as a button at all. */
-.od-allowlistTrigger{height:40px;min-width:184px;border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}
+.od-allowlistTrigger{height:32px;min-width:168px;border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}
 .od-allowlistMenu{position:absolute;top:calc(100% + 8px);right:0;z-index:5;flex-direction:column;gap:2px;width:400px;max-width:calc(100vw - 64px);max-height:380px;padding:8px;border:.5px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-elevation-prominent,0 12px 32px -8px rgba(0,0,0,.24));display:flex;overflow-y:auto}
 .od-allowlistItem{align-items:center;gap:10px;padding:9px 10px;border-radius:10px;display:flex;cursor:pointer}
 .od-allowlistItem:hover{background:var(--dsw-alias-interactive-bg-hover)}
@@ -127,7 +141,7 @@ export const PAGE_CSS = `
 .od-overrideValue{flex:none;width:140px;height:40px}
 .od-overrideError{flex-basis:100%;margin:0}
 .od-modelSelectAnchor{flex-direction:column;align-items:stretch;gap:6px;display:inline-flex;min-width:160px}
-.od-selector{box-sizing:border-box;align-items:center;gap:12px;display:inline-flex;height:40px;padding:0 16px;border:0;border-radius:999px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer}
+.od-selector{box-sizing:border-box;align-items:center;gap:8px;display:inline-flex;height:32px;padding:0 14px;border:0;border-radius:999px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;text-align:left;cursor:pointer}
 .od-selector:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .od-selector:disabled{cursor:default;opacity:.4}
 .od-selector:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
