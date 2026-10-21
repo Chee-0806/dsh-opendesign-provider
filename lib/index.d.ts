@@ -1,8 +1,10 @@
 import z from "@deepseek-ai/schemastery";
 import { GenerateOptions, LlmAdapter, LlmError, LlmImageRequestPricing, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from "@deepseek-ai/dsh-llm";
 import { CredentialRef } from "@deepseek-ai/dsh-credentials";
+import { InvocationDescriptor, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import { Context } from "@deepseek-ai/cordis";
 import { ImageAttachmentRef, ImageRequestTarget, RequestImageAttachment } from "@deepseek-ai/dsh-attachment";
+import { CommandDefinition } from "@deepseek-ai/dsh-commands";
 //#region src/catalog-snapshot.d.ts
 /**
  * The 12 Open Design models this bundle ships knowledge about.
@@ -67,6 +69,23 @@ interface GatewayCatalogStatus {
   /** 回落到静态快照的原因；`source === 'live'` 时不存在。 */
   readonly reason?: GatewayCatalogFailureReason | undefined;
 }
+//#endregion
+//#region src/request-content.d.ts
+/**
+ * 宿主附件服务里本插件用到的那一片：把一张托管图片编码成请求版本。
+ *
+ * 故意只声明用到的能力，`ctx.attachments` 天然满足它。
+ */
+interface OpenDesignImageEncoder {
+  /** Encode one normalized attachment to the request target (dimensions + byte budget). */
+  readImageRequest(ref: ImageAttachmentRef, target: ImageRequestTarget, signal?: AbortSignal): Promise<RequestImageAttachment>;
+}
+//#endregion
+//#region src/messages-transport.d.ts
+/** Which wire protocol one call uses. */
+type TransportKind = 'chat' | 'messages';
+/** The user-visible protocol setting (design §4.1, ticket 13). */
+type ProtocolSetting = TransportKind | 'auto';
 //#endregion
 //#region src/credentials.d.ts
 /**
@@ -219,6 +238,19 @@ interface OpenDesignConnectionOptions {
   maxOutputTokens?: number | undefined;
   /** Transport failures one request absorbs; absent reports the default in diagnostics. */
   transportMaxRetries?: number | undefined;
+  /**
+   * Which wire protocol conversations use (ticket 13): `'auto'` (default) keeps
+   * Chat Completions and sends only the models whose thinking is invisible there
+   * to Anthropic Messages; `'chat'` / `'messages'` force one face for every model.
+   */
+  protocol?: ProtocolSetting | undefined;
+}
+/** One observed automatic fallback, as handed to `onTransportFallback`. */
+interface TransportFallbackEvent {
+  readonly model: string;
+  readonly from: TransportKind;
+  readonly to: TransportKind;
+  readonly reason: string;
 }
 /**
  * Credential observability for the diagnostics snapshot (ticket 06): the reference
@@ -234,16 +266,6 @@ interface OpenDesignCredentialState {
     readonly status: CliLoginStatus;
     readonly hasRuntimeKey: boolean;
   };
-}
-/**
- * The slice of the host attachment service that image input needs: one
- * deterministic request version of a stored image, encoded to a route target.
- * Declared narrowly here so the adapter depends on the capability it uses, not
- * on attachment storage as a whole; `ctx.attachments` satisfies it as-is.
- */
-interface OpenDesignImageEncoder {
-  /** Encode one normalized attachment to the request target (dimensions + byte budget). */
-  readImageRequest(ref: ImageAttachmentRef, target: ImageRequestTarget, signal?: AbortSignal): Promise<RequestImageAttachment>;
 }
 /** Everything the adapter needs from its owning plugin instance. */
 interface OpenDesignAdapterDeps {
@@ -270,6 +292,12 @@ interface OpenDesignAdapterDeps {
    * unconfigured. Read per call, exactly like {@link OpenDesignAdapterDeps.options}.
    */
   credentialState?: (() => Promise<OpenDesignCredentialState> | OpenDesignCredentialState) | undefined;
+  /**
+   * Observe one automatic transport fallback (`auto`/`messages` → `chat`,
+   * ticket 13). The plugin entry turns it into a single log line; a test can
+   * read {@link OpenDesignAdapter.transportFallbacks} instead.
+   */
+  onTransportFallback?: ((event: TransportFallbackEvent) => void) | undefined;
   /** Test seam for the HTTP call. */
   fetchImpl?: typeof fetch;
   /** Test seam for catalog TTLs; defaults to `Date.now`. */
@@ -279,6 +307,8 @@ interface OpenDesignAdapterDeps {
 declare class OpenDesignAdapter extends LlmAdapter {
   private readonly deps;
   private readonly catalog;
+  /** Models that asked for Messages and found the gateway not serving it (ticket 13). */
+  private readonly fallbacks;
   constructor(deps: OpenDesignAdapterDeps);
   /**
    * The engine's retry decision for this route, declared from the classification
@@ -350,6 +380,39 @@ declare class OpenDesignAdapter extends LlmAdapter {
    */
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
   /**
+   * The automatic transports that fell back to Chat, as data (ticket 13).
+   *
+   * One entry per model that ever asked for Messages and found the gateway not
+   * serving it; the settings page's diagnostics and the plugin's log line both
+   * read this instead of a mutable global.
+   */
+  transportFallbacks(): ReadonlyArray<{
+    model: string;
+    from: TransportKind;
+    reason: string;
+  }>;
+  /**
+   * One streaming Chat Completions call (ticket 04), the default transport.
+   *
+   * The request sends only the fields the gateway actually honours: the model
+   * id, the mapped messages, `stream: true` with `stream_options.include_usage`
+   * so the usage tail frame arrives, `max_completion_tokens` and the model's own
+   * `reasoning_effort`. It never sends `max_tokens` (no model honours it),
+   * `store` (server-side default) or `temperature` (unverified).
+   */
+  private streamChat;
+  /**
+   * One streaming Anthropic Messages call (ticket 13), the optional transport.
+   *
+   * The endpoint and body are Anthropic-shaped (see `./messages-transport.ts`):
+   * `{apiBase}/messages`, a mandatory `anthropic-version` header, `max_tokens`
+   * carrying the same effective output cap, and none of the Chat-only fields.
+   * The bearer key comes from the same credential chain.
+   */
+  private streamMessages;
+  /** Remember that Messages did not work for this model, and say so once. */
+  private rememberFallback;
+  /**
    * Load the catalog for listing/status. Never throws: a gateway failure is a
    * fallback to the static snapshot with the reason recorded for ticket 08.
    */
@@ -394,12 +457,20 @@ declare const DEFAULT_API_BASE = "https://amr-link.open-design.ai/v1";
 declare const MODELS_CACHE_RELATIVE_PATH = ".opendesign/models-cache.json";
 /** The wire namespace shared by every Remote this plugin serves. */
 declare const REMOTE_NAMESPACE = "opendesign";
-/** The Cordis service key the Gateway resolves those Remotes from. */
+/**
+ * The Cordis service key the Gateway resolves the models Remote from. Cordis
+ * allows one service per key, so the quota Remote (ticket 10) provides its own
+ * key — see `QUOTA_SERVICE` in `quota-wire.ts`.
+ */
 declare const REMOTE_SERVICE = "opendesignUsage";
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */
 declare const REMOTE_ENDPOINTS: readonly ["report", "usage", "models", "analytics"];
 /** The settings-page slot id (`settings.section`). */
 declare const SETTINGS_SECTION_ID = "opendesign";
+/** The analytics page's own `settings.section` id (ticket 12). */
+declare const ANALYTICS_SECTION_ID = "opendesign-analytics";
+/** Locale namespace the analytics page declares for its own copy. */
+declare const ANALYTICS_LOCALE_NS = "analytics.opendesign";
 /** The Models-page provider-card key (`settings.models.provider-card`). */
 declare const MODEL_CARD_KEY = "llm-opendesign";
 /** The quota panel's `main` / `sidebar.footer.action` id. */
@@ -408,6 +479,177 @@ declare const PANEL_ID = "opendesign-panel";
 declare const REQUEST_TIMING_ENV = "DSH_OPENDESIGN_TIMING";
 /** Opt-in raw stream-trace environment variable. */
 declare const STREAM_TRACE_ENV = "DSH_OPENDESIGN_TRACE";
+//#endregion
+//#region src/control-plane.d.ts
+/**
+ * 控制面额度只读客户端（ticket 10）。
+ *
+ * 模型面没有任何用量端点（实测 404），额度与限流窗口只存在于控制面。这里只发
+ * 三个 **GET**，绝不写：当前工作区（拿 `activeWorkspaceId`）、账单摘要（档位、
+ * 余额、`creditsPerUsd`、订阅周期）、按模型的额度预检（`codingPlan.windows[]`
+ * 与 `funding`）。鉴权是 `Authorization: Bearer <controlKey>`，密钥只从
+ * `~/.amr/config.json` 的 CLI 登录态读，绝不来自插件配置，也绝不出现在任何
+ * 返回值、日志或错误文案里。
+ *
+ * 对外只暴露冻结的 {@link QuotaSnapshot}（spec §额度）。窗口按
+ * `durationSeconds` 分类：18000 = 5 小时、604800 = 7 天，其余 `other` 原样列出。
+ * `creditsPerUsd` 只用于把 credits 折算成展示当量，因此留在 Host 侧的
+ * {@link QuotaReading} 里，不进快照形状。
+ *
+ * 降级：没有控制密钥（未登录 CLI / 登录态文件缺失或损坏）时快照的
+ * `controlPlaneAvailable` 为 `false` 并给出原因；查询失败保留上一次成功的值并
+ * 标注 `stale`。任何一条路径都不抛错——额度是增强，推理不依赖它。
+ *
+ * @module dsh-opendesign-provider/control-plane
+ */
+/** 控制面基址（登录态没有带 `apiUrl` 时的兜底）。 */
+declare const DEFAULT_CONTROL_PLANE_API_URL = "https://amr-api.open-design.ai";
+/** 单次控制面请求的超时（spec §额度）。 */
+declare const CONTROL_PLANE_TIMEOUT_MS = 8000;
+/** 额度缓存有效期：命令与 Remote 共用同一份（spec §额度）。 */
+declare const QUOTA_CACHE_TTL_MS = 60000;
+/** 实测的 5 小时窗口时长。 */
+declare const QUOTA_FIVE_HOUR_SECONDS = 18000;
+/** 实测的 7 天窗口时长。 */
+declare const QUOTA_SEVEN_DAY_SECONDS = 604800;
+/** 冻结的窗口分类；未知时长归 `other` 并原样列出。 */
+type QuotaWindowKind = 'five_hour' | 'seven_day' | 'other';
+/** 一个限额窗口，单位是 credits（不是美元）。 */
+interface QuotaWindow {
+  kind: QuotaWindowKind;
+  durationSeconds: number;
+  usedCredits: number;
+  limitCredits: number;
+  remainingCredits: number;
+  resetsAt?: string;
+  resetMode?: string;
+}
+/**
+ * 冻结的额度快照（spec §额度）。`controlPlaneAvailable: false` 表示控制面不可用
+ * （无控制密钥、未登录或查询失败），此时 `windows` 为空；其余字段都是可选事实，
+ * 缺席即「控制面没给」，不用零值冒充。
+ */
+interface QuotaSnapshot {
+  controlPlaneAvailable: boolean;
+  tier?: string;
+  subscriptionStatus?: string;
+  currentPeriodEnd?: string;
+  balanceUsd?: number;
+  funding?: 'wallet' | 'coding_plan';
+  windows: QuotaWindow[];
+  fetchedAt: string;
+  stale?: boolean;
+}
+/** 快照不可用的原因，只用于 Host 侧文案（不进冻结契约）。 */
+type QuotaUnavailableReason = 'no-control-key' | 'login-unavailable' | 'unreachable';
+/** 一次读取：冻结快照 + 只用于展示折算的 `creditsPerUsd` + 降级原因。 */
+interface QuotaReading {
+  snapshot: QuotaSnapshot;
+  creditsPerUsd?: number;
+  reason?: QuotaUnavailableReason;
+}
+/** 客户端接缝：测试注入 fetch、时钟与登录态文件路径。 */
+interface ControlPlaneDeps {
+  /**
+   * CLI 登录态路径（或一个读当前配置的取值器，设置页改路径后立即生效）；
+   * 默认 `~/.amr/config.json`。
+   */
+  loginPath?: string | (() => string | undefined);
+  /** 登录态读取接缝；默认走 `node:fs/promises`。 */
+  readFile?: (path: string) => Promise<string>;
+  /** fetch 接缝；默认 Node 原生 `fetch`（可过 Cloudflare）。 */
+  fetchImpl?: typeof fetch;
+  /** 时钟接缝，返回毫秒时间戳。 */
+  now?: () => number;
+  /** 覆盖超时；默认 {@link CONTROL_PLANE_TIMEOUT_MS}。 */
+  timeoutMs?: number;
+  /** 覆盖缓存 TTL；默认 {@link QUOTA_CACHE_TTL_MS}。 */
+  cacheTtlMs?: number;
+}
+/** 一次 `read()` 的输入：预检要按模型问。 */
+interface QuotaRequest {
+  /** 目录里的当前/默认模型；缺席时跳过预检，只报账单摘要。 */
+  model?: string;
+  /** 跳过缓存强制刷新。 */
+  force?: boolean;
+}
+/** 窗口分类：只认实测的两个时长，其余一律 `other`。 */
+declare function classifyQuotaWindow(durationSeconds: number): QuotaWindowKind;
+/**
+ * 只读额度客户端：一次 `read()` 依次问三个接口，解析成冻结快照。
+ *
+ * Host 侧 60 秒缓存，命令与 Remote 共用同一实例，因此两条展示面永远同一份数据。
+ */
+declare class OpenDesignControlPlane {
+  private readonly deps;
+  private last?;
+  private lastAttemptAt?;
+  constructor(deps?: ControlPlaneDeps);
+  /** 读一次额度：缓存命中直接返回，否则刷新；任何失败都降级而不抛错。 */
+  read(request?: QuotaRequest): Promise<QuotaReading>;
+  /** 当前登录态（不缓存：文件很小，且用户随时可能 `vela login`）。 */
+  private login;
+  /** 三个 GET 的串行真相：工作区 → 摘要 → 预检（预检需要工作区 id）。 */
+  private query;
+}
+//#endregion
+//#region src/quota-wire.d.ts
+/** Canonical `<namespace>/<method>` endpoint of the quota snapshot. */
+declare const QUOTA_ENDPOINT = "opendesign/usage";
+/** Strictly parse one untrusted `opendesign/usage` result. */
+declare function parseQuotaSnapshot(value: unknown): QuotaSnapshot;
+/** The Host descriptor for `opendesign/usage`. */
+declare const QUOTA_DESCRIPTOR: InvocationDescriptor;
+//#endregion
+//#region src/quota-remote.d.ts
+/** Everything the service reads beyond its Cordis context. */
+interface OpenDesignQuotaDeps {
+  /** One quota reading (the Host's 60-second cache lives behind this thunk). */
+  quota: () => Promise<QuotaReading>;
+}
+/** The Cordis service the Typert Gateway resolves by {@link QUOTA_SERVICE}. */
+declare class OpenDesignQuotaService extends TypertRemoteService {
+  private readonly deps;
+  constructor(ctx: Context, deps: OpenDesignQuotaDeps);
+  /** The frozen snapshot, `stale` flag and all — never a raw control-plane page. */
+  usage(): Promise<QuotaSnapshot>;
+}
+/**
+ * Provide the service and register its descriptor on an optional Typert
+ * registry. A profile without the registry never reaches the callback.
+ */
+declare function applyQuotaRemote(ctx: Context, deps: OpenDesignQuotaDeps): void;
+//#endregion
+//#region src/command-locales.d.ts
+/**
+ * `/opendesign` 命令的中英文案（ticket 10）。
+ *
+ * Host 侧命令读不到客户端 `ctx.locale`，所以活动语言通过 `deps.getLocale()`
+ * 传入，所有字符串集中在 {@link COMMAND_COPY}；缺失的键回落到 `en` 副本，绝不
+ * 让一条额度看板因为漏翻一个标签而抛错。文案是纯文本（无颜色、无 emoji），
+ * 任何 TUI 都能原样显示。
+ *
+ * @module dsh-opendesign-provider/command-locales
+ */
+/** 命令与额度看板支持的语言。 */
+type LocaleId = 'zh' | 'en';
+//#endregion
+//#region src/commands.d.ts
+/** 命令需要的东西，全部由插件入口注入（测试直接给夹具）。 */
+interface OpendesignCommandDeps {
+  /** 读一次额度；Host 侧客户端内部做 60 秒缓存，参数是预检模型。 */
+  quota: (model?: string) => Promise<QuotaReading>;
+  /** 当前会话/默认模型（取目录默认模型）；缺席时跳过预检、只报账单摘要。 */
+  model?: () => Promise<string | undefined>;
+  /** 活动语言；Host 命令读不到 `ctx.locale`，所以从这里进来。 */
+  getLocale?: () => LocaleId;
+}
+/** 把一次读取渲染成完整的纯文本看板。 */
+declare function renderQuota(reading: QuotaReading, locale: LocaleId): string;
+/** 唯一的 `/opendesign` 命令定义。 */
+declare function commandDefinition(deps: OpendesignCommandDeps): CommandDefinition;
+/** 在 `ctx.commands` 上注册命令（插件入口调用；`commands` 是可选服务）。 */
+declare function applyCommands(ctx: Context, deps: OpendesignCommandDeps): void;
 //#endregion
 //#region src/error-taxonomy.d.ts
 /** 一次失败的 HTTP 交换：状态、原始响应体、`content-type` 与 `Retry-After`。 */
@@ -432,6 +674,178 @@ interface HttpFailureInput {
 type FailureCode = 'AUTH' | 'QUOTA_EXHAUSTED' | 'BAD_REQUEST' | 'PROTOCOL_ERROR' | 'RATE_LIMIT' | 'TRANSIENT' | 'TRANSPORT' | 'EMPTY_RESPONSE' | 'TIMEOUT';
 /** The retryable set, as data, for the route's `providerRetryPolicy`. */
 declare function retryableFailureCodes(): readonly FailureCode[];
+//#endregion
+//#region src/analytics-wire.d.ts
+/** The cheapest-to-most-expensive catalog word; `unknown` = catalog has no entry. */
+type AnalyticsCostTier = 'low' | 'medium' | 'high' | 'unknown';
+/** The catalog capability word; `unknown` = catalog has no entry. */
+type AnalyticsCapabilityTier = 'standard' | 'advanced' | 'unknown';
+/** The most recent N sessions that contain at least one Open Design request. */
+interface AnalyticsRecentScope {
+  readonly kind: 'recent';
+  /** 1–100, newest first by the session's last Open Design request. */
+  readonly sessions: number;
+}
+/** Half-open `[from, to)` local-calendar window, at most 366 days. */
+interface AnalyticsRangeScope {
+  readonly kind: 'range';
+  readonly from: number;
+  readonly to: number;
+}
+/** The one filter the page submits; a scope, never free text. */
+type AnalyticsScope = AnalyticsRecentScope | AnalyticsRangeScope;
+/** One `opendesign/analytics` invocation. */
+interface AnalyticsQuery {
+  readonly scope: AnalyticsScope;
+}
+/** Token, timing, outcome and usage-coverage counters for one model. */
+interface AnalyticsModelRow {
+  readonly model: string;
+  readonly name: string;
+  readonly cost: AnalyticsCostTier;
+  readonly capability: AnalyticsCapabilityTier;
+  /** Whether the current model-visibility rule would list this id. */
+  readonly visible: boolean;
+  /** Whether the static snapshot knows this id. */
+  readonly calibrated: boolean;
+  readonly requests: number;
+  readonly succeeded: number;
+  readonly failed: number;
+  readonly interrupted: number;
+  readonly retries: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly requestsWithUsage: number;
+  readonly requestsWithoutUsage: number;
+  readonly firstTokenSamples: number;
+  readonly avgFirstTokenMs?: number | undefined;
+  readonly durationSamples: number;
+  readonly avgDurationMs?: number | undefined;
+}
+/** The same counters over every model in the report. */
+interface AnalyticsTotals {
+  readonly requests: number;
+  readonly sessions: number;
+  readonly succeeded: number;
+  readonly failed: number;
+  readonly interrupted: number;
+  readonly retries: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly requestsWithUsage: number;
+  readonly requestsWithoutUsage: number;
+  readonly firstTokenSamples: number;
+  readonly avgFirstTokenMs?: number | undefined;
+  readonly durationSamples: number;
+  readonly avgDurationMs?: number | undefined;
+}
+/** How complete the history read was, so a partial scan never looks complete. */
+interface AnalyticsHistoryCoverage {
+  /** Whether the Host's optional session-query service answered at all. */
+  readonly available: boolean;
+  /** `unsupported` = no session-query service; `unreadable` = the read failed. */
+  readonly reason?: 'unsupported' | 'unreadable' | undefined;
+  readonly sessionsScanned: number;
+  readonly sessionsSkipped: number;
+  readonly eventsScanned: number;
+  readonly inheritedEventsSkipped: number;
+  readonly truncated: boolean;
+}
+/** The whole `opendesign/analytics` result. */
+interface OpenDesignAnalyticsReport {
+  readonly generatedAt: number;
+  readonly scope: AnalyticsScope;
+  readonly history: AnalyticsHistoryCoverage;
+  readonly totals: AnalyticsTotals;
+  readonly models: AnalyticsModelRow[];
+}
+/** Strictly parse one untrusted `opendesign/analytics` query. */
+declare function parseAnalyticsQuery(value: unknown): AnalyticsQuery;
+/** Strictly parse one untrusted `opendesign/analytics` result. */
+declare function parseAnalyticsReport(value: unknown): OpenDesignAnalyticsReport;
+//#endregion
+//#region src/analytics-fold.d.ts
+/**
+ * Fold already-read session history into per-model request facts (ticket 12).
+ *
+ * The analytics page compares models on tokens, speed, failures and retries.
+ * The Host already records every model attempt in the session log, so this
+ * module is the only place that interprets it: one `assistant/message`, one
+ * `assistant/attempt` and one `compaction/summary` each count as one request.
+ * Nothing here knows a price, a provider price table or a dollar figure — the
+ * cost dimension is the catalog's own `low/medium/high` word, joined later.
+ *
+ * Two rules protect the numbers:
+ *
+ * - A request whose adapter reported no `usage` still counts as a request, but
+ *   contributes no tokens. Summing it as zero would make "no data" look like
+ *   "zero tokens", so the row carries `requestsWithoutUsage` instead.
+ * - Only a session's OWN events count: a forked child re-reads its inherited
+ *   prefix, and `inheritedEventCount` is the exact cut the host publishes.
+ *   Counting the prefix again would double every ancestor request.
+ *
+ * @module dsh-opendesign-provider/analytics-fold
+ */
+/** One raw session event, structurally typed so tests need no host package. */
+interface HistoryEvent {
+  readonly type: string;
+  readonly time: number;
+  readonly data?: unknown;
+}
+/** One logical session's own events, plus the host's exact inheritance cut. */
+interface HistorySession {
+  readonly id: string;
+  readonly createdAt: number;
+  readonly events: readonly HistoryEvent[];
+  /** Leading events inherited from a parent session; never counted here. */
+  readonly inheritedEventCount?: number;
+}
+/** Token, timing and outcome facts for one model. */
+interface AnalyticsModelStats {
+  readonly model: string;
+  requests: number;
+  succeeded: number;
+  failed: number;
+  interrupted: number;
+  retries: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  requestsWithUsage: number;
+  requestsWithoutUsage: number;
+  firstTokenSamples: number;
+  firstTokenMsTotal: number;
+  durationSamples: number;
+  durationMsTotal: number;
+}
+/** The complete fold: model rows plus the read-coverage facts. */
+interface AnalyticsFoldResult {
+  readonly models: AnalyticsModelStats[];
+  /** Sessions that contributed at least one request. */
+  sessions: number;
+  sessionsScanned: number;
+  eventsScanned: number;
+  inheritedEventsSkipped: number;
+}
+/** Which requests a fold counts. */
+interface AnalyticsFoldOptions {
+  /** The only provider whose requests count; defaults to `open-design`. */
+  provider?: string;
+  /** Half-open `[from, to)` request-time window; omitted means no time bound. */
+  range?: {
+    readonly from: number;
+    readonly to: number;
+  } | undefined;
+}
+/**
+ * Fold every session into per-model facts.
+ * @param sessions - already-read logs, in any order.
+ * @param options - provider restriction and optional request-time window.
+ * @returns deterministic rows (model id order) and read-coverage counters.
+ */
+declare function foldAnalytics(sessions: readonly HistorySession[], options?: AnalyticsFoldOptions): AnalyticsFoldResult;
 //#endregion
 //#region src/index.d.ts
 declare const name = "llm-opendesign";
@@ -500,6 +914,12 @@ interface Config {
    * its own; this knob is for commands and text surfaces.
    */
   lang?: string;
+  /**
+   * The opt-in sidebar quota card (default `false`). The panel only reads the
+   * control plane and never touches inference; when the switch is off it renders
+   * nothing and starts no refresh.
+   */
+  showSidebarQuota?: boolean;
 }
 /**
  * The Config schema: every field volatile except the composition-only `apiKey`
@@ -522,5 +942,5 @@ interface ResolvedOpenDesignOptions extends OpenDesignConnectionOptions {
 declare function resolveAdapterOptions(config: Config): ResolvedOpenDesignOptions;
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { Config, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, type DiagnosticsFacts, type DiagnosticsSnapshot, type FailureCode, type GatewayCatalogEntry, type GatewayCatalogFailureReason, type GatewayCatalogSourceKind, type GatewayCatalogStatus, type HttpFailureInput, MODELS_CACHE_RELATIVE_PATH, MODEL_CARD_KEY, NS, OpenDesignAdapter, type OpenDesignAdapterDeps, type OpenDesignConnectionOptions, type OpenDesignCredentialState, PACKAGE_NAME, PANEL_ID, PLUGIN_ID, PROVIDER, PROVIDER_DISPLAY_NAME, REMOTE_ENDPOINTS, REMOTE_NAMESPACE, REMOTE_SERVICE, REQUEST_TIMING_ENV, ResolvedOpenDesignOptions, SETTINGS_SECTION_ID, STREAM_TRACE_ENV, apply, diagnosticsSnapshot, formatDiagnostics, inject, name, resolveAdapterOptions, retryableFailureCodes };
+export { ANALYTICS_LOCALE_NS, ANALYTICS_SECTION_ID, type AnalyticsCapabilityTier, type AnalyticsCostTier, type AnalyticsFoldResult, type AnalyticsHistoryCoverage, type AnalyticsModelRow, type AnalyticsModelStats, type AnalyticsQuery, type AnalyticsScope, type AnalyticsTotals, CONTROL_PLANE_TIMEOUT_MS, Config, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, DEFAULT_CONTROL_PLANE_API_URL, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, type DiagnosticsFacts, type DiagnosticsSnapshot, type FailureCode, type GatewayCatalogEntry, type GatewayCatalogFailureReason, type GatewayCatalogSourceKind, type GatewayCatalogStatus, type HttpFailureInput, MODELS_CACHE_RELATIVE_PATH, MODEL_CARD_KEY, NS, OpenDesignAdapter, type OpenDesignAdapterDeps, type OpenDesignAnalyticsReport, type OpenDesignConnectionOptions, OpenDesignControlPlane, type OpenDesignCredentialState, type OpenDesignQuotaDeps, OpenDesignQuotaService, type OpendesignCommandDeps, PACKAGE_NAME, PANEL_ID, PLUGIN_ID, PROVIDER, PROVIDER_DISPLAY_NAME, QUOTA_CACHE_TTL_MS, QUOTA_DESCRIPTOR, QUOTA_ENDPOINT, QUOTA_FIVE_HOUR_SECONDS, QUOTA_SEVEN_DAY_SECONDS, type QuotaReading, type QuotaSnapshot, type QuotaWindow, type QuotaWindowKind, REMOTE_ENDPOINTS, REMOTE_NAMESPACE, REMOTE_SERVICE, REQUEST_TIMING_ENV, ResolvedOpenDesignOptions, SETTINGS_SECTION_ID, STREAM_TRACE_ENV, apply, applyCommands, applyQuotaRemote, classifyQuotaWindow, commandDefinition, diagnosticsSnapshot, foldAnalytics, formatDiagnostics, inject, name, parseAnalyticsQuery, parseAnalyticsReport, parseQuotaSnapshot, renderQuota, resolveAdapterOptions, retryableFailureCodes };
 //# sourceMappingURL=index.d.ts.map
