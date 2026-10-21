@@ -30,8 +30,8 @@ test('a group is folded until its header is clicked, and keeps its heading level
   assert.match(markup, /<h3[^>]*>/u)
   assert.match(markup, /aria-expanded="false"/u)
   assert.match(markup, /模型与上下文/u)
-  assert.doesNotMatch(markup, /body text/u, 'folded group must not render its body')
-  assert.doesNotMatch(markup, /desc text/u)
+  assert.match(markup, /<div hidden="">/u, 'folded group keeps its body mounted but hidden')
+  assert.match(markup, /body text/u)
   assert.match(markup, /od-chevron/u)
 })
 
@@ -65,7 +65,7 @@ test('a folded field still reports its summary, and hides its children', () => {
   assert.match(markup, /aria-expanded="false"/u)
   assert.match(markup, /2\/3/u)
   assert.match(markup, /模型白名单/u)
-  assert.doesNotMatch(markup, /rows/u)
+  assert.match(markup, /<div hidden="">/u, 'folded field keeps its children mounted so drafts survive')
 })
 
 test('a field is open by default when the page asks for it', () => {
@@ -92,7 +92,10 @@ test('the disclosure header is one button with aria-expanded and a decorative ch
 test('every settings group on the page is a disclosure, not a static head', () => {
   const source = page()
   assert.equal((source.match(/<SettingsGroup\b/gu) ?? []).length, 4, 'four groups must use SettingsGroup')
-  assert.equal((source.match(/<SettingsField\b/gu) ?? []).length, 2, 'allowlist and overrides must fold')
+  // The allowlist became a dropdown (its trigger opens the picker), so the one
+  // remaining collapsible field is the per-model override list.
+  assert.equal((source.match(/<SettingsField\b/gu) ?? []).length, 1, 'the override list must fold')
+  assert.equal((source.match(/<ModelAllowlist\b/gu) ?? []).length, 1, 'the allowlist must be a dropdown')
   assert.doesNotMatch(source, /<div className="od-group(?: od-groupDivided)?">\s*<div className="od-groupHead">/u,
     'a static od-groupHead means a group lost its disclosure')
   // 高级 starts folded; the models group opens (its fields carry the folds).

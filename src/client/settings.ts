@@ -106,7 +106,15 @@ export interface SettingsPageState {
   catalogReason?: string
   catalogCached: boolean
   models: SettingsModelRow[]
+  /** The explicit allowlist; empty means "every model is visible" (the stored default). */
   visibleModels: string[]
+  /**
+   * True when the allowlist is cleared, i.e. every catalog model is visible.
+   * Drives the dropdown label and the "show all" action; kept separate from
+   * `visibleModels.length === models.length` so an explicit all-selected list
+   * stays distinguishable from the inherited "no allowlist" state.
+   */
+  allVisible: boolean
   contextOverrides: ContextOverrideDraft[]
   fields: Record<SettingsField, FieldDraft>
   /** Host-side language for text surfaces; the web page follows the browser. */
@@ -251,6 +259,19 @@ export function apiKeyBadgeKey(
   return 'apiKeySet'
 }
 
+/**
+ * Which models the per-model override list is allowed to offer.
+ *
+ * A stored empty allowlist means "every model is visible", so filtering the
+ * catalog by `model.visible` alone left the editor with no choices at exactly
+ * the moment the reader had cleared every tick — the `+` button went dead and
+ * the list could not be rebuilt. Only the settings page consumes this helper;
+ * the Models-page card keeps its own key badge and never offers overrides.
+ */
+export function overrideChoices(state: SettingsPageState): SettingsModelRow[] {
+  return state.allVisible ? state.models : state.models.filter((model) => model.visible)
+}
+
 /** Context rows: every catalog model plus any override key the catalog omits. */
 function contextRows(
   models: readonly ModelsReportEntry[],
@@ -282,6 +303,7 @@ function initialPageState(): SettingsPageState {
     catalogCached: false,
     models: [],
     visibleModels: [],
+    allVisible: true,
     contextOverrides: [],
     fields: emptyFields(),
     language: 'zh',
@@ -379,12 +401,29 @@ export class OpenDesignSettingsController {
   toggleModel(id: string): void {
     if (this.disposed) return
     const state = this.state()
-    const next = new Set(this.selected)
+    const next = new Set(this.effectiveSelection())
     if (next.has(id)) next.delete(id)
     else next.add(id)
     this.selected = next
     this.modelsChanged = true
     this.publish(this.withModels(state))
+  }
+
+  /** Clear the allowlist in one step: no explicit list means every model shows. */
+  showAllModels(): void {
+    if (this.disposed) return
+    const state = this.state()
+    if (state.allVisible) return
+    this.selected = new Set()
+    this.modelsChanged = true
+    this.publish(this.withModels(state))
+  }
+
+  /** The selection a toggle starts from: the explicit list, or every model. */
+  private effectiveSelection(): Set<string> {
+    if (this.selected.size > 0) return this.selected
+    if (this.modelsChanged) return this.selected
+    return new Set(this.modelCatalog.map((model) => model.id))
   }
 
   /** Stage the global context-window value. */
@@ -626,12 +665,11 @@ export class OpenDesignSettingsController {
     const allowlist = Array.isArray(this.snapshot.value?.visibleModels)
       ? (this.snapshot.value.visibleModels as string[]).filter((id) => typeof id === 'string')
       : []
-    if (!this.modelsChanged && this.selected.size === 0) {
-      this.selected = new Set(allowlist.length === 0 ? rows.map((row) => row.id) : allowlist)
-    }
-    const visible = new Set(this.selected)
-    const rowsById = new Map(rows.map((row) => [row.id, row]))
-    const visibleModels = [...visible].filter((id) => rows.length === 0 || rowsById.has(id))
+    const allVisible = this.modelsChanged ? this.selected.size === 0 : allowlist.length === 0
+    const visible = allVisible
+      ? new Set(rows.map((row) => row.id))
+      : new Set([...this.selected].filter((id) => rows.some((row) => row.id === id)))
+    const visibleModels = [...visible]
     const overrideRows = this.contextRowsFor(rows)
     return {
       ...state,
@@ -646,6 +684,7 @@ export class OpenDesignSettingsController {
         visible: visible.has(row.id),
       })),
       visibleModels,
+      allVisible,
       contextOverrides: overrideRows,
     }
   }
@@ -841,7 +880,9 @@ export class OpenDesignSettingsController {
       ops.push(value === undefined ? { op: 'unset', path: [field] } : { op: 'set', path: [field], value })
     }
     if (this.modelsChanged) {
-      ops.push({ op: 'set', path: ['visibleModels'], value: [...state.visibleModels] })
+      ops.push(state.allVisible
+        ? { op: 'unset', path: ['visibleModels'] }
+        : { op: 'set', path: ['visibleModels'], value: [...state.visibleModels] })
     }
     if (this.languageChanged) {
       ops.push({ op: 'set', path: ['lang'], value: state.language })

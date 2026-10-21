@@ -273,6 +273,7 @@ export function apply(ctx: Context): void {
     edit: (field, text) => controller.edit(field, text),
     resetField: (field) => controller.resetField(field),
     toggleModel: (id) => controller.toggleModel(id),
+    showAllModels: () => controller.showAllModels(),
     editContextWindow: (text) => controller.editContextWindow(text),
     editContextOverride: (model, text) => controller.editContextOverride(model, text),
     setLanguage: (language) => controller.setLanguage(language),

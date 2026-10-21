@@ -322,6 +322,40 @@ test('可见模型多选写 visibleModels，上下文覆盖写整表', async () 
   ])
 })
 
+test('默认空名单呈现为「全部可见」，且不写回显式名单', async () => {
+  const { controller } = make()
+  await flush()
+  const state = controller.state()
+  assert.equal(state.allVisible, true, '空名单等于全部可见')
+  assert.equal(state.visibleModels.length, state.models.length, '全部模型都应勾上')
+  controller.showAllModels()
+  assert.equal(controller.state().dirty, false, '本来就已经全部可见，清空不该产生改动')
+})
+
+test('取消一个再「显示全部」：一次动作清空名单，保存写 unset', async () => {
+  const { controller, settings } = make()
+  await flush()
+  controller.toggleModel('brand-new')
+  assert.equal(controller.state().allVisible, false)
+  assert.deepEqual(controller.state().visibleModels, ['deepseek-v4.1-flash'])
+
+  controller.showAllModels()
+  const state = controller.state()
+  assert.equal(state.allVisible, true)
+  assert.deepEqual(state.visibleModels, ['deepseek-v4.1-flash', 'brand-new'])
+  const outcome = await controller.save()
+  assert.deepEqual(outcome, { config: 'confirmed', credential: 'none' })
+  assert.deepEqual(settings.mutations[0]!.ops, [{ op: 'unset', path: ['visibleModels'] }])
+})
+
+test('只勾选部分模型时 allVisible 为 false，显式列表仍写 set', async () => {
+  const { controller } = make()
+  await flush()
+  controller.toggleModel('brand-new')
+  assert.equal(controller.state().allVisible, false)
+  assert.equal(controller.state().visibleModels.length, 1)
+})
+
 test('额度卡开关读已存值、草稿与已存值分开，保存走同一整批 mutate', async () => {
   const { controller, settings } = make({
     value: { apiKeyEnv: 'OPEN_DESIGN_API_KEY', apiBase: 'https://saved.example/v1', showSidebarQuota: true },

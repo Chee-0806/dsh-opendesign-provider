@@ -53,6 +53,7 @@
     "test:pack": "node scripts/verify-package-exports.mjs",
     "test:live": "node scripts/verify-live.mjs",
     "typecheck": "tsc --noEmit",
+    "preview:ui": "node --import tsx scripts/preview-ui.mjs",
     "test": "node --import tsx --test tests/**/*.test.ts"
   },
   "engines": {
@@ -137,6 +138,8 @@
     "@deepseek-ai/schemastery": "~3.18.4 || ~3.18.5",
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.7",
+    "happy-dom": "^21.0.4",
     "parse5": "8.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.3.1",

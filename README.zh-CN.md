@@ -205,11 +205,16 @@ npm run test:pack
 npm run test:engine     # 用两个声明兼容的引擎加载构建产物
 npm run test:install    # 把打包产物做 pnpm 隔离安装
 npm run test:live       # 真实 Key：九条 P0 用例，逐项 PASS/FAIL/SKIP
+npm run preview:ui      # 交互式预览四个界面（产物在 .scratch/ui-preview/）
 ```
 
 `npm run test:live` 从 `OPEN_DESIGN_API_KEY` 或 `~/.amr/config.json` 读 Key，从不打印、不落盘，并使用临时目录
 做目录缓存。退出码：`0` 无能力失败，`1` 有能力失败，`2` 没有可用凭据（所有 live 用例 SKIP）。
 `--case N` 只跑一条，`--list` 只列名字。
+
+`npm run preview:ui` 用 esbuild 把真实组件与真实控制器打成一份页面，直接打开就能点：折叠、白名单勾选、
+编辑、保存/放弃、主题切换都走真实链路，写操作只落在内存里（刷新即还原）。主题色只是让 `--dsw-*`
+别名有值可解析的中性样例，不代表宿主调色板；真实持久化与 Remote 契约由 `npm test` 覆盖。
 
 验收记录见 [docs/opendesign/02-P0验收记录.md](docs/opendesign/02-P0验收记录.md)。
 

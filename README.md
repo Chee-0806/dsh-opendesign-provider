@@ -229,11 +229,18 @@ npm run test:pack
 npm run test:engine     # loads the built bundle on both declared engines
 npm run test:install    # pnpm isolated install of the packed tarball
 npm run test:live       # real key: nine P0 cases, PASS/FAIL/SKIP
+npm run preview:ui      # interactive preview of the four surfaces (.scratch/ui-preview/)
 ```
 
 `npm run test:live` reads the key from `OPEN_DESIGN_API_KEY` or `~/.amr/config.json` and never prints or stores
 it; it uses a throw-away catalog cache. Exit codes: `0` no capability failure, `1` a capability failure,
 `2` no usable credential (every live case skipped). `--case N` runs one case, `--list` lists them.
+
+`npm run preview:ui` bundles the real components with their real controllers into one page (esbuild,
+output in `.scratch/ui-preview/`). Folding, allowlist toggles, edits, save/discard and the theme switch
+all run the real code paths; writes land in memory and are gone after a reload. Theme values remain
+neutral samples that merely give the `--dsw-*` aliases something to resolve against — not the harness
+palette — and real persistence stays covered by `npm test`.
 
 See [docs/opendesign/02-P0验收记录.md](docs/opendesign/02-P0验收记录.md) for the recorded acceptance run.
 

@@ -41,66 +41,93 @@ export const PAGE_CSS_ID = '@mars-sea/dsh-opendesign-provider/OpenDesignSettings
  */
 export const PAGE_CSS = `
 .od-section{max-width:720px;color:var(--dsw-alias-label-primary);flex-direction:column;display:flex}
-.od-title{margin:0;color:var(--dsw-alias-label-primary);font-size:16px;font-weight:500;line-height:24px}
-.od-intro{margin:4px 0 0;color:var(--dsw-alias-label-tertiary);font-size:14px;line-height:22px}
-.od-readOnly{margin:8px 0 0;color:var(--dsw-alias-state-warn-label,var(--dsw-alias-label-tertiary));font-size:12px;line-height:18px}
+.od-title{margin:0;color:var(--dsw-alias-label-primary);font-size:20px;font-weight:500;line-height:28px}
+.od-intro{margin:6px 0 0;color:var(--dsw-alias-label-tertiary);font-size:14px;line-height:22px}
+.od-readOnly{margin:8px 0 0;color:var(--dsw-alias-state-warn-label,var(--dsw-alias-label-tertiary));font-size:13px;line-height:20px}
 .od-spacer{flex:1}
-.od-group{flex-direction:column;display:flex;margin-top:28px}
-.od-groupDivided{margin-top:24px;padding-top:20px;border-top:.5px solid var(--dsw-alias-border-l2)}
-.od-groupHead{align-items:center;gap:8px;display:flex;min-height:28px;padding-bottom:4px}
-.od-groupTitle{margin:0;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}
-.od-groupDesc{margin:0 0 12px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.od-group{flex-direction:column;display:flex;margin-top:32px}
+.od-groupDivided{margin-top:28px;padding-top:24px;border-top:.5px solid var(--dsw-alias-border-l2)}
+.od-groupHead{align-items:center;gap:8px;display:flex;min-height:32px;padding-bottom:6px}
+.od-groupTitle{margin:0;color:var(--dsw-alias-label-primary);font-size:16px;font-weight:500;line-height:24px}
+.od-groupDesc{margin:0 0 12px;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}
 .od-rows>.od-groupDesc{margin:0;padding:4px 0 0}
-.od-disclosure{width:100%;padding:0 0 4px;border:0;background:0 0;font:inherit;text-align:left;cursor:pointer;border-radius:6px}
-.od-disclosure:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.od-disclosure{width:100%;padding:0 0 4px;border:0;background:0 0;font:inherit;text-align:left;cursor:pointer;border-radius:8px}
+.od-disclosure:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
 /* A disclosure row: label grows, badge/summary/chevron hold their size, and the
    chevron sits flush right (the bare .od-chevron rule reserves 6px for the
    selector case, which would leave the row visibly ragged here). */
 .od-disclosureRow{align-items:center;gap:8px;display:flex;width:100%}
 .od-disclosureRow .od-chevron{margin-right:0}
 .od-disclosureRow:hover .od-chevron{border-color:var(--dsw-alias-label-secondary)}
-.od-disclosureGroup{padding:0}
+.od-disclosureGroup{padding:0;color:var(--dsw-alias-label-primary)}
 .od-disclosureField{padding:0;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}
 .od-disclosureLabel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .od-disclosureSummary{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
 .od-groupTitleToggle{flex:1;min-width:0}
 .od-rows{flex-direction:column;display:flex}
-.od-row{align-items:center;gap:8px;display:flex;padding:12px 0}
+.od-row{align-items:center;gap:8px;display:flex;padding:16px 0}
 .od-rowFlush{padding:0}
-.od-rowText{flex-direction:column;flex:1;gap:4px;min-width:0;padding-right:32px;display:flex}
+.od-rowText{flex-direction:column;flex:1;gap:5px;min-width:0;padding-right:24px;display:flex}
 .od-rowTitleLine{align-items:center;gap:8px;display:flex;min-width:0}
-.od-rowTitle{min-width:0;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}
-.od-rowDesc{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.od-rowTitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:15px;font-weight:400;line-height:24px}
+.od-rowDesc{color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}
 .od-rowDesc p{margin:0}
 .od-rowDesc p+p{margin-top:4px}
-.od-rowError{margin:0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:18px}
+.od-rowError{margin:0;color:var(--dsw-alias-state-error-primary);font-size:13px;line-height:20px}
 .od-rowControl{flex:none;align-items:center;justify-content:flex-end;gap:8px;display:inline-flex;max-width:60%}
 .od-rowInput{width:200px}
 .od-rowInputWide{width:280px}
-.od-linkButton{box-sizing:border-box;flex:none;align-items:center;display:inline-flex;height:28px;padding:0 10px;border:0;border-radius:14px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer}
+.od-linkButton{box-sizing:border-box;flex:none;align-items:center;display:inline-flex;height:28px;padding:0 10px;border:0;border-radius:999px;background:0 0;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:12px;line-height:18px;white-space:nowrap;cursor:pointer}
 .od-linkButton:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}
 .od-linkButton:disabled{cursor:default;opacity:.4}
 .od-linkButton:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
 .od-badges{align-items:center;gap:8px;display:inline-flex}
-.od-badge,.od-badgeMuted{flex:none;align-items:center;display:inline-flex;white-space:nowrap;border-radius:999px;corner-shape:round;padding:1px 8px;font-size:12px;font-weight:500;line-height:17px}
+.od-badge,.od-badgeMuted,.od-badgeWarn{flex:none;align-items:center;display:inline-flex;white-space:nowrap;border-radius:999px;corner-shape:round;padding:1px 8px;font-size:12px;font-weight:500;line-height:17px}
 .od-badge{background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary)}
 .od-badgeMuted{border:.5px solid var(--dsw-alias-border-l4);color:var(--dsw-alias-label-tertiary)}
-.od-badgeWarn{background:var(--dsw-alias-state-warn-tertiary,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-state-warn-label,var(--dsw-alias-label-secondary))}
-.od-field{flex-direction:column;gap:6px;padding:12px 0;display:flex}
+/* An outline, not a filled block: the amber fill read as an error where the
+   fact is only "calibration unknown", and it pulled the eye off the row. */
+.od-badgeWarn{border:.5px solid var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-label,var(--dsw-alias-label-secondary))}
+.od-field{flex-direction:column;gap:6px;padding:16px 0;display:flex}
 .od-field+.od-field{border-top:.5px solid var(--dsw-alias-border-l2)}
-.od-fieldHead{align-items:center;gap:8px;display:flex}
 .od-label{min-width:0;color:var(--dsw-alias-label-primary);flex:1;font-size:13px;font-weight:500;line-height:1.5}
-.od-reset{font:inherit;color:var(--dsw-alias-label-secondary);cursor:pointer;background:0 0;border:none;padding:0;font-size:12px;line-height:18px}
-.od-reset:hover:not(:disabled){color:var(--dsw-alias-label-primary)}
-.od-reset:disabled{cursor:default;opacity:.4}
-.od-input{box-sizing:border-box;height:32px;min-width:0;padding:0 10px;border:.5px solid var(--dsw-alias-border-l4);border-radius:8px;background:var(--dsw-alias-bg-layer-1);font:inherit;color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}
+.od-input{box-sizing:border-box;height:40px;min-width:0;padding:0 12px;border:.5px solid var(--dsw-alias-border-l3);border-radius:10px;background:var(--dsw-alias-bg-layer-1);font:inherit;color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}
 .od-input::placeholder{color:var(--dsw-alias-label-dimmed)}
 .od-input:focus-visible{border-color:var(--dsw-alias-brand-primary);outline:none}
 .od-input:disabled{opacity:.6;cursor:default}
 .od-inputInvalid{border-color:var(--dsw-alias-state-error-primary)}
-.od-hint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:18px}
+.od-hint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:13px;line-height:20px}
+/* ---------------------------------------------- two-column field rows */
+/* The page's default shape: title and description on the left, one control on
+   the right. A full-width input under its label left half of every row empty. */
+.od-fieldRow{align-items:flex-start}
+.od-fieldRow>.od-rowControl{padding-top:2px}
+.od-fieldInput{width:320px}
+/* The allowlist trigger and the panel it opens; the panel overlays the page
+   instead of pushing the fields below it down (twelve models did). */
+.od-allowlist{flex:none;align-items:center;justify-content:flex-end;gap:12px;display:inline-flex}
+.od-allowlistAnchor{position:relative;display:inline-flex}
+/* A filled pill: on bg-layer-1 the shared .od-selector is white-on-white and
+   stops reading as a button at all. */
+.od-allowlistTrigger{height:40px;min-width:184px;border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2)}
+.od-allowlistMenu{position:absolute;top:calc(100% + 8px);right:0;z-index:5;flex-direction:column;gap:2px;width:400px;max-width:calc(100vw - 64px);max-height:380px;padding:8px;border:.5px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-elevation-prominent,0 12px 32px -8px rgba(0,0,0,.24));display:flex;overflow-y:auto}
+.od-allowlistItem{align-items:center;gap:10px;padding:9px 10px;border-radius:10px;display:flex;cursor:pointer}
+.od-allowlistItem:hover{background:var(--dsw-alias-interactive-bg-hover)}
+.od-allowlistName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:22px}
+.od-allowlistEmpty{margin:0;padding:8px}
+.od-allowlistMenuUp{top:auto;bottom:calc(100% + 8px)}
+/* Per-model override list: one select, one length, one remove per row. */
+.od-overrides{flex-direction:column;gap:8px;display:flex}
+.od-overrideHead{align-items:center;gap:8px;display:flex;padding:2px 0 4px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.od-overrideHeadModel{flex:1;min-width:0}
+.od-overrideHeadValue{flex:none;width:140px}
+.od-overrideAdd{color:var(--dsw-alias-label-secondary);font-size:16px;line-height:1}
+.od-overrideRow{align-items:center;gap:8px;display:flex;flex-wrap:wrap}
+.od-overrideModel{flex:1;min-width:0;height:40px}
+.od-overrideValue{flex:none;width:140px;height:40px}
+.od-overrideError{flex-basis:100%;margin:0}
 .od-modelSelectAnchor{flex-direction:column;align-items:stretch;gap:6px;display:inline-flex;min-width:160px}
-.od-selector{box-sizing:border-box;align-items:center;gap:12px;display:inline-flex;height:36px;padding:0 14px;border:0;border-radius:18px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer}
+.od-selector{box-sizing:border-box;align-items:center;gap:12px;display:inline-flex;height:40px;padding:0 16px;border:0;border-radius:999px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-primary);font:inherit;font-size:14px;line-height:22px;text-align:left;cursor:pointer}
 .od-selector:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
 .od-selector:disabled{cursor:default;opacity:.4}
 .od-selector:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
@@ -110,8 +137,6 @@ export const PAGE_CSS = `
  * the Menu's outside-click close. */
 .od-modelSearch{width:100%}
 .od-modelSearch::-webkit-search-cancel-button{cursor:pointer}
-.od-checkRow{align-items:center;gap:8px;display:inline-flex;min-width:0}
-.od-checkRow:hover{cursor:pointer}
 /* A hand-drawn box, not the platform's accent-color checkbox: the native
  * control's colours come from color-scheme, which the theme sets once at BOOT
  * and never re-applies in-session, so a native box can paint light-chrome white
@@ -119,10 +144,20 @@ export const PAGE_CSS = `
  * foreground (the only pairing that survives dark mode's near-white brand), and
  * the outline is a border-l3 hairline because border-l2 leaves an unchecked box
  * invisible against the menu surface. */
-.od-check{box-sizing:border-box;appearance:none;flex-shrink:0;width:16px;height:16px;margin:0;border:1px solid var(--dsw-alias-border-l3);border-radius:4px;background:0 0;position:relative}
-.od-check:checked{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary)}
-.od-check:checked::after{content:'';position:absolute;top:3px;left:5px;width:3px;height:7px;border:solid var(--dsw-alias-label-primary-foreground,#fff);border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
-.od-checkName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.od-check{box-sizing:border-box;appearance:none;flex-shrink:0;width:18px;height:18px;margin:0;border:1px solid var(--dsw-alias-border-l3);border-radius:6px;background:0 0;position:relative}
+/* Selection is filled with the label colour, not the brand accent: the page has
+   one strong colour (the primary action), and a dozen blue checkboxes competed
+   with it. The tick is painted in the layer colour so it inverts by itself. */
+.od-check:checked{background:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-label-primary)}
+.od-check:checked::after{content:'';position:absolute;top:3px;left:6px;width:3.5px;height:7px;border:solid var(--dsw-alias-bg-layer-1);border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+/* A pill switch for on/off facts. Same input, different affordance: a square
+   checkbox reads as "pick several of these", which a lone toggle is not. */
+.od-switch{box-sizing:border-box;appearance:none;flex-shrink:0;width:44px;height:26px;margin:0;border-radius:13px;background:var(--dsw-alias-border-l4);position:relative;cursor:pointer;transition:background .15s ease}
+.od-switch::after{content:'';position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 2px rgba(0,0,0,.24);transition:transform .15s ease}
+.od-switch:checked{background:var(--dsw-alias-label-primary)}
+.od-switch:checked::after{transform:translateX(18px)}
+.od-switch:disabled{opacity:.5;cursor:default}
+.od-switch:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
 /* Modelled on the platform's own Switch primitive (ui-primitives
  * Switch.module.css): a 36x20 capsule padding its track by 2px and sliding a
  * 16px thumb across the 32px content box. Three things are load-bearing.
@@ -149,28 +184,29 @@ export const PAGE_CSS = `
 .od-accountToggle{align-items:center;gap:8px;display:flex;flex:1;min-width:0;padding:0;background:0 0;border:0;color:inherit;cursor:pointer;font:inherit;text-align:left}
 .od-accountToggle:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px;border-radius:4px}
 .od-accountName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:14px;font-weight:500;line-height:22px}
-.od-iconButton{flex-shrink:0;align-items:center;justify-content:center;display:inline-flex;width:28px;height:28px;padding:0;background:0 0;border:0;border-radius:6px;color:var(--dsw-alias-label-tertiary);cursor:pointer}
+.od-iconButton{flex-shrink:0;align-items:center;justify-content:center;display:inline-flex;width:28px;height:28px;padding:0;background:0 0;border:0;border-radius:8px;color:var(--dsw-alias-label-tertiary);cursor:pointer}
 .od-iconButton:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
 .od-iconButton:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
-/* Per-model context-length override rows (issue #86): the error wraps onto
-   its own line beneath the select/input/remove trio. The three cells form a
-   fixed column contract — flexible model, 112px value, 28px remove — and the
-   od-contextHead labels repeat the first two (plus the remove cell's width
-   as a spacer) so they sit exactly over their columns. */
-.od-contextItem{align-items:center;gap:8px;display:flex;flex-wrap:wrap;padding:8px 0}
-.od-contextHead{align-items:center;gap:8px;display:flex;flex-wrap:wrap;padding:4px 0 0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
-.od-contextHeadModel{flex:1;min-width:200px}
-.od-contextHeadValue{flex:none;width:112px}
-.od-contextHeadGap{flex:none;width:28px}
-.od-contextSelect{position:relative;display:block;flex:1;min-width:200px}
-/* appearance:none swaps the platform arrow for the od-contextCaret, shaped
-   like od-selectorCaret so every dropdown in the plugin opens with the same
-   hand-drawn chevron. */
-.od-contextModel{box-sizing:border-box;appearance:none;-webkit-appearance:none;width:100%;padding-inline-end:26px;text-overflow:ellipsis;cursor:pointer}
-.od-contextCaret{position:absolute;inset-inline-end:12px;top:50%;width:6px;height:6px;border-right:1.5px solid var(--dsw-alias-label-tertiary);border-bottom:1.5px solid var(--dsw-alias-label-tertiary);transform:translateY(-50%) rotate(45deg);pointer-events:none}
-.od-contextSelect:has(.od-contextModel:disabled) .od-contextCaret{opacity:.6}
-.od-contextValue{flex:none;width:112px}
-.od-contextError{flex-basis:100%}
+/* Per-model override list: one model select, one context-length input and one
+   remove cell per row, with the add action living in the header row. The three
+   cells and the two header labels share one column contract — flexible model,
+   140px value, 28px action — so the header sits exactly over its columns. */
+.od-overrides{flex-direction:column;gap:8px;display:flex}
+.od-overrideHead{align-items:center;gap:8px;display:flex;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+.od-overrideHeadModel{flex:1;min-width:160px}
+.od-overrideHeadValue{flex:none;width:140px}
+.od-overrideAdd{flex:none;margin-inline-start:auto;height:24px;padding:0 8px}
+.od-overrideRow{align-items:center;gap:8px;display:flex;flex-wrap:wrap}
+.od-overrideModel{flex:1;min-width:160px}
+.od-overrideValue{flex:none;width:140px}
+.od-overrideError{flex-basis:100%}
+
+/* Allowlist groups inside the dropdown: capability · cost, then its models. */
+.od-allowlistGroup{border:0;margin:0;padding:0;min-width:0}
+.od-allowlistGroupLabel{padding:8px 10px 2px;color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;font-weight:600;letter-spacing:.02em}
+.od-allowlistShowAll{background:0 0;border:0;width:100%;font:inherit;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary);text-align:start}
+.od-allowlistShowAll:disabled{opacity:.5;cursor:default}
+
 /* Three dots from one element: the dot plus two box-shadow copies. */
 .od-kebab{width:3px;height:3px;border-radius:50%;corner-shape:round;background:currentColor;box-shadow:0 -5px 0 currentColor,0 5px 0 currentColor}
 .od-tabDot{flex-shrink:0;width:8px;height:8px;border-radius:50%;corner-shape:round}
@@ -262,7 +298,7 @@ export const PAGE_CSS = `
  * button is even. */
 .od-sectionWithBar{padding-bottom:80px}
 .od-saveBarDock{position:sticky;bottom:0;z-index:2;height:0;pointer-events:none}
-.od-saveBar{--od-saveBar-tone:var(--dsw-alias-state-warn-primary,#d97706);position:absolute;left:50%;bottom:20px;box-sizing:border-box;width:max-content;max-width:calc(100% - 24px);align-items:center;gap:10px;display:flex;height:44px;padding:4px 4px 4px 16px;border:0;border-radius:22px;corner-shape:round;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-elevation-prominent,0 12px 32px -8px rgba(0,0,0,.24),0 2px 8px rgba(0,0,0,.08));opacity:0;visibility:hidden;transform:translate(-50%,12px);transition:opacity .16s ease,transform .16s ease,visibility 0s linear .16s}
+.od-saveBar{--od-saveBar-tone:var(--dsw-alias-state-warn-primary,#d97706);position:absolute;left:50%;bottom:20px;box-sizing:border-box;width:max-content;max-width:calc(100% - 24px);align-items:center;gap:10px;display:flex;height:44px;padding:4px 4px 4px 16px;border:0;border-radius:999px;corner-shape:round;background:var(--dsw-alias-bg-layer-1);box-shadow:var(--dsw-elevation-prominent,0 12px 32px -8px rgba(0,0,0,.24),0 2px 8px rgba(0,0,0,.08));opacity:0;visibility:hidden;transform:translate(-50%,12px);transition:opacity .16s ease,transform .16s ease,visibility 0s linear .16s}
 .od-saveBarShown{opacity:1;visibility:visible;transform:translate(-50%,0);pointer-events:auto;transition:opacity .2s ease,transform .24s cubic-bezier(.2,.9,.3,1.1),visibility 0s}
 .od-saveBar-error{--od-saveBar-tone:var(--dsw-alias-state-error-primary)}
 .od-saveBar-success{--od-saveBar-tone:var(--dsw-alias-state-success-primary,#16a34a);padding-right:18px}
@@ -271,13 +307,15 @@ export const PAGE_CSS = `
 .od-saveBarText{min-width:0;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}
 .od-saveBar-error .od-saveBarText{color:var(--dsw-alias-state-error-primary)}
 .od-saveBarActions{flex-shrink:0;align-items:center;gap:4px;display:flex;margin-left:8px}
-.od-saveBarButton{box-sizing:border-box;height:36px;padding:0 16px;border:0;border-radius:18px;corner-shape:round;font:inherit;font-size:14px;line-height:22px;white-space:nowrap;cursor:pointer}
+.od-saveBarButton{box-sizing:border-box;height:36px;padding:0 16px;border:0;border-radius:999px;corner-shape:round;font:inherit;font-size:14px;line-height:22px;white-space:nowrap;cursor:pointer}
 .od-saveBarButton:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
 .od-saveBarButton:disabled{cursor:default;opacity:.4}
 .od-saveBarGhost{background:0 0;color:var(--dsw-alias-label-primary)}
 .od-saveBarGhost:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
-.od-saveBarPrimary{background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary));color:var(--dsw-alias-label-primary-foreground,#fff)}
-.od-saveBarPrimary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover,var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary)))}
+/* Same neutral emphasis as the checkboxes and switches: one strong colour on
+   the page, and it is the label colour, not a brand hue. */
+.od-saveBarPrimary{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1)}
+.od-saveBarPrimary:hover:not(:disabled){opacity:.85}
 /* Analytics page (ticket 12): a draft filter row, a summary strip and one
  * comparison table. The table lives in a horizontal scroll container so a wide
  * nine-column comparison never forces the settings panel to scroll sideways. */
@@ -290,7 +328,7 @@ export const PAGE_CSS = `
 .od-analyticsNumber{width:96px}
 .od-analyticsNotices{margin:12px 0 0}
 .od-analyticsSummary{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;margin:12px 0}
-.od-analyticsStat{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2)}
+.od-analyticsStat{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-2)}
 .od-analyticsStatLabel{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
 .od-analyticsStatValue{color:var(--dsw-alias-label-primary);font-size:16px;line-height:24px;font-variant-numeric:tabular-nums}
 .od-analyticsTableWrap{overflow-x:auto}

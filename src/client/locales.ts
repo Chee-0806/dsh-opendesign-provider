@@ -55,11 +55,24 @@ export type SettingsOpenDesignKey =
   | 'modelsSectionDesc'
   | 'visibleModels'
   | 'visibleModelsHint'
+  | 'showAllModels'
+  | 'selectedModels'
+  | 'allModels'
   | 'uncalibrated'
   | 'contextWindow'
   | 'contextWindowHint'
   | 'contextOverrides'
   | 'contextOverridesHint'
+  | 'addModel'
+  | 'columnModel'
+  | 'columnContext'
+  | 'capabilityStandard'
+  | 'capabilityAdvanced'
+  | 'costLow'
+  | 'costMedium'
+  | 'costHigh'
+  | 'removeModel'
+  | 'unsaved'
   | 'maxOutputTokens'
   | 'maxOutputTokensHint'
   | 'displaySection'
@@ -155,15 +168,27 @@ export const zh: Record<SettingsOpenDesignKey, string> = {
   loginUse: '未显式配置 Key 时自动使用登录态，不会写入该文件。',
   controlKeyWarn: '有登录态但没有控制密钥：推理不受影响，额度功能（P1）暂不可用。',
   modelsSection: '模型与上下文',
-  modelsSectionDesc: '白名单决定模型选择器里出现哪些模型，并可覆盖上下文窗口与单次输出上限。',
+  modelsSectionDesc: '白名单决定模型选择器里出现哪些模型，并可覆盖上下文长度与单轮输出上限。',
   visibleModels: '模型白名单',
-  visibleModelsHint: '只影响模型选择器；一个都不勾选等于全部可见。',
+  visibleModelsHint: '勾选要保留的模型，模型选择器就只列出这些；一个都不勾选时显示全部模型。',
+  showAllModels: '显示全部',
+  selectedModels: '已选 {count} 个模型',
+  allModels: '全部可见',
   uncalibrated: '未校准',
-  contextWindow: '上下文窗口',
-  contextWindowHint: '全局覆盖值，留空则使用目录公布值。',
+  contextWindow: '自定义上下文长度',
+  contextWindowHint: '覆盖模型目录公布的上下文长度，影响上下文计量与自动压缩；留空跟随目录。',
   contextOverrides: '按模型覆盖',
-  contextOverridesHint: '只填需要覆盖的模型；留空表示跟随全局值。',
-  maxOutputTokens: '输出上限',
+  contextOverridesHint: '为单个模型单独设置上下文长度，优先于上面的全局值；下拉只列出白名单里的可见模型（显示全部时即整个目录）。',
+  addModel: '添加模型',
+  columnModel: '模型',
+  columnContext: '上下文长度',
+  capabilityStandard: '标准能力',
+  capabilityAdvanced: '进阶能力',
+  costLow: '低成本',
+  costMedium: '中成本',
+  costHigh: '高成本',
+  removeModel: '移除',
+  maxOutputTokens: '单轮输出上限',
   maxOutputTokensHint: '留空跟随默认；0 表示不发送输出上限字段。',
   displaySection: '显示',
   displaySectionDesc: '界面语言与额度卡显示。',
@@ -198,6 +223,7 @@ export const zh: Record<SettingsOpenDesignKey, string> = {
   failed: '保存失败，请重试。',
   invalid: '有字段填写不合法，请检查后再保存。',
   noChanges: '没有需要保存的更改。',
+  unsaved: '有未保存的更改。',
   credentialFailed: '配置已确认，但密钥写入失败；草稿已保留。',
   invalidFormat: '格式不正确',
   invalidTooSmall: '小于允许的最小值',
@@ -241,15 +267,27 @@ export const en: Record<SettingsOpenDesignKey, string> = {
   loginUse: 'Used automatically when no explicit key is configured; this file is never written.',
   controlKeyWarn: 'A login state exists but has no control key: inference is unaffected, quota features (P1) are unavailable.',
   modelsSection: 'Models & context',
-  modelsSectionDesc: 'The allowlist decides which models the picker lists; context windows and the per-turn output cap are overridden below.',
+  modelsSectionDesc: 'The allowlist decides which models the picker lists; context length and the per-turn output cap are overridden here.',
   visibleModels: 'Model allowlist',
-  visibleModelsHint: 'Affects the model picker only; checking none means every model is visible.',
+  visibleModelsHint: 'Keep only the models you tick; the picker lists those. Tick none to show every model.',
+  showAllModels: 'Show all',
+  selectedModels: '{count} selected',
+  allModels: 'All visible',
   uncalibrated: 'Uncalibrated',
-  contextWindow: 'Context window',
-  contextWindowHint: 'Global override; leave blank to follow the catalog figure.',
+  contextWindow: 'Custom context length',
+  contextWindowHint: 'Overrides the catalog figure, which affects context accounting and auto-compaction; blank follows the catalog.',
   contextOverrides: 'Per-model overrides',
-  contextOverridesHint: 'Fill only the models you need; blank follows the global value.',
-  maxOutputTokens: 'Output cap',
+  contextOverridesHint: 'Sets the window for one model, taking precedence over the global value. The list offers only allowlisted models (the whole catalog when everything is shown).',
+  addModel: 'Add model',
+  columnModel: 'Model',
+  columnContext: 'Context length',
+  capabilityStandard: 'Standard',
+  capabilityAdvanced: 'Advanced',
+  costLow: 'Low cost',
+  costMedium: 'Medium cost',
+  costHigh: 'High cost',
+  removeModel: 'Remove',
+  maxOutputTokens: 'Per-turn output cap',
   maxOutputTokensHint: 'Leave blank for the default; 0 omits the output-cap field.',
   displaySection: 'Display',
   displaySectionDesc: 'Interface language and the quota card.',
@@ -284,6 +322,7 @@ export const en: Record<SettingsOpenDesignKey, string> = {
   failed: 'Save failed. Try again.',
   invalid: 'Some fields are invalid; fix them before saving.',
   noChanges: 'Nothing to save.',
+  unsaved: 'Unsaved changes.',
   credentialFailed: 'The configuration was confirmed, but the key could not be written; the draft was kept.',
   invalidFormat: 'Invalid format',
   invalidTooSmall: 'Below the minimum',

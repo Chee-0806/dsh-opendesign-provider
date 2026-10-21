@@ -10,7 +10,7 @@
  * @module dsh-opendesign-provider/client/section
  */
 
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
@@ -19,7 +19,7 @@ import {
   noticeText,
   type SettingsOpenDesignKey,
 } from './locales.ts'
-import { apiKeyBadgeKey, type ContextOverrideDraft, type FieldDraft, type InvalidReason, type SettingsField, type SettingsModelRow, type SettingsPageState, type SettingsSaveOutcome } from './settings.ts'
+import { apiKeyBadgeKey, overrideChoices, type ContextOverrideDraft, type FieldDraft, type InvalidReason, type SettingsField, type SettingsModelRow, type SettingsPageState, type SettingsSaveOutcome } from './settings.ts'
 
 /** The business face the slot registration injects into the page. */
 export interface SettingsPageInjected {
@@ -29,6 +29,7 @@ export interface SettingsPageInjected {
   edit(field: SettingsField, text: string): void
   resetField(field: SettingsField): void
   toggleModel(id: string): void
+  showAllModels(): void
   editContextWindow(text: string): void
   editContextOverride(model: string, text: string): void
   setLanguage(language: string): void
@@ -59,81 +60,311 @@ function fieldError(t: Translate<SettingsOpenDesignKey>, draft: Invalidatable): 
   return t('invalidFormat')
 }
 
-/** One labelled text row with an optional hint and validation message. */
+/** The left column every settings row shares: title, description and error. */
+function RowText(props: {
+  title: string
+  desc?: string | undefined
+  error?: string | undefined
+}) {
+  return (
+    <span className="od-rowText">
+      <span className="od-rowTitle">{props.title}</span>
+      {props.desc === undefined ? null : <span className="od-rowDesc">{props.desc}</span>}
+      {props.error === undefined ? null : <span className="od-rowError">{props.error}</span>}
+    </span>
+  )
+}
+
+/**
+ * One labelled field: title and description on the left, control on the right.
+ *
+ * This is the settings page's default shape — a full-width input under a label
+ * leaves the right half of the row empty at every breakpoint the host uses.
+ */
 function FieldRow(props: {
   t: Translate<SettingsOpenDesignKey>
   label: string
   hint: string
   draft: FieldDraft
   disabled: boolean
-  type?: 'text' | 'password' | 'number'
   placeholder?: string
   onChange(text: string): void
-  onReset?(): void
 }) {
   const error = fieldError(props.t, props.draft)
   return (
-    <label className="od-field">
-      <span className="od-fieldHead">
-        <span className="od-label">{props.label}</span>
+    <label className="od-row od-fieldRow">
+      <RowText title={props.label} desc={props.hint} error={error} />
+      <span className="od-rowControl">
+        <input
+          className={error === undefined ? 'od-input od-fieldInput' : 'od-input od-fieldInput od-inputInvalid'}
+          type="text"
+          value={props.draft.text}
+          placeholder={props.placeholder}
+          disabled={props.disabled}
+          onChange={(event) => props.onChange(event.target.value)}
+        />
       </span>
-      <input
-        className={error === undefined ? 'od-input' : 'od-input od-inputInvalid'}
-        type={props.type ?? 'text'}
-        value={props.draft.text}
-        placeholder={props.placeholder}
-        disabled={props.disabled}
-        onChange={(event) => props.onChange(event.target.value)}
-      />
-      <p className="od-hint">{props.hint}</p>
-      {error === undefined ? null : <p className="od-rowError">{error}</p>}
     </label>
   )
 }
 
-/** One catalog model checkbox with its uncalibrated mark. */
-function ModelRow(props: {
+/**
+ * The allowlist as a dropdown: a summary trigger plus a scrollable picker.
+ *
+ * Inlining one checkbox per catalog model pushed the rest of the page off the
+ * fold at twelve models; the trigger states the current selection and the list
+ * opens over the page instead of inside it. The picker groups the catalog by
+ * capability and then by cost (the design's grouping rule) and keeps a "show
+ * all" row at its top so clearing the allowlist is one action, not N toggles.
+ */
+export function ModelAllowlist(props: {
   t: Translate<SettingsOpenDesignKey>
-  model: SettingsModelRow
+  models: readonly SettingsModelRow[]
+  selected: readonly string[]
+  allVisible: boolean
   disabled: boolean
-  onToggle(): void
+  onToggle(id: string): void
+  onShowAll(): void
 }) {
+  const [open, setOpen] = useState(false)
+  const [menuUp, setMenuUp] = useState(false)
+  const anchor = useRef<HTMLSpanElement | null>(null)
+  const trigger = useRef<HTMLButtonElement | null>(null)
+
+  // The settings dialog is a scroll container, so a menu that always opens
+  // downward is clipped exactly when the allowlist sits near the bottom edge.
+  // Measure the trigger and open toward the roomier side instead.
+  useLayoutEffect(() => {
+    if (!open) return
+    const rect = trigger.current?.getBoundingClientRect()
+    if (rect === undefined) return
+    setMenuUp(window.innerHeight - rect.bottom < 320 && rect.top > window.innerHeight - rect.bottom)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target
+      if (target instanceof Node && anchor.current?.contains(target) === true) return
+      setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
+  const label = props.allVisible
+    ? props.t('allModels')
+    : props.t('selectedModels', { count: String(props.selected.length) })
+
+  const close = (): void => {
+    setOpen(false)
+    trigger.current?.focus()
+  }
+
+  /** capability first, then cost — the order the design's grouping rule names. */
+  const groups = new Map<string, SettingsModelRow[]>()
+  for (const model of props.models) {
+    const key = `${model.capability}/${model.cost}`
+    const bucket = groups.get(key)
+    if (bucket === undefined) groups.set(key, [model])
+    else bucket.push(model)
+  }
+
   return (
-    <label className="od-checkRow">
-      <input
-        className="od-check"
-        type="checkbox"
-        checked={props.model.visible}
-        disabled={props.disabled}
-        onChange={props.onToggle}
-      />
-      <span className="od-checkName">{props.model.name}</span>
-      {props.model.calibrated ? null : <span className="od-badgeWarn">{props.t('uncalibrated')}</span>}
-    </label>
+    <span
+      className="od-rowControl od-allowlist"
+      ref={anchor}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && open) {
+          event.stopPropagation()
+          close()
+        }
+      }}
+      onBlur={(event) => {
+        const next = event.relatedTarget
+        if (open && next instanceof Node && anchor.current?.contains(next) !== true) setOpen(false)
+      }}
+    >
+      <span className="od-allowlistAnchor">
+        <button
+          className="od-selector od-allowlistTrigger"
+          type="button"
+          ref={trigger}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          aria-controls={open ? ALLOWLIST_MENU_ID : undefined}
+          disabled={props.disabled}
+          onClick={() => setOpen(!open)}
+        >
+          <span className="od-selectorText">{label}</span>
+          <span className="od-selectorCaret" aria-hidden="true" />
+        </button>
+        {open ? (
+          <div
+            className={menuUp ? 'od-allowlistMenu od-allowlistMenuUp' : 'od-allowlistMenu'}
+            id={ALLOWLIST_MENU_ID}
+            role="menu"
+            aria-label={props.t('visibleModels')}
+          >
+            <button
+              className="od-allowlistItem od-allowlistShowAll"
+              type="button"
+              role="menuitem"
+              disabled={props.disabled || props.allVisible}
+              onClick={() => {
+                props.onShowAll()
+                setOpen(false)
+              }}
+            >
+              {props.t('showAllModels')}
+            </button>
+            {props.models.length === 0
+              // Nothing to tick: explain what the list is for instead of
+              // telling the reader to tick something that is not there.
+              ? <p className="od-hint od-allowlistEmpty">{props.t('modelsSectionDesc')}</p>
+              : [...groups].map(([key, models]) => (
+                <fieldset className="od-allowlistGroup" key={key}>
+                  <legend className="od-allowlistGroupLabel">{groupLabel(props.t, key)}</legend>
+                  {models.map((model) => (
+                    <label className="od-allowlistItem" key={model.id}>
+                      <input
+                        className="od-check"
+                        type="checkbox"
+                        role="menuitemcheckbox"
+                        aria-checked={model.visible}
+                        checked={model.visible}
+                        disabled={props.disabled}
+                        onChange={() => props.onToggle(model.id)}
+                      />
+                      <span className="od-allowlistName">{model.name}</span>
+                      {model.calibrated ? null : <span className="od-badgeWarn">{props.t('uncalibrated')}</span>}
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+          </div>
+        ) : null}
+      </span>
+    </span>
   )
 }
 
-/** One per-model context-window override row. */
-function ContextRow(props: {
+/** The menu id the trigger's aria-controls points at. */
+const ALLOWLIST_MENU_ID = 'opendesign-allowlist-menu'
+
+/** One group heading, e.g. "进阶能力 · 低成本". */
+function groupLabel(t: Translate<SettingsOpenDesignKey>, key: string): string {
+  const [capability, cost] = key.split('/') as [SettingsModelRow['capability'], SettingsModelRow['cost']]
+  const capabilityText = capability === 'advanced' ? t('capabilityAdvanced') : t('capabilityStandard')
+  const costText = cost === 'high' ? t('costHigh') : cost === 'medium' ? t('costMedium') : t('costLow')
+  return `${capabilityText} · ${costText}`
+}
+
+/**
+ * Per-model context-window overrides as an editable list.
+ *
+ * Only rows that carry a value — plus rows added in this session — are shown,
+ * which is what makes "add a model" mean anything: the stored document only
+ * keeps non-empty entries, so a removed row simply stops being written.
+ */
+export function ContextOverrideEditor(props: {
   t: Translate<SettingsOpenDesignKey>
-  row: ContextOverrideDraft
-  modelName: string
+  rows: readonly ContextOverrideDraft[]
+  choices: readonly SettingsModelRow[]
   disabled: boolean
-  onChange(text: string): void
+  onChange(model: string, text: string): void
 }) {
-  const error = fieldError(props.t, props.row)
+  const [added, setAdded] = useState<readonly string[]>([])
+  const filled = props.rows.filter((row) => row.text.trim() !== '')
+  const visible = [
+    ...filled,
+    ...props.rows.filter((row) => added.includes(row.model) && !filled.includes(row)),
+  ]
+  const used = new Set(visible.map((row) => row.model))
+  const spare = props.choices.find((model) => !used.has(model.id))
+
+  const addRow = (): void => {
+    if (spare === undefined) return
+    setAdded([...added, spare.id])
+  }
+  const removeRow = (model: string): void => {
+    props.onChange(model, '')
+    setAdded(added.filter((id) => id !== model))
+  }
+  const swapModel = (previous: string, next: string): void => {
+    const value = props.rows.find((row) => row.model === previous)?.text ?? ''
+    props.onChange(previous, '')
+    props.onChange(next, value)
+    setAdded((current) => {
+      const without = current.filter((id) => id !== previous)
+      return value.trim() === '' ? [...without, next] : without
+    })
+  }
+
+  const options = props.choices.map((model) => ({ id: model.id, name: model.name }))
+  if (options.length === 0) {
+    return <p className="od-hint">{props.t('contextOverridesHint')}</p>
+  }
+
   return (
-    <div className="od-contextItem">
-      <span className="od-label">{props.modelName}</span>
-      <input
-        className={error === undefined ? 'od-input od-contextValue' : 'od-input od-contextValue od-inputInvalid'}
-        type="text"
-        inputMode="numeric"
-        value={props.row.text}
-        disabled={props.disabled}
-        onChange={(event) => props.onChange(event.target.value)}
-      />
-      {error === undefined ? null : <p className="od-rowError od-contextError">{error}</p>}
+    <div className="od-overrides">
+      <div className="od-overrideHead">
+        <span className="od-overrideHeadModel">{props.t('columnModel')}</span>
+        <span className="od-overrideHeadValue">{props.t('columnContext')}</span>
+        {/* Same 28px cell as the row's remove button, so the two headers line
+            up with the two inputs instead of drifting right. */}
+        <button
+          className="od-linkButton od-overrideAdd"
+          type="button"
+          disabled={props.disabled || spare === undefined}
+          aria-label={props.t('addModel')}
+          title={props.t('addModel')}
+          onClick={addRow}
+        >
+          + {props.t('addModel')}
+        </button>
+      </div>
+      {visible.map((row) => {
+        const error = fieldError(props.t, row)
+        const name = props.choices.find((model) => model.id === row.model)?.name ?? row.model
+        return (
+          <div className="od-overrideRow" key={row.model}>
+            <select
+              className="od-input od-overrideModel"
+              value={row.model}
+              disabled={props.disabled}
+              aria-label={props.t('columnModel')}
+              onChange={(event) => swapModel(row.model, event.target.value)}
+            >
+              <option value={row.model}>{name}</option>
+              {options
+                .filter((option) => option.id !== row.model && !used.has(option.id))
+                .map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+            </select>
+            <input
+              className={error === undefined ? 'od-input od-overrideValue' : 'od-input od-overrideValue od-inputInvalid'}
+              type="text"
+              inputMode="numeric"
+              value={row.text}
+              disabled={props.disabled}
+              aria-label={`${row.model} ${props.t('columnContext')}`}
+              onChange={(event) => props.onChange(row.model, event.target.value)}
+            />
+            <button
+              className="od-iconButton"
+              type="button"
+              disabled={props.disabled}
+              aria-label={props.t('removeModel')}
+              title={props.t('removeModel')}
+              onClick={() => removeRow(row.model)}
+            >
+              ×
+            </button>
+            {error === undefined ? null : <p className="od-rowError od-overrideError">{error}</p>}
+          </div>
+        )
+      })}
+      <p className="od-hint">{props.t('contextOverridesHint')}</p>
     </div>
   )
 }
@@ -198,12 +429,10 @@ export function SettingsGroup(props: {
           />
         </h3>
       </div>
-      {open ? (
-        <>
-          {props.desc === undefined ? null : <p className="od-groupDesc">{props.desc}</p>}
-          {props.children}
-        </>
-      ) : null}
+      <div hidden={!open}>
+        {props.desc === undefined ? null : <p className="od-groupDesc">{props.desc}</p>}
+        {props.children}
+      </div>
     </div>
   )
 }
@@ -228,7 +457,7 @@ export function SettingsField(props: {
         onToggle={() => setOpen(!open)}
         scale="field"
       />
-      {open ? props.children : null}
+      <div hidden={!open}>{props.children}</div>
     </div>
   )
 }
@@ -264,7 +493,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
   const overrideCount = state.contextOverrides.filter((row) => row.text.trim() !== '').length
 
   return (
-    <section className="od-section" aria-label={t('title')}>
+    <section className={state.dirty ? 'od-section od-sectionWithBar' : 'od-section'} aria-label={t('title')}>
       <h2 className="od-title">{t('title')}</h2>
       <p className="od-intro">{t('intro')}</p>
       {state.writable ? null : <p className="od-readOnly">{t('readOnly')}</p>}
@@ -306,11 +535,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             onChange={(text) => props.edit('apiBase', text)}
           />
           <div className="od-row">
-            <div className="od-rowText">
-              <span className="od-rowTitle">{t('loginStatus')}</span>
-              <span className="od-rowDesc">{t('loginHint')}</span>
-              <span className="od-rowDesc">{t('loginUse')}</span>
-            </div>
+            <RowText title={t('loginStatus')} desc={`${t('loginHint')} ${t('loginUse')}`} />
             <div className="od-rowControl">
               <span className={state.loginStatus === 'ok' ? 'od-badge' : 'od-badgeMuted'}>{loginLabel}</span>
             </div>
@@ -322,27 +547,21 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
       <SettingsGroup
         title={t('modelsSection')}
         badge={<span className="od-badgeMuted">{catalogLabel}</span>}
-        desc={t('modelsSectionDesc')}
         defaultOpen
       >
         <div className="od-rows">
-          <SettingsField
-            label={t('visibleModels')}
-            summary={state.models.length === 0 ? undefined : `${state.visibleModels.length}/${state.models.length}`}
-          >
-            {state.models.length === 0
-              ? <p className="od-hint">{t('modelsSectionDesc')}</p>
-              : state.models.map((model) => (
-                <ModelRow
-                  key={model.id}
-                  t={t}
-                  model={model}
-                  disabled={disabled}
-                  onToggle={() => props.toggleModel(model.id)}
-                />
-              ))}
-            <p className="od-hint">{t('visibleModelsHint')}</p>
-          </SettingsField>
+          <div className="od-row od-fieldRow">
+            <RowText title={t('visibleModels')} desc={t('visibleModelsHint')} />
+            <ModelAllowlist
+              t={t}
+              models={state.models}
+              selected={state.visibleModels}
+              allVisible={state.allVisible}
+              disabled={disabled}
+              onToggle={(id) => props.toggleModel(id)}
+              onShowAll={() => props.showAllModels()}
+            />
+          </div>
           <FieldRow
             t={t}
             label={t('contextWindow')}
@@ -356,17 +575,13 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             summary={state.contextOverrides.length === 0 ? undefined : `${overrideCount}/${state.contextOverrides.length}`}
             defaultOpen={false}
           >
-            {state.contextOverrides.map((row) => (
-              <ContextRow
-                key={row.model}
-                t={t}
-                row={row}
-                modelName={state.models.find((model) => model.id === row.model)?.name ?? row.model}
-                disabled={disabled}
-                onChange={(text) => props.editContextOverride(row.model, text)}
-              />
-            ))}
-            <p className="od-hint">{t('contextOverridesHint')}</p>
+            <ContextOverrideEditor
+              t={t}
+              rows={state.contextOverrides}
+              choices={overrideChoices(state)}
+              disabled={disabled}
+              onChange={(model, text) => props.editContextOverride(model, text)}
+            />
           </SettingsField>
           <FieldRow
             t={t}
@@ -382,7 +597,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
       <SettingsGroup title={t('displaySection')} desc={t('displaySectionDesc')} defaultOpen>
         <div className="od-rows">
           <label className="od-row">
-            <span className="od-rowText"><span className="od-rowTitle">{t('language')}</span></span>
+            <RowText title={t('language')} />
             <span className="od-rowControl">
               <select
                 className="od-input"
@@ -396,13 +611,10 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             </span>
           </label>
           <label className="od-row">
-            <span className="od-rowText">
-              <span className="od-rowTitle">{t('sidebarQuota')}</span>
-              <span className="od-rowDesc">{t('sidebarQuotaHint')}</span>
-            </span>
+            <RowText title={t('sidebarQuota')} desc={t('sidebarQuotaHint')} />
             <span className="od-rowControl">
               <input
-                className="od-check"
+                className="od-switch"
                 type="checkbox"
                 checked={state.showSidebarQuotaDraft}
                 disabled={disabled}
@@ -451,10 +663,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             onChange={(text) => props.edit('modelsCachePath', text)}
           />
           <div className="od-row">
-            <div className="od-rowText">
-              <span className="od-rowTitle">{t('diagnostics')}</span>
-              <span className="od-rowDesc">{t('diagnosticsHint')}</span>
-            </div>
+            <RowText title={t('diagnostics')} desc={t('diagnosticsHint')} />
             <div className="od-rowControl">
               <button className="od-linkButton" type="button" onClick={copyDiagnostics}>
                 {t('copyDiagnostics')}
@@ -467,7 +676,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
       {state.dirty ? (
         <div className="od-saveBarDock">
           <div className="od-saveBar od-saveBarShown">
-            <p className="od-saveBarText">{state.notice === undefined ? t('intro') : noticeText(t, state.notice.key)}</p>
+            <p className="od-saveBarText">{state.notice === undefined ? t('unsaved') : noticeText(t, state.notice.key)}</p>
             <div className="od-saveBarActions">
               <button className="od-saveBarButton od-saveBarGhost" type="button" disabled={state.saving} onClick={() => props.discard()}>
                 {t('discard')}
