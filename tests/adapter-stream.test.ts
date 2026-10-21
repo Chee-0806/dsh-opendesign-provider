@@ -88,9 +88,14 @@ function chunkedResponse(fragments: readonly string[]): Response {
   return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } })
 }
 
+/**
+ * 本文件的夹具全是 Chat Completions 面的事件。ticket 13 起 `auto` 会把
+ * gpt-6-luna / claude-haiku-5.5 送去 Messages（它们的思考只在那一面可见），
+ * 所以这里显式钉住 Chat 面——否则这些用例测的就不再是同一个传输了。
+ */
 function makeAdapter(overrides: Partial<OpenDesignAdapterDeps> = {}): OpenDesignAdapter {
   return new OpenDesignAdapter({
-    options: overrides.options ?? (() => connection()),
+    options: overrides.options ?? (() => connection({ protocol: 'chat' })),
     resolveApiKey: overrides.resolveApiKey ?? (async () => 'user_test_key'),
     fetchImpl: overrides.fetchImpl ?? sseFetch([fixture('stream-text.sse')]),
     ...(overrides.now === undefined ? {} : { now: overrides.now }),

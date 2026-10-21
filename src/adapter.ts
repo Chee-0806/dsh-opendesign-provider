@@ -32,9 +32,7 @@
 
 import {
   attributionHeaders,
-  offloadedImageText,
   resolveRetryPolicy,
-  textOnlyImageText,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
@@ -49,10 +47,8 @@ import {
   type ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import type {
-  FileAttachmentRef,
   ImageAttachmentRef,
   ImageRequestTarget,
-  RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 
 import {
@@ -72,6 +68,27 @@ import {
 import { DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, PROVIDER_DISPLAY_NAME } from './identity.ts'
 import { requestImageTarget } from './image-request.ts'
 import { openDesignImageTokens } from './image-tokens.ts'
+import {
+  ANTHROPIC_VERSION,
+  ANTHROPIC_VERSION_HEADER,
+  DEFAULT_PROTOCOL,
+  MESSAGES_ENDPOINT,
+  buildMessagesRequestBody,
+  selectTransport,
+  streamedMessagesChunks,
+  type ProtocolSetting,
+  type TransportKind,
+} from './messages-transport.ts'
+import {
+  encodeImage,
+  offloadedPlaceholder,
+  textOnlyPlaceholder,
+  unencodedImageText,
+  unsupportedBlockFailure,
+  unsupportedFileFailure,
+  type ImagePlan,
+  type OpenDesignImageEncoder,
+} from './request-content.ts'
 import { modelIsVisible } from './model-visibility.ts'
 import { effectiveOutputCap } from './output-budget.ts'
 import {
@@ -115,6 +132,37 @@ export interface OpenDesignConnectionOptions {
   maxOutputTokens?: number | undefined
   /** Transport failures one request absorbs; absent reports the default in diagnostics. */
   transportMaxRetries?: number | undefined
+  /**
+   * Which wire protocol conversations use (ticket 13): `'auto'` (default) keeps
+   * Chat Completions and sends only the models whose thinking is invisible there
+   * to Anthropic Messages; `'chat'` / `'messages'` force one face for every model.
+   */
+  protocol?: ProtocolSetting | undefined
+}
+
+/** One transport attempt's fully resolved facts; both faces share it. */
+interface CallPlan {
+  readonly options: GenerateOptions
+  readonly connection: OpenDesignConnectionOptions
+  readonly apiKey: string
+  readonly entry: GatewayCatalogEntry | undefined
+  readonly level: ReasoningLevel | undefined
+  readonly cap: number
+  readonly fetchImpl: typeof fetch
+}
+
+/** One remembered automatic fallback: which face failed and why. */
+interface TransportFallback {
+  readonly from: TransportKind
+  readonly reason: string
+}
+
+/** One observed automatic fallback, as handed to `onTransportFallback`. */
+export interface TransportFallbackEvent {
+  readonly model: string
+  readonly from: TransportKind
+  readonly to: TransportKind
+  readonly reason: string
 }
 
 /**
@@ -134,19 +182,11 @@ export interface OpenDesignCredentialState {
 }
 
 /**
- * The slice of the host attachment service that image input needs: one
- * deterministic request version of a stored image, encoded to a route target.
- * Declared narrowly here so the adapter depends on the capability it uses, not
- * on attachment storage as a whole; `ctx.attachments` satisfies it as-is.
+ * The slice of the host attachment service that image input needs, re-exported
+ * for the plugin entry and tests (defined in `./request-content.ts` so both
+ * transports share the pixel path).
  */
-export interface OpenDesignImageEncoder {
-  /** Encode one normalized attachment to the request target (dimensions + byte budget). */
-  readImageRequest(
-    ref: ImageAttachmentRef,
-    target: ImageRequestTarget,
-    signal?: AbortSignal,
-  ): Promise<RequestImageAttachment>
-}
+export type { OpenDesignImageEncoder }
 
 /** Everything the adapter needs from its owning plugin instance. */
 export interface OpenDesignAdapterDeps {
@@ -173,6 +213,12 @@ export interface OpenDesignAdapterDeps {
    * unconfigured. Read per call, exactly like {@link OpenDesignAdapterDeps.options}.
    */
   credentialState?: (() => Promise<OpenDesignCredentialState> | OpenDesignCredentialState) | undefined
+  /**
+   * Observe one automatic transport fallback (`auto`/`messages` → `chat`,
+   * ticket 13). The plugin entry turns it into a single log line; a test can
+   * read {@link OpenDesignAdapter.transportFallbacks} instead.
+   */
+  onTransportFallback?: ((event: TransportFallbackEvent) => void) | undefined
   /** Test seam for the HTTP call. */
   fetchImpl?: typeof fetch
   /** Test seam for catalog TTLs; defaults to `Date.now`. */
@@ -182,6 +228,8 @@ export interface OpenDesignAdapterDeps {
 /** The Open Design adapter: catalog plus the Chat Completions transport. */
 export class OpenDesignAdapter extends LlmAdapter {
   private readonly catalog: GatewayCatalogSource
+  /** Models that asked for Messages and found the gateway not serving it (ticket 13). */
+  private readonly fallbacks = new Map<string, TransportFallback>()
 
   constructor(private readonly deps: OpenDesignAdapterDeps) {
     super()
@@ -335,9 +383,9 @@ export class OpenDesignAdapter extends LlmAdapter {
     return {
       priceImages: (images) => images.map((image) => {
         if (image.offloaded === true) {
-          return { visualTokens: 0, text: offloadedImageText(image.attachment) }
+          return { visualTokens: 0, text: offloadedPlaceholder(image.attachment) }
         }
-        if (!vision) return { visualTokens: 0, text: textOnlyImageText(image.attachment) }
+        if (!vision) return { visualTokens: 0, text: textOnlyPlaceholder(image.attachment) }
         return {
           visualTokens: openDesignImageTokens(model, image.attachment.width, image.attachment.height),
           text: '',
@@ -367,6 +415,60 @@ export class OpenDesignAdapter extends LlmAdapter {
     const entry = lookupCatalogEntry(this.currentCatalog(connection).models, options.model)
     const level = selectedReasoningLevel(options.model, options.reasoningEffort)
     const cap = outputCapFor(options, entry, connection, options.model, level)
+    const plan: CallPlan = {
+      options,
+      connection,
+      apiKey,
+      entry,
+      level,
+      cap,
+      fetchImpl: this.deps.fetchImpl ?? fetch,
+    }
+    const transport = selectTransport(options.model, connection.protocol ?? DEFAULT_PROTOCOL, this.fallbacks)
+    if (transport === 'chat') {
+      yield* this.streamChat(plan)
+      return
+    }
+    // Messages is the optional face (ticket 13): if the gateway does not serve
+    // it, the conversation continues on Chat instead of failing. Only a failure
+    // BEFORE the first chunk is retryable — once the caller has seen output, a
+    // second attempt would duplicate it.
+    let emitted = false
+    try {
+      for await (const chunk of this.streamMessages(plan)) {
+        emitted = true
+        yield chunk
+      }
+      return
+    } catch (error) {
+      if (emitted || !isRoutingFallback(error)) throw error
+      this.rememberFallback(options.model, error)
+    }
+    yield* this.streamChat(plan)
+  }
+
+  /**
+   * The automatic transports that fell back to Chat, as data (ticket 13).
+   *
+   * One entry per model that ever asked for Messages and found the gateway not
+   * serving it; the settings page's diagnostics and the plugin's log line both
+   * read this instead of a mutable global.
+   */
+  transportFallbacks(): ReadonlyArray<{ model: string; from: TransportKind; reason: string }> {
+    return [...this.fallbacks.entries()].map(([model, fallback]) => ({ model, ...fallback }))
+  }
+
+  /**
+   * One streaming Chat Completions call (ticket 04), the default transport.
+   *
+   * The request sends only the fields the gateway actually honours: the model
+   * id, the mapped messages, `stream: true` with `stream_options.include_usage`
+   * so the usage tail frame arrives, `max_completion_tokens` and the model's own
+   * `reasoning_effort`. It never sends `max_tokens` (no model honours it),
+   * `store` (server-side default) or `temperature` (unverified).
+   */
+  private async *streamChat(plan: CallPlan): AsyncGenerator<StreamChunk> {
+    const { options, connection, apiKey, entry, level, cap, fetchImpl } = plan
     const callerSignal = options.signal
     const body = await buildRequestBody(options, cap, {
       model: options.model,
@@ -375,7 +477,6 @@ export class OpenDesignAdapter extends LlmAdapter {
       encoder: this.deps.attachments?.(),
       signal: callerSignal,
     }, level)
-    const fetchImpl = this.deps.fetchImpl ?? fetch
     const signal = requestSignal(callerSignal, connection.requestTimeoutMs)
 
     let response: Response
@@ -419,6 +520,73 @@ export class OpenDesignAdapter extends LlmAdapter {
       if (error instanceof LlmError) throw error
       throw requestFailure(error, callerSignal?.aborted === true)
     }
+  }
+
+  /**
+   * One streaming Anthropic Messages call (ticket 13), the optional transport.
+   *
+   * The endpoint and body are Anthropic-shaped (see `./messages-transport.ts`):
+   * `{apiBase}/messages`, a mandatory `anthropic-version` header, `max_tokens`
+   * carrying the same effective output cap, and none of the Chat-only fields.
+   * The bearer key comes from the same credential chain.
+   */
+  private async *streamMessages(plan: CallPlan): AsyncGenerator<StreamChunk> {
+    const { options, connection, apiKey, entry, cap, fetchImpl } = plan
+    const callerSignal = options.signal
+    const body = await buildMessagesRequestBody(options, cap, {
+      model: options.model,
+      declaredModalities: entry?.inputModalities,
+      encoder: this.deps.attachments?.(),
+      signal: callerSignal,
+    })
+    const signal = requestSignal(callerSignal, connection.requestTimeoutMs)
+
+    let response: Response
+    try {
+      response = await fetchImpl(`${apiBaseOf(connection)}${MESSAGES_ENDPOINT}`, {
+        method: 'POST',
+        headers: {
+          ...attributionHeaders(),
+          authorization: `Bearer ${apiKey}`,
+          [ANTHROPIC_VERSION_HEADER]: ANTHROPIC_VERSION,
+          'content-type': 'application/json',
+          accept: 'text/event-stream',
+        },
+        body: JSON.stringify(body),
+        signal,
+      })
+    } catch (error) {
+      throw requestFailure(error, callerSignal?.aborted === true)
+    }
+
+    if (!response.ok) {
+      let raw: string
+      try {
+        raw = await response.text()
+      } catch {
+        raw = ''
+      }
+      throw classifyHttpFailure({
+        status: response.status,
+        body: raw,
+        contentType: response.headers.get('content-type'),
+        retryAfter: response.headers.get('retry-after'),
+      })
+    }
+    if (response.body === null) throw missingBodyFailure()
+    try {
+      yield* streamedMessagesChunks(response.body, cap, connection.streamIdleTimeoutMs)
+    } catch (error) {
+      if (error instanceof LlmError) throw error
+      throw requestFailure(error, callerSignal?.aborted === true)
+    }
+  }
+
+  /** Remember that Messages did not work for this model, and say so once. */
+  private rememberFallback(model: string, error: unknown): void {
+    const reason = error instanceof Error ? error.message : String(error)
+    this.fallbacks.set(model, { from: 'messages', reason })
+    this.deps.onTransportFallback?.({ model, from: 'messages', to: 'chat', reason })
   }
 
   /**
@@ -534,46 +702,6 @@ function toWireTool(tool: ToolSchema): Record<string, unknown> {
   }
 }
 
-/** How one call may carry images: the catalog's capability plus the host encoder. */
-interface ImagePlan {
-  /** Exact model id, named in a capability refusal. */
-  readonly model: string
-  /** The gateway/snapshot's declared input modalities, undefined when unknown. */
-  readonly declaredModalities: readonly string[] | undefined
-  /** The host attachment service, when mounted. */
-  readonly encoder: OpenDesignImageEncoder | undefined
-  /** The caller's cancellation, forwarded to encoding. */
-  readonly signal: AbortSignal | undefined
-}
-
-/** One request image in wire form: the encoded media type plus base64 bytes. */
-interface EncodedImage {
-  readonly mediaType: string
-  readonly data: string
-}
-
-/** Whether the catalog declares image input for this exact model. */
-function modelAcceptsImages(plan: ImagePlan): boolean {
-  return plan.declaredModalities?.includes('image') === true
-}
-
-/**
- * Turn one durable image into wire bytes.
- *
- * The encoder is asked for the ROUTE target (long edge and byte budget from
- * `./image-request.ts`), not the normalized original, so a Retina screenshot
- * travels as the size the model would downscale to anyway. Encoding returns
- * `undefined` when no attachment service is mounted: the image cannot become
- * pixels, so the caller degrades it to its placeholder text instead of
- * pretending the model saw it.
- */
-async function encodeImage(plan: ImagePlan, ref: ImageAttachmentRef): Promise<EncodedImage | undefined> {
-  if (!modelAcceptsImages(plan)) throw imageCapabilityFailure(plan)
-  if (plan.encoder === undefined) return undefined
-  const request = await plan.encoder.readImageRequest(ref, requestImageTarget(ref), plan.signal)
-  return { mediaType: request.mediaType, data: Buffer.from(request.data).toString('base64') }
-}
-
 /** One content part of an OpenAI multi-part message. */
 type WireContentPart =
   | { type: 'text'; text: string }
@@ -636,7 +764,7 @@ async function toWireMessage(message: RequestMessage, images: ImagePlan): Promis
         // An evicted image is a durable decision: the pixels never travel again,
         // the model keeps its placeholder text.
         if (block.offloaded === true) {
-          parts.push({ type: 'text', text: offloadedImageText(block.attachment) })
+          parts.push({ type: 'text', text: offloadedPlaceholder(block.attachment) })
           break
         }
         const image = await encodeImage(images, block.attachment)
@@ -677,61 +805,19 @@ function wireContent(parts: readonly WireContentPart[]): string | WireContentPar
   return [...parts]
 }
 
-/** A refusal for one image on a model the catalog does not call image-capable. */
-function imageCapabilityFailure(plan: ImagePlan): LlmError {
-  const capability = plan.declaredModalities === undefined
-    ? 'Open Design 目录也没有为这个模型声明输入模态'
-    : `目录声明的输入模态是 ${plan.declaredModalities.join('/') || '空'}`
-  return new LlmError(
-    `llm-opendesign: 模型 "${plan.model}" 不支持图片输入（${capability}）。`
-    + 'Open Design 本插件只支持文本与图片；请换用目录声明支持 image 的模型，或移除图片附件。',
-    'UNSUPPORTED_CONTENT',
-  )
-}
-
-/** Attachment kinds this route refuses by filename, and the word its message uses. */
-const REJECTED_ATTACHMENT_KINDS: ReadonlyArray<{ kind: string; extensions: readonly string[] }> = [
-  { kind: '音频', extensions: ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.opus'] },
-  { kind: '视频', extensions: ['.mp4', '.mov', '.webm', '.mkv', '.avi', '.m4v'] },
-]
-
 /**
- * A `file` block: the gateway may declare file/audio/video modality, but this
- * plugin carries no such content natively, so the refusal names what arrived
- * and what is actually supported instead of failing as a generic error.
+ * Whether a Messages failure says "this face is not available here" rather than
+ * "this request is wrong".
+ *
+ * Only the routing failures fall back: a missing route (404 / non-SSE / a broken
+ * frame) or a deterministic refusal that names the protocol. An auth, quota,
+ * rate-limit or transport failure would fail identically on Chat, so retrying it
+ * on the other face would only cost a second request.
  */
-function unsupportedFileFailure(ref: FileAttachmentRef): LlmError {
-  const lower = ref.name.toLowerCase()
-  const kind = REJECTED_ATTACHMENT_KINDS.find(
-    (candidate) => candidate.extensions.some((extension) => lower.endsWith(extension)),
-  )?.kind
-  const subject = kind === undefined ? `file 附件「${ref.name}」` : `${kind}附件「${ref.name}」（以 file 形态送来）`
-  const remedy = kind === undefined
-    ? '请把需要的文件内容转成文本再发。'
-    : `请把${kind}转成文字描述或截图（图片）再发。`
-  return new LlmError(
-    `llm-opendesign: 不支持${subject}。Open Design 本插件只支持文本与图片；${remedy}`,
-    'UNSUPPORTED_CONTENT',
-  )
-}
-
-/** A content block this plugin has no wire slot for (e.g. a plugin-extended audio/video block). */
-function unsupportedBlockFailure(type: string): LlmError {
-  return new LlmError(
-    `llm-opendesign: 不支持 content 块类型 "${type}"。Open Design 本插件只支持文本与图片。`,
-    'UNSUPPORTED_CONTENT',
-  )
-}
-
-/**
- * Model-facing placeholder for an image the host has no way to encode: the
- * model is told the pixels did not travel, rather than being handed a turn that
- * looks like it saw the picture.
- */
-function unencodedImageText(ref: ImageAttachmentRef, model: string): string {
-  const digest = String(ref.attachmentId).slice(7, 15)
-  return `[Image sha256:${digest} was not sent: this host has no attachment encoding service, so ${model} `
-    + 'received no pixels for it. Ask the user to send the image again once attachments are available.]'
+function isRoutingFallback(error: unknown): boolean {
+  if (!(error instanceof LlmError)) return false
+  if (error.code === 'PROTOCOL_ERROR') return true
+  return error.code === 'BAD_REQUEST' && /not supported|unsupported|anthropic|messages/iu.test(error.message)
 }
 
 /** A thrown fetch (connect failure, timeout, caller cancellation) as an `LlmError`. */
