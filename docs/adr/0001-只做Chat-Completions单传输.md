@@ -15,3 +15,8 @@ ticket 13 把 Messages 做成可选传输，上面的结论口径不变：**默�
   - `deepseek` 等模型两面都给可读思考，没有切换收益。
 
 **Consequences（补记）**：新增 `protocol: 'chat' | 'messages' | 'auto'`，默认 `auto` = Chat 为主、只让 `claude-haiku-5.5` 走 Messages；`messages` 是用户的显式选择（失败如实报错，不静默换面），`auto` 下协议错误/不支持会回落 Chat 一次并按模型记住偏好。gpt-6-luna 的思考在 DSH 里仍不可见——这是协议面事实，不是本插件的取舍；要看它的思考只能走 Responses，而那条协议仍按本 ADR 不做。
+
+**补记（ticket 13 实测，2026-10-21）**：可选 Messages 传输落地后，实测推翻了「两个思考不可见模型换传输就能看见思考」的假设——
+`claude-haiku-5.5` 在 Messages 面确实给出可读 `thinking` 块（需请求里显式 `thinking.budget_tokens >= 1024`），
+但 `gpt-6-luna` 只回 `redacted_thinking`（加密块，无可读文本），它的可读思考只在 `/v1/responses` 的 reasoning 项里。
+因此默认 `auto` 只把 `claude-haiku-5.5` 送去 Messages，`gpt-6-luna` 留在 Chat；「不做 Responses」的结论不变。

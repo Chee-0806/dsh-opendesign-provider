@@ -52,7 +52,7 @@ export const REMOTE_NAMESPACE = 'opendesign'
 export const REMOTE_SERVICE = 'opendesignUsage'
 
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */
-export const REMOTE_ENDPOINTS = ['report', 'usage', 'models', 'analytics'] as const
+export const REMOTE_ENDPOINTS = ['usage', 'models', 'analytics'] as const
 
 /** The settings-page slot id (`settings.section`). */
 export const SETTINGS_SECTION_ID = 'opendesign'

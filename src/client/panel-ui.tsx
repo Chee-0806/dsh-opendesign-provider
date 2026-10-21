@@ -21,7 +21,7 @@ import type { QuotaCardProps, QuotaDashboardProps } from './panel-slots.ts'
 function RingGlyph({ size }: { size: number }) {
   return (
     <svg
-      className="ccp-glyph"
+      className="odp-glyph"
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -37,19 +37,19 @@ function RingGlyph({ size }: { size: number }) {
 
 /** One window's progress block, shared by the card and the dashboard. */
 function WindowRow(props: { window: QuotaWindowView }) {
-  const fill = props.window.overLimit ? 'ccp-barFill ccp-barFillWarn' : 'ccp-barFill'
+  const fill = props.window.overLimit ? 'odp-barFill odp-barFillWarn' : 'odp-barFill'
   return (
-    <div className="ccp-window">
-      <div className="ccp-windowHead">
-        <span className="ccp-windowLabel">{props.window.label}</span>
-        <span className="ccp-spacer" />
-        <span className="ccp-windowValue">{props.window.amountText}</span>
-        <span className="ccp-windowPct">{props.window.percentText}</span>
+    <div className="odp-window">
+      <div className="odp-windowHead">
+        <span className="odp-windowLabel">{props.window.label}</span>
+        <span className="odp-spacer" />
+        <span className="odp-windowValue">{props.window.amountText}</span>
+        <span className="odp-windowPct">{props.window.percentText}</span>
       </div>
-      <div className="ccp-bar">
+      <div className="odp-bar">
         <div className={fill} style={{ width: `${props.window.percent}%` }} />
       </div>
-      <p className="ccp-windowReset">{props.window.resetText} · {props.window.remainingText}</p>
+      <p className="odp-windowReset">{props.window.resetText} · {props.window.remainingText}</p>
     </div>
   )
 }
@@ -68,7 +68,7 @@ export function OpenDesignQuotaCard(props: QuotaCardProps) {
   if (props.wide === false) {
     return (
       <button
-        className="ccp-railButton"
+        className="odp-railButton"
         type="button"
         title={t('open')}
         aria-label={t('open')}
@@ -81,32 +81,32 @@ export function OpenDesignQuotaCard(props: QuotaCardProps) {
 
   return (
     <button
-      className="ccp-foot"
+      className="odp-foot"
       type="button"
       title={t('open')}
       aria-label={t('open')}
       onClick={() => props.panelOpen()}
     >
-      <span className="ccp-footTop">
-        <span className="ccp-footName">{view.tierText}</span>
-        {view.staleText === undefined ? null : <span className="ccp-badgeWarn">{view.staleText}</span>}
+      <span className="odp-footTop">
+        <span className="odp-footName">{view.tierText}</span>
+        {view.staleText === undefined ? null : <span className="odp-badgeWarn">{view.staleText}</span>}
       </span>
       {view.windows.map((window) => (
-        <span className="ccp-footRow" key={window.kind}>
-          <span className="ccp-footHead">
-            <span className="ccp-footLabel">{window.label}</span>
-            <span className="ccp-footAmount">{window.amountText}</span>
+        <span className="odp-footRow" key={window.kind}>
+          <span className="odp-footHead">
+            <span className="odp-footLabel">{window.label}</span>
+            <span className="odp-footAmount">{window.amountText}</span>
           </span>
-          <span className="ccp-footBar">
+          <span className="odp-footBar">
             <span
-              className={window.overLimit ? 'ccp-footFill ccp-footFillWarn' : 'ccp-footFill'}
+              className={window.overLimit ? 'odp-footFill odp-footFillWarn' : 'odp-footFill'}
               style={{ width: `${window.percent}%` }}
             />
           </span>
         </span>
       ))}
       {view.windows.length > 0 ? null : (
-        <span className="ccp-footLabel">{view.fundingText ?? view.emptyText}</span>
+        <span className="odp-footLabel">{view.fundingText ?? view.emptyText}</span>
       )}
     </button>
   )
@@ -124,18 +124,18 @@ export function OpenDesignQuotaDashboard(props: QuotaDashboardProps) {
   if (!state.open || !view.visible) return null
 
   return (
-    <section className="ccp-main" aria-label={t('title')}>
-      <div className="ccp-mainInner">
-        <header className="ccp-header">
-          <div className="ccp-headerText">
-            <h2 className="ccp-title">{t('title')}</h2>
-            <p className="ccp-subtitle">{t('subtitle')}</p>
+    <section className="odp-main" aria-label={t('title')}>
+      <div className="odp-mainInner">
+        <header className="odp-header">
+          <div className="odp-headerText">
+            <h2 className="odp-title">{t('title')}</h2>
+            <p className="odp-subtitle">{t('subtitle')}</p>
           </div>
-          <span className="ccp-spacer" />
-          {view.staleText === undefined ? null : <span className="ccp-badgeWarn">{view.staleText}</span>}
-          <span className="ccp-dashboardActions">
+          <span className="odp-spacer" />
+          {view.staleText === undefined ? null : <span className="odp-badgeWarn">{view.staleText}</span>}
+          <span className="odp-dashboardActions">
             <button
-              className="ccp-action"
+              className="odp-action"
               type="button"
               disabled={state.loading}
               onClick={() => props.panelRefresh()}
@@ -143,7 +143,7 @@ export function OpenDesignQuotaDashboard(props: QuotaDashboardProps) {
               {state.loading ? t('refreshing') : t('refresh')}
             </button>
             <button
-              className="ccp-action"
+              className="odp-action"
               type="button"
               aria-label={t('close')}
               title={t('close')}
@@ -154,31 +154,31 @@ export function OpenDesignQuotaDashboard(props: QuotaDashboardProps) {
           </span>
         </header>
 
-        <div className="ccp-card">
-          <div className="ccp-block">
-            <h3 className="ccp-blockTitle">{t('title')}</h3>
-            <div className="ccp-planRow">
-              <span className="ccp-planName">{view.tierText}</span>
-              {view.statusText === undefined ? null : <span className="ccp-badgeMuted">{view.statusText}</span>}
-              {view.balanceText === undefined ? null : <span className="ccp-badge">{view.balanceText}</span>}
+        <div className="odp-card">
+          <div className="odp-block">
+            <h3 className="odp-blockTitle">{t('title')}</h3>
+            <div className="odp-planRow">
+              <span className="odp-planName">{view.tierText}</span>
+              {view.statusText === undefined ? null : <span className="odp-badgeMuted">{view.statusText}</span>}
+              {view.balanceText === undefined ? null : <span className="odp-badge">{view.balanceText}</span>}
             </div>
-            {view.periodText === undefined ? null : <p className="ccp-hint">{view.periodText}</p>}
-            {view.fetchedText === undefined ? null : <p className="ccp-hint">{view.fetchedText}</p>}
+            {view.periodText === undefined ? null : <p className="odp-hint">{view.periodText}</p>}
+            {view.fetchedText === undefined ? null : <p className="odp-hint">{view.fetchedText}</p>}
           </div>
 
-          <div className="ccp-windows">
+          <div className="odp-windows">
             {view.windows.map((window) => <WindowRow key={window.kind} window={window} />)}
           </div>
-          {view.emptyText === undefined ? null : <p className="ccp-hint">{view.emptyText}</p>}
+          {view.emptyText === undefined ? null : <p className="odp-hint">{view.emptyText}</p>}
 
-          <div className="ccp-block">
-            <p className="ccp-hint">{view.explainerText}</p>
-            {view.fundingText === undefined ? null : <p className="ccp-hint">{view.fundingText}</p>}
+          <div className="odp-block">
+            <p className="odp-hint">{view.explainerText}</p>
+            {view.fundingText === undefined ? null : <p className="odp-hint">{view.fundingText}</p>}
           </div>
 
           {view.loadFailedText === undefined
             ? null
-            : <p className="ccp-error">{view.loadFailedText}</p>}
+            : <p className="odp-error">{view.loadFailedText}</p>}
         </div>
       </div>
     </section>

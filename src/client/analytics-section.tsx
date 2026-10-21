@@ -41,16 +41,16 @@ export function OpenDesignAnalyticsPage(props: OpenDesignAnalyticsPageProps) {
   const busy = state.status === 'loading'
 
   return (
-    <section className="cc-section" aria-label={view.title}>
-      <h2 className="cc-title">{view.title}</h2>
-      <p className="cc-intro">{view.intro}</p>
+    <section className="od-section" aria-label={view.title}>
+      <h2 className="od-title">{view.title}</h2>
+      <p className="od-intro">{view.intro}</p>
 
-      <div className="cc-group">
-        <div className="cc-groupHead"><h3 className="cc-groupTitle">{t('filterRecent')}</h3></div>
-        <div className="cc-analyticsFilters">
-          <div className="cc-analyticsModes" role="group" aria-label={t('title')}>
+      <div className="od-group">
+        <div className="od-groupHead"><h3 className="od-groupTitle">{t('filterRecent')}</h3></div>
+        <div className="od-analyticsFilters">
+          <div className="od-analyticsModes" role="group" aria-label={t('title')}>
             <button
-              className={state.mode === 'recent' ? 'cc-modeButton cc-modeButtonActive' : 'cc-modeButton'}
+              className={state.mode === 'recent' ? 'od-modeButton od-modeButtonActive' : 'od-modeButton'}
               type="button"
               aria-pressed={state.mode === 'recent'}
               onClick={() => props.setMode('recent')}
@@ -58,7 +58,7 @@ export function OpenDesignAnalyticsPage(props: OpenDesignAnalyticsPageProps) {
               {t('filterRecent')}
             </button>
             <button
-              className={state.mode === 'range' ? 'cc-modeButton cc-modeButtonActive' : 'cc-modeButton'}
+              className={state.mode === 'range' ? 'od-modeButton od-modeButtonActive' : 'od-modeButton'}
               type="button"
               aria-pressed={state.mode === 'range'}
               onClick={() => props.setMode('range')}
@@ -67,10 +67,10 @@ export function OpenDesignAnalyticsPage(props: OpenDesignAnalyticsPageProps) {
             </button>
           </div>
           {state.mode === 'recent' ? (
-            <label className="cc-analyticsField">
-              <span className="cc-label">{t('recentSessions')}</span>
+            <label className="od-analyticsField">
+              <span className="od-label">{t('recentSessions')}</span>
               <input
-                className="cc-input cc-analyticsNumber"
+                className="od-input od-analyticsNumber"
                 type="number"
                 min={1}
                 max={100}
@@ -81,20 +81,20 @@ export function OpenDesignAnalyticsPage(props: OpenDesignAnalyticsPageProps) {
             </label>
           ) : (
             <>
-              <label className="cc-analyticsField">
-                <span className="cc-label">{t('from')}</span>
+              <label className="od-analyticsField">
+                <span className="od-label">{t('from')}</span>
                 <input
-                  className="cc-input"
+                  className="od-input"
                   type="date"
                   value={state.rangeFrom}
                   disabled={busy}
                   onChange={(event) => props.setRangeFrom(event.target.value)}
                 />
               </label>
-              <label className="cc-analyticsField">
-                <span className="cc-label">{t('to')}</span>
+              <label className="od-analyticsField">
+                <span className="od-label">{t('to')}</span>
                 <input
-                  className="cc-input"
+                  className="od-input"
                   type="date"
                   value={state.rangeTo}
                   disabled={busy}
@@ -103,33 +103,33 @@ export function OpenDesignAnalyticsPage(props: OpenDesignAnalyticsPageProps) {
               </label>
             </>
           )}
-          <button className="cc-linkButton" type="button" disabled={busy} onClick={() => void props.refresh()}>
+          <button className="od-linkButton" type="button" disabled={busy} onClick={() => void props.refresh()}>
             {busy ? t('reading') : t('read')}
           </button>
         </div>
       </div>
 
       {view.notices.length === 0 ? null : (
-        <div className="cc-analyticsNotices">
-          {view.notices.map((notice) => <p className="cc-hint" key={notice}>{notice}</p>)}
+        <div className="od-analyticsNotices">
+          {view.notices.map((notice) => <p className="od-hint" key={notice}>{notice}</p>)}
         </div>
       )}
 
       {view.summary.length === 0 ? null : (
-        <div className="cc-analyticsSummary">
+        <div className="od-analyticsSummary">
           {view.summary.map((item) => (
-            <div className="cc-analyticsStat" key={item.key}>
-              <span className="cc-analyticsStatLabel">{item.label}</span>
-              <span className="cc-analyticsStatValue">{item.value}</span>
+            <div className="od-analyticsStat" key={item.key}>
+              <span className="od-analyticsStatLabel">{item.label}</span>
+              <span className="od-analyticsStatValue">{item.value}</span>
             </div>
           ))}
         </div>
       )}
 
       {view.rows.length === 0 ? null : (
-        <div className="cc-group cc-groupDivided">
-          <div className="cc-analyticsTableWrap">
-            <table className="cc-analyticsTable">
+        <div className="od-group od-groupDivided">
+          <div className="od-analyticsTableWrap">
+            <table className="od-analyticsTable">
               <thead>
                 <tr>
                   {view.columns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}
@@ -146,11 +146,11 @@ export function OpenDesignAnalyticsPage(props: OpenDesignAnalyticsPageProps) {
               </tbody>
             </table>
           </div>
-          <p className="cc-hint">{view.footnote}</p>
+          <p className="od-hint">{view.footnote}</p>
         </div>
       )}
 
-      {view.rows.length === 0 ? <p className="cc-hint">{view.footnote}</p> : null}
+      {view.rows.length === 0 ? <p className="od-hint">{view.footnote}</p> : null}
     </section>
   )
 }

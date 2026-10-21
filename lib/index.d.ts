@@ -219,6 +219,7 @@ declare function diagnosticsSnapshot(facts: DiagnosticsFacts): DiagnosticsSnapsh
  * the engine may retry, which is what a stall or a retry storm is diagnosed on.
  */
 declare function formatDiagnostics(snapshot: DiagnosticsSnapshot): string;
+/** Milliseconds as seconds, collapsing whole seconds (`300 秒`). */
 //#endregion
 //#region src/adapter.d.ts
 /** Default budget for the first byte of a response. */
@@ -464,7 +465,7 @@ declare const REMOTE_NAMESPACE = "opendesign";
  */
 declare const REMOTE_SERVICE = "opendesignUsage";
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */
-declare const REMOTE_ENDPOINTS: readonly ["report", "usage", "models", "analytics"];
+declare const REMOTE_ENDPOINTS: readonly ["usage", "models", "analytics"];
 /** The settings-page slot id (`settings.section`). */
 declare const SETTINGS_SECTION_ID = "opendesign";
 /** The analytics page's own `settings.section` id (ticket 12). */
@@ -908,6 +909,13 @@ interface Config {
    * design §4.2 — so `0` must not become a literal zero-token budget).
    */
   maxOutputTokens?: number;
+  /**
+   * Which wire protocol conversations use (ticket 13). `'auto'` (the default)
+   * keeps Chat Completions and sends only the two models whose thinking the
+   * Chat face hides (`gpt-6-luna`, `claude-haiku-5.5`) to Anthropic Messages;
+   * `'chat'` / `'messages'` force one face for every model.
+   */
+  protocol?: ProtocolSetting;
   /**
    * Language override for Host-side user-facing copy (`'zh'` or `'en'`,
    * default `'zh'`). The web settings page follows the browser preference on

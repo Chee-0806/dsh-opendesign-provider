@@ -44,7 +44,7 @@ test('identity constants pin the Open Design provider surface', () => {
   assert.equal(MODELS_CACHE_RELATIVE_PATH, '.opendesign/models-cache.json')
   assert.equal(REMOTE_NAMESPACE, 'opendesign')
   assert.equal(REMOTE_SERVICE, 'opendesignUsage')
-  assert.deepEqual(REMOTE_ENDPOINTS, ['report', 'usage', 'models', 'analytics'])
+  assert.deepEqual(REMOTE_ENDPOINTS, ['usage', 'models', 'analytics'])
   assert.equal(SETTINGS_SECTION_ID, 'opendesign')
   assert.equal(MODEL_CARD_KEY, 'llm-opendesign')
   assert.equal(PANEL_ID, 'opendesign-panel')

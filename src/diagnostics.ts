@@ -14,6 +14,7 @@
  */
 
 import type { CliLoginStatus } from './credentials.ts'
+import { formatSeconds } from './display-format.ts'
 
 import { DEFAULT_TRANSPORT_MAX_RETRIES } from './transport-retry.ts'
 
@@ -138,7 +139,7 @@ export function formatDiagnostics(snapshot: DiagnosticsSnapshot): string {
     `输出上限：${output}`,
     `凭据引用：${snapshot.credential.ref}（${credential}）`,
     `CLI 登录态：${snapshot.cliLogin.path}（${describeLogin(snapshot.cliLogin)}）`,
-    `请求超时：${formatDuration(snapshot.timeouts.requestMs)}；流空闲超时：${formatDuration(snapshot.timeouts.streamIdleMs)}`,
+    `请求超时：${formatSeconds(snapshot.timeouts.requestMs)}；流空闲超时：${formatSeconds(snapshot.timeouts.streamIdleMs)}`,
     `传输重试上限：${snapshot.retry.transportMaxRetries} 次；可重试错误码：${snapshot.retry.retryableCodes.join('、')}`,
   ].join('\n')
 }
@@ -165,6 +166,3 @@ function describeLogin(login: DiagnosticsSnapshot['cliLogin']): string {
 }
 
 /** Milliseconds as seconds, collapsing whole seconds (`300 秒`). */
-function formatDuration(ms: number): string {
-  return ms % 1000 === 0 ? `${ms / 1000} 秒` : `${(ms / 1000).toFixed(1)} 秒`
-}

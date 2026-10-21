@@ -55,7 +55,7 @@ Command Code plugin.
 | Default API base | `https://amr-link.open-design.ai/v1` |
 | Model catalog cache | `~/.opendesign/models-cache.json` |
 | CLI login state (read-only) | `~/.amr/config.json` |
-| Remote namespace | `opendesign` (`models`, `analytics`; `report`/`usage` reserved) |
+| Remote namespace | `opendesign` (`models`, `analytics`, `usage`) |
 | Telemetry switches | `DSH_OPENDESIGN_TIMING`, `DSH_OPENDESIGN_TRACE` |
 
 ## Credentials
@@ -201,17 +201,23 @@ confirmed separately, conflicts keep the draft.
 - **No browser/device login, no account pool, no ZDR, no web search, no plan filtering.** They have no Open
   Design equivalent.
 - **Single credential.** The last resolved key serves the profile; no rotation.
-- **Thinking is invisible for `gpt-6-luna` and `claude-haiku-5.5`** on the Chat face.
+- **Thinking visibility depends on the transport.** On the Chat face `gpt-6-luna` and `claude-haiku-5.5`
+  emit no reasoning. `config.protocol: auto` (the default) routes `claude-haiku-5.5` over the optional
+  Messages transport, where its thinking is readable once an explicit thinking budget is requested; the
+  gateway only returns `redacted_thinking` (encrypted) for `gpt-6-luna` there, so readable reasoning for it
+  exists only on the Responses API, which this plugin does not implement.
 - **File/audio/video input is refused** even when the gateway advertises the modality.
 - **No plugin icon** yet.
 - **No TUI settings page**; the settings page is the web UI. (P2 if needed.)
-- **Chat Completions only.** The Messages transport is a P2 option; the Responses API is out of scope.
+- **Chat Completions is the default transport**; the optional Anthropic Messages transport
+  (`config.protocol: chat | messages | auto`) covers the thinking-hidden models and falls back to Chat once
+  if the gateway does not serve it. The Responses API is out of scope (ADR-0001).
 - `temperature`, `stop`, `logprobs` and `store` are not sent. `developer` messages are downgraded to `system`
   because glm rejects the role.
 - **429 / `Retry-After` is implemented but not observed live** (the probes never triggered a limit), and there
   are no `x-ratelimit-*` headers to lean on.
-- **Settings-page interaction is verified by tests, not by a browser session** in the acceptance ticket; the
-  real-profile install and Command Code coexistence are verified by the maintainer after merge.
+- **Settings-page interaction is verified by tests and by a real-profile install**; the browser pass is the
+  maintainer's restart step after installing the packed tarball (the bundle layer loads at boot).
 
 ## Verify
 
