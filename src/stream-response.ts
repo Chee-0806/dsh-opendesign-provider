@@ -24,17 +24,14 @@
 import { randomUUID } from 'node:crypto'
 
 import {
-  LlmError,
   ToolCallId,
   type FinishReason,
   type StreamChunk,
   type TokenUsage,
 } from '@deepseek-ai/dsh-llm'
-import { emptyResponseFailure, idleTimeoutFailure, nonSseBodyFailure } from './error-taxonomy.ts'
+import { emptyResponseFailure, nonSseBodyFailure } from './error-taxonomy.ts'
 import { estimateOutputTokens } from './output-tokens.ts'
-
-/** 一帧 `data:` 载荷：解析后的对象，或协议终止标记。 */
-type SsePayload = Record<string, unknown>
+import { isRecord, numberValue, readSsePayloads, type SseObservation, type SsePayload } from './sse-frames.ts'
 
 /**
  * 把一次流式响应映射成块序列。
@@ -74,7 +71,7 @@ export async function* streamedCompletionChunks(
 
   // 观察到的 SSE 外形：有多少个 `data:` 帧、开头是什么。用来区分「上游交了空回复」
   // 与「网关根本没按 SSE 回话」（HTML 错误页）。
-  const seen = { frames: 0, head: '' }
+  const seen: SseObservation = { frames: 0, head: '' }
   for await (const payload of readSsePayloads(body, seen, idleTimeoutMs)) {
     const reported = usageOf(payload.usage)
     if (reported !== undefined) {
@@ -179,98 +176,6 @@ export async function* streamedCompletionChunks(
   }
 }
 
-/**
- * 逐行读 SSE，产出每个 `data:` 帧解析后的对象，遇 `[DONE]` 停止。
- *
- * 只按行分帧，不依赖空行边界，也不看 `event:` / `id:` / 注释行——网关的 chat
- * 流是 data-only（实测），把事件名当协议会白等。一个 `data:` 行必须是一整段
- * JSON；行被网络切断时由缓冲区拼回。
- */
-async function* readSsePayloads(
-  body: ReadableStream<Uint8Array>,
-  seen: { frames: number; head: string },
-  idleTimeoutMs: number,
-): AsyncGenerator<SsePayload> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  const idleMs = Math.max(0, Math.trunc(idleTimeoutMs))
-  let buffer = ''
-  // 空闲计时只覆盖「等下一片数据」的时间：读到数据就重新起表，读完后拆表。
-  let idleTimer: ReturnType<typeof setTimeout> | undefined
-  let idleExpired = false
-  const armIdleTimer = (): void => {
-    if (idleMs === 0) return
-    idleTimer = setTimeout(() => {
-      idleExpired = true
-      // 取消读取会让挂起的 read 以 done 结束，循环随即看到 idleExpired 并抛出。
-      void reader.cancel().catch(() => {})
-    }, idleMs)
-  }
-  const disarmIdleTimer = (): void => {
-    if (idleTimer === undefined) return
-    clearTimeout(idleTimer)
-    idleTimer = undefined
-  }
-  try {
-    for (;;) {
-      armIdleTimer()
-      const chunk = await reader.read()
-      disarmIdleTimer()
-      if (idleExpired) throw idleTimeoutFailure(idleMs)
-      if (chunk.done) break
-      const text = decoder.decode(chunk.value, { stream: true })
-      buffer += text
-      if (seen.head.length < 200) seen.head += text.slice(0, 200 - seen.head.length)
-      let newline = buffer.indexOf('\n')
-      while (newline !== -1) {
-        const frame = frameOf(buffer.slice(0, newline))
-        buffer = buffer.slice(newline + 1)
-        newline = buffer.indexOf('\n')
-        if (frame.startsWith('data:')) seen.frames += 1
-        const payload = parseFrame(frame)
-        if (payload === 'done') return
-        if (payload !== undefined) yield payload
-      }
-    }
-    const tail = parseFrame(frameOf(buffer))
-    if (tail !== undefined && tail !== 'done') yield tail
-  } finally {
-    disarmIdleTimer()
-    await reader.cancel().catch(() => {
-      // 取消只是提前放手；读错误已由上面的循环抛出。
-    })
-  }
-}
-
-/** 去掉行尾 `\r`；SSE 的换行既可能是 `\n` 也可能是 `\r\n`。 */
-function frameOf(line: string): string {
-  return line.endsWith('\r') ? line.slice(0, -1) : line
-}
-
-/** 解析一行 SSE：`data:` 载荷 → 对象（或终止标记），其余行（`event:`、注释、空行）忽略。 */
-function parseFrame(line: string): SsePayload | 'done' | undefined {
-  if (!line.startsWith('data:')) return undefined
-  const payload = line.slice('data:'.length).replace(/^ /u, '').trim()
-  if (payload === '') return undefined
-  if (payload === '[DONE]') return 'done'
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(payload)
-  } catch {
-    throw new LlmError(
-      `llm-opendesign: Open Design 的流式响应里有一帧不是合法 JSON：${truncate(payload)}`,
-      'PROTOCOL_ERROR',
-    )
-  }
-  if (!isRecord(parsed)) {
-    throw new LlmError(
-      `llm-opendesign: Open Design 的流式响应里有一帧不是 JSON 对象：${truncate(payload)}`,
-      'PROTOCOL_ERROR',
-    )
-  }
-  return parsed
-}
-
 /** 第一项 choice；`choices: []` 的 usage 尾帧与畸形帧都读不到。 */
 function firstChoice(payload: SsePayload): Record<string, unknown> | undefined {
   if (!Array.isArray(payload.choices)) return undefined
@@ -369,16 +274,4 @@ function reasoningTextOf(delta: Record<string, unknown>): string {
     if (isRecord(detail) && typeof detail.text === 'string') parts.push(detail.text)
   }
   return parts.join('')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-function truncate(text: string, max = 300): string {
-  return text.length <= max ? text : `${text.slice(0, max)}…`
 }
