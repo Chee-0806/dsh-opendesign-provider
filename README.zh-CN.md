@@ -9,10 +9,9 @@
 本项目是社区集成，**与 Open Design / Powerformer 没有隶属或背书关系**；使用 Open Design 服务时适用其
 自身的服务条款。
 
-**状态：P0 已完成，无金额的模型分析页已交付。** Chat Completions 传输、实时模型目录、凭据链、设置页与
-P0 真机验收都已交付，并补上 P2 的模型分析读口（token、速度、失败/重试、用量覆盖率、成本档位与能力档，
-任何金额都不显示也不计算；见 ADR-0002）。额度面板与 `/opendesign` 命令属于 **P1，尚未交付** —— 当前不会
-注册任何额度界面，设置页会如实说明。
+**状态：P0、P1 额度面与 P2 无金额分析均已交付。** Chat Completions 传输、实时模型目录、凭据链、设置页、
+可选的侧栏额度卡与其仪表盘、`/opendesign` 命令，以及模型分析读口（token、速度、失败/重试、用量覆盖率、
+成本档位与能力档，任何金额都不显示也不计算；见 ADR-0002）全部就绪。
 
 ## 安装
 
@@ -52,7 +51,7 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 | 默认网关 | `https://amr-link.open-design.ai/v1` |
 | 模型目录缓存 | `~/.opendesign/models-cache.json` |
 | CLI 登录态（只读） | `~/.amr/config.json` |
-| Remote 命名空间 | `opendesign`（`models`、`analytics`；`report`/`usage` 预留） |
+| Remote 命名空间 | `opendesign`（`models`、`usage`、`analytics`；`report` 预留） |
 | 遥测开关 | `DSH_OPENDESIGN_TIMING`、`DSH_OPENDESIGN_TRACE` |
 
 ## 凭据
@@ -69,7 +68,7 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 （实测该值是主机名，例如 `https://amr-link.open-design.ai`，插件在裸源站上补 `/v1`）；其余情况用默认网关。
 
 插件**从不写** `~/.amr/config.json`，也从不打印密钥。设置页与诊断只显示引用名、是否存在、密钥来源。
-`profiles.prod.controlKey` 会被识别，留给 P1 额度功能使用，不参与推理。
+`profiles.prod.controlKey` 由额度功能只读使用（插件从不写回），不参与推理。
 
 没有浏览器登录、没有设备码流程、没有账号池：Open Design 是单 Key 模型。
 
@@ -161,24 +160,28 @@ Open Design 控制台。
 404 按响应体形状区分：JSON `model_not_found` 是模型 id 不对 → `BAD_REQUEST`；纯文本或 HTML 是路径不对 →
 `PROTOCOL_ERROR`。
 
-## 额度面板与 `/opendesign` —— P1，尚未交付
+## 额度面板与 `/opendesign`
 
-设计里的侧栏卡、仪表盘与 `/opendesign` 文本看板都要用 CLI 登录态的 `controlKey` 读控制面。**本构建不会注册
-其中任何一个。** 有控制密钥但额度功能未交付时，设置页会说明「推理可用、额度（P1）不可用」；推理永远不被
-额度门禁阻塞。
+侧栏卡、它的仪表盘与 `/opendesign` 文本看板都用 CLI 登录态的 `controlKey` 读控制面。侧栏卡是**可选**的：
+设置 → Open Design → 显示 → 「侧栏额度卡」，默认关闭。开启后显示套餐档位与 7 天窗口（Go 档另有 5 小时
+窗口）；点击进入仪表盘，含两个窗口、重置时间、钱包余额与「先扣 Design Plan 额度、再扣套餐额度、最后扣
+钱包」的计费顺序。数据过期时保留旧值并标注「已过期」。
+
+没有控制密钥时不渲染、也不刷新——设置页会说明「推理可用、额度不可用」。推理永远不被额度门禁阻塞。卡片在
+打开时刷新、最多每 5 分钟一次，仪表盘的「刷新」按钮可手动拉取。
 
 ## 设置页
 
 - **连接**：API Key（经凭据引用写入/清除）、`apiBase`、CLI 登录态状态。
 - **模型与上下文**：可见模型、逐模型上下文覆盖、全局输出上限。
-- **显示**：语言。
+- **显示**：语言、侧栏额度卡（默认关闭）。
 - **高级**：请求超时、流空闲超时、传输重试次数、目录缓存路径、复制脱敏后的当前有效配置诊断。
 
 写入沿用宿主的设置写入语义：一份草稿、一次带版本栅栏的整批 mutate、凭据单独确认；冲突时保留草稿。
 
 ## 已知限制
 
-- **任何地方都不显示美元金额。** 成本只有分档标签；额度功能将来展示 credits 窗口，也不会编造账单。
+- **不编造美元金额。** 成本只有分档标签；额度面板展示 credits 窗口与控制面给的钱包余额，不折算账单。
 - **没有浏览器/设备码登录、账号池、ZDR、联网搜索、套餐过滤。** 这些在上游没有对等能力。
 - **单凭据。** 解析出的最后一把 Key 服务整个 profile，没有轮换。
 - **`gpt-6-luna` 与 `claude-haiku-5.5` 的思考在 Chat 面不可见。**
