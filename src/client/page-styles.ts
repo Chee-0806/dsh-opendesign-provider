@@ -330,26 +330,5 @@ export const PAGE_CSS = `
    the page, and it is the label colour, not a brand hue. */
 .od-saveBarPrimary{background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-layer-1)}
 .od-saveBarPrimary:hover:not(:disabled){opacity:.85}
-/* Analytics page (ticket 12): a draft filter row, a summary strip and one
- * comparison table. The table lives in a horizontal scroll container so a wide
- * nine-column comparison never forces the settings panel to scroll sideways. */
-.od-analyticsFilters{display:flex;flex-wrap:wrap;align-items:flex-end;gap:12px}
-.od-analyticsModes{display:inline-flex;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
-.od-modeButton{box-sizing:border-box;height:32px;padding:0 12px;border:0;border-radius:8px;background:0 0;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;cursor:pointer}
-.od-modeButtonActive{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.08)}
-.od-modeButton:focus-visible{outline:none;box-shadow:0 0 0 2px var(--dsw-alias-border-l3)}
-.od-analyticsField{display:flex;flex-direction:column;gap:4px}
-.od-analyticsNumber{width:96px}
-.od-analyticsNotices{margin:12px 0 0}
-.od-analyticsSummary{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;margin:12px 0}
-.od-analyticsStat{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:14px;background:var(--dsw-alias-bg-layer-2)}
-.od-analyticsStatLabel{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
-.od-analyticsStatValue{color:var(--dsw-alias-label-primary);font-size:16px;line-height:24px;font-variant-numeric:tabular-nums}
-.od-analyticsTableWrap{overflow-x:auto}
-.od-analyticsTable{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
-.od-analyticsTable th,.od-analyticsTable td{padding:8px 10px;border-bottom:0.5px solid var(--dsw-alias-border-l2);text-align:right;white-space:nowrap}
-.od-analyticsTable th:first-child,.od-analyticsTable td:first-child{text-align:left}
-.od-analyticsTable th{color:var(--dsw-alias-label-secondary);font-weight:500}
-.od-analyticsTable td{color:var(--dsw-alias-label-primary)}
 @media (prefers-reduced-motion:reduce){.od-chevron,.od-toggle::after,.od-usageBarFill,.od-saveBar,.od-saveBarShown{transition:none}}
 `
