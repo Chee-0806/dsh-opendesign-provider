@@ -434,8 +434,8 @@ async function checkHostAssembly(staged, engineModules) {
     }
     // models Remote + quota Remote ride two optional typert fibers; the command
     // rides the optional `commands` service; settings stays last.
-    if (JSON.stringify(injected) !== JSON.stringify([['typert'], ['typert'], ['commands'], ['settings']])) {
-      fail(`apply() injected ${JSON.stringify(injected)}, expected the two optional Remotes, the command and the settings bridge`)
+    if (JSON.stringify(injected) !== JSON.stringify([['typert'], ['commands'], ['settings']])) {
+      fail(`apply() injected ${JSON.stringify(injected)}, expected the one optional Remote service, the command and the settings bridge`)
     }
     if (configured.length !== 1 || configured[0]?.auto !== false) {
       fail(`settings.configure() received ${JSON.stringify(configured)}, expected [{ auto: false }]`)
