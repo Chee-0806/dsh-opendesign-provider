@@ -9,9 +9,10 @@ can use Open Design models next to every other provider without route or namespa
 This project is a community integration. It is **not affiliated with or endorsed by Open Design /
 Powerformer**, and your use of the Open Design service is governed by Open Design's own terms.
 
-**Status: P0 complete.** Chat Completions transport, live model catalog, credential chain, settings page and
-the P0 live acceptance are in. The quota panel and the `/opendesign` command are **P1, not delivered yet** — no
-quota surface is registered, and the settings page says so explicitly.
+**Status: P0, the P1 quota surface and the P2 money-free analytics are in.** Chat Completions transport, live
+model catalog, credential chain, settings page, the opt-in sidebar quota card with its dashboard, the
+`/opendesign` command, and the model analytics read (tokens, speed, failures/retries, usage coverage,
+cost/capability tiers — never an amount; ADR-0002) are all delivered.
 
 ## Install
 
@@ -30,6 +31,10 @@ Restart the app after installing. Then check:
 
 - **Settings → Open Design** shows the page (connection, models and context, display, advanced).
 - **Settings → Models** shows the Open Design card with the key state and the catalog source.
+- **Settings → Model analytics** compares the Open Design models found in local history. It reads only the
+  host's own session log, never the model plane, and reports tokens, first-token/total latency, failures,
+  retries and usage coverage. The cost column is the catalog `low`/`medium`/`high` word; no dollar amount is
+  shown or computed.
 
 The bundle ships `lib/`, its `cordis.patch.yml` row and the `dsh.client` declaration. It only inserts its own
 `llm-opendesign` row and never rewrites another provider's route, so it coexists with an already installed
@@ -50,7 +55,7 @@ Command Code plugin.
 | Default API base | `https://amr-link.open-design.ai/v1` |
 | Model catalog cache | `~/.opendesign/models-cache.json` |
 | CLI login state (read-only) | `~/.amr/config.json` |
-| Remote namespace | `opendesign` (`models`; `report`/`usage`/`analytics` reserved) |
+| Remote namespace | `opendesign` (`models`, `analytics`; `report`/`usage` reserved) |
 | Telemetry switches | `DSH_OPENDESIGN_TIMING`, `DSH_OPENDESIGN_TRACE` |
 
 ## Credentials
@@ -68,8 +73,8 @@ login state uses that state's server-issued `linkUrl` with `/v1` appended when t
 live `linkUrl` is a host, e.g. `https://amr-link.open-design.ai`); everything else uses the default gateway.
 
 The plugin **never writes** `~/.amr/config.json` and never prints a key. Settings and diagnostics only show the
-reference name, whether it resolves and where the key came from. `profiles.prod.controlKey` is recognized for
-the future quota feature (P1) but is not used for inference.
+reference name, whether it resolves and where the key came from. `profiles.prod.controlKey` is read by the
+quota feature (read-only, never written back) and is not used for inference.
 
 No browser login, no device-code flow, no account pool: Open Design is a single-key model.
 
@@ -102,6 +107,25 @@ attachments are refused as `UNSUPPORTED_CONTENT` with the model's declared capab
 Context is the gateway's `context_budget` (usable input), not the nominal `context_limit`. Kimi's 65536 output
 budget is raised above its 32000 `output_budget` so its thinking levels fit. Cost and capability are tier
 labels, **not** prices.
+
+## Model analytics
+
+**Settings → Model analytics** compares the Open Design models present in local history. It reads the host's
+own session log through the optional `sessionQuery` service — never the model plane — and only when the user
+presses **Read**; nothing is scanned at boot or polled in the background.
+
+- Filters: the most recent 1–100 sessions that contain an Open Design request, or a local-calendar date range
+  (start/end inclusive on screen, half-open `[from, to)` on the wire, at most 366 days).
+- Columns: requests, total tokens, average first-token latency, average total duration, failure rate, retries,
+  the catalog's cost tier (`low`/`medium`/`high`) and capability tier (`standard`/`advanced`).
+- Missing data stays missing: a request whose adapter reported no usage counts as a request but contributes no
+  tokens, and a model absent from the current catalog shows `unknown` tiers instead of a made-up value.
+- The scan is bounded (100 candidate sessions, 200 000 own events) and reports truncation. A forked session
+  counts only its own events, so branch inheritance never double-counts an ancestor's requests.
+- A profile without a session-query service shows "unavailable" with the reason; conversations are unaffected.
+
+There is **no money dimension**: no price table, no dollar amount and no `≈` estimate. ADR-0002 keeps this
+deliberate — use the Open Design control plane for billing.
 
 ## Reasoning levels
 
@@ -146,18 +170,24 @@ Every failure is one stable code plus text that says what to do. Deterministic f
 404 is split by body shape: JSON `model_not_found` means a bad model id → `BAD_REQUEST`; plain text or HTML
 means a bad path → `PROTOCOL_ERROR`.
 
-## Quota panel and `/opendesign` — P1, not delivered
+## Quota panel and `/opendesign`
 
-The design's sidebar card, dashboard and `/opendesign` text board read the control plane with the CLI login
-state's `controlKey`. **None of them is registered in this build.** When the control key is present but the
-quota feature is not, the settings page says "inference works, quota (P1) is unavailable"; inference is never
-gated on quota.
+The sidebar card, its dashboard and the `/opendesign` text board all read the control plane with the CLI login
+state's `controlKey`. The card is **opt-in**: Settings → Open Design → Display → "Sidebar quota card", off by
+default. When on, it shows the plan tier and the 7-day window (Go also shows the 5-hour window); clicking it
+opens a dashboard with both windows, reset times, the wallet balance and the billing order ("Design Plan
+credits first, then plan credits, then the wallet"). A stale reading keeps its last value and is marked
+"Stale".
+
+Without a control key nothing is rendered and nothing is refreshed — the settings page says "inference works,
+quota is unavailable". Inference is never gated on quota. The card refreshes on open, at most once every five
+minutes, and on demand from the dashboard's Refresh button.
 
 ## Settings page
 
 - **Connection**: API key (write/clear through the credential reference), `apiBase`, CLI login state status.
 - **Models and context**: visible models, per-model context overrides, global output cap.
-- **Display**: language.
+- **Display**: language, sidebar quota card (off by default).
 - **Advanced**: request timeout, stream idle timeout, transport retries, catalog cache path, copy a redacted
   effective-configuration diagnostic.
 
@@ -166,8 +196,8 @@ confirmed separately, conflicts keep the draft.
 
 ## Known limitations
 
-- **No USD amounts anywhere.** Cost is a tier label. Money-shaped UI is deliberately absent (the quota feature
-  will show credit windows, not invented invoices).
+- **No invented USD amounts.** Cost is a tier label; the quota panel shows credit windows and the wallet
+  balance the control plane reports, never a derived invoice.
 - **No browser/device login, no account pool, no ZDR, no web search, no plan filtering.** They have no Open
   Design equivalent.
 - **Single credential.** The last resolved key serves the profile; no rotation.

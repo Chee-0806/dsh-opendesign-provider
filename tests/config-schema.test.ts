@@ -83,6 +83,15 @@ test('输出预算接受 0（无宿主预算）到 262144 绝对上限，越界�
   }
 })
 
+test('额度卡开关默认关闭，且是设置页可写的易变字段', () => {
+  // 默认 false 是「不强迫所有人看额度」的口径；volatile 标记让设置页能写它
+  // （未标记的字段既不可见也不可写）。
+  assert.equal(unwrapVolatileConfig(Config({})).showSidebarQuota, false)
+  assert.equal(unwrapVolatileConfig(Config({ showSidebarQuota: true })).showSidebarQuota, true)
+  const parsed = Config({ showSidebarQuota: false })
+  assert.equal(unwrapVolatileConfig(parsed).showSidebarQuota, false)
+})
+
 test('程序化构造越过配置校验时，非法输出预算回落到「未设置」', () => {
   // A connection built by hand never passes through Schemastery, so the resolve
   // step re-judges: a budget the gateway would refuse becomes "unset" (the

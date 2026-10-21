@@ -57,14 +57,23 @@ export const REMOTE_ENDPOINTS = ['report', 'usage', 'models', 'analytics'] as co
 /** The settings-page slot id (`settings.section`). */
 export const SETTINGS_SECTION_ID = 'opendesign'
 
+/** The analytics page's own `settings.section` id (ticket 12). */
+export const ANALYTICS_SECTION_ID = 'opendesign-analytics'
+
 /** Locale namespace both browser surfaces declare for their copy. */
 export const SETTINGS_LOCALE_NS = 'settings.opendesign'
+
+/** Locale namespace the analytics page declares for its own copy. */
+export const ANALYTICS_LOCALE_NS = 'analytics.opendesign'
 
 /** The Models-page provider-card key (`settings.models.provider-card`). */
 export const MODEL_CARD_KEY = 'llm-opendesign'
 
 /** The quota panel's `main` / `sidebar.footer.action` id. */
 export const PANEL_ID = 'opendesign-panel'
+
+/** Locale namespace the two quota-panel surfaces declare (distinct from the settings page's). */
+export const PANEL_LOCALE_NS = 'panel.opendesign'
 
 /** Opt-in raw request-timing trace environment variable. */
 export const REQUEST_TIMING_ENV = 'DSH_OPENDESIGN_TIMING'

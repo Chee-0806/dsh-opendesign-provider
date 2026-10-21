@@ -9,8 +9,9 @@
 本项目是社区集成，**与 Open Design / Powerformer 没有隶属或背书关系**；使用 Open Design 服务时适用其
 自身的服务条款。
 
-**状态：P0 已完成。** Chat Completions 传输、实时模型目录、凭据链、设置页与 P0 真机验收都已交付。
-额度面板与 `/opendesign` 命令属于 **P1，尚未交付** —— 当前不会注册任何额度界面，设置页会如实说明。
+**状态：P0、P1 额度面与 P2 无金额分析均已交付。** Chat Completions 传输、实时模型目录、凭据链、设置页、
+可选的侧栏额度卡与其仪表盘、`/opendesign` 命令，以及模型分析读口（token、速度、失败/重试、用量覆盖率、
+成本档位与能力档，任何金额都不显示也不计算；见 ADR-0002）全部就绪。
 
 ## 安装
 
@@ -29,6 +30,9 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 
 - **设置 → Open Design** 出现设置页（连接、模型与上下文、显示、高级）。
 - **设置 → 模型** 出现 Open Design 卡片，显示密钥状态与目录来源。
+- **设置 → 模型分析** 比较本机历史中出现的 Open Design 模型。它只读宿主自己的会话日志、不碰模型面，
+  展示 token、首字/总时长、失败、重试与用量覆盖率。成本列只取目录的 `low`/`medium`/`high` 档位词，
+  不显示也不折算任何美元金额。
 
 发布产物包含 `lib/`、`cordis.patch.yml` 里的插件行与 `dsh.client` 声明。补丁只 insert 自己这一行
 （`llm-opendesign`），不会改写其它提供方的路由，因此与已安装的 Command Code 插件共存。
@@ -47,7 +51,7 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 | 默认网关 | `https://amr-link.open-design.ai/v1` |
 | 模型目录缓存 | `~/.opendesign/models-cache.json` |
 | CLI 登录态（只读） | `~/.amr/config.json` |
-| Remote 命名空间 | `opendesign`（`models`；`report`/`usage`/`analytics` 预留） |
+| Remote 命名空间 | `opendesign`（`models`、`analytics`；`report`/`usage` 预留） |
 | 遥测开关 | `DSH_OPENDESIGN_TIMING`、`DSH_OPENDESIGN_TRACE` |
 
 ## 凭据
@@ -64,7 +68,7 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 （实测该值是主机名，例如 `https://amr-link.open-design.ai`，插件在裸源站上补 `/v1`）；其余情况用默认网关。
 
 插件**从不写** `~/.amr/config.json`，也从不打印密钥。设置页与诊断只显示引用名、是否存在、密钥来源。
-`profiles.prod.controlKey` 会被识别，留给 P1 额度功能使用，不参与推理。
+`profiles.prod.controlKey` 由额度功能只读使用（插件从不写回），不参与推理。
 
 没有浏览器登录、没有设备码流程、没有账号池：Open Design 是单 Key 模型。
 
@@ -94,6 +98,24 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 
 上下文取网关的 `context_budget`（可用输入预算），不是名义上的 `context_limit`。kimi 的 65536 输出上限高于
 其 32000 的 `output_budget`，是为了容纳思考档位。成本档与能力档是分档标签，**不是价格**。
+
+## 模型分析
+
+**设置 → 模型分析** 比较本机历史里出现的 Open Design 模型。它通过可选的 `sessionQuery` 服务读宿主自己的
+会话日志、从不接触模型面，而且只在用户点 **读取** 时扫描；启动时不扫描，也没有后台轮询。
+
+- 筛选：最近 1–100 个含 Open Design 请求的会话，或本地日历的日期范围（界面上开始/结束日都包含，线上是
+  半开区间 `[from, to)`，最长 366 天）。
+- 列：请求数、Token 总量、平均首字延迟、平均总时长、失败率、重试数，以及目录的成本档位
+  （`low`/`medium`/`high`）与能力档（`standard`/`advanced`）。
+- 缺数据就显示缺失：适配器没上报用量的请求仍算一条请求，但不贡献 Token；目录里没有的模型档位显示
+  `未知`，不会编造数值。
+- 扫描有上限（100 个候选会话、20 万个自有事件）并会标注截断。分支会话只计自己的事件，继承前缀不会把
+  父会话的请求重复计数。
+- 没有会话查询服务的 profile 会显示「不可用」和原因；模型对话本身不受影响。
+
+这里**没有金额维度**：没有价表、没有美元金额、也没有 `≈` 估算。这是 ADR-0002 的刻意决定——账单请看
+Open Design 控制台。
 
 ## 思考等级
 
@@ -138,24 +160,28 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 404 按响应体形状区分：JSON `model_not_found` 是模型 id 不对 → `BAD_REQUEST`；纯文本或 HTML 是路径不对 →
 `PROTOCOL_ERROR`。
 
-## 额度面板与 `/opendesign` —— P1，尚未交付
+## 额度面板与 `/opendesign`
 
-设计里的侧栏卡、仪表盘与 `/opendesign` 文本看板都要用 CLI 登录态的 `controlKey` 读控制面。**本构建不会注册
-其中任何一个。** 有控制密钥但额度功能未交付时，设置页会说明「推理可用、额度（P1）不可用」；推理永远不被
-额度门禁阻塞。
+侧栏卡、它的仪表盘与 `/opendesign` 文本看板都用 CLI 登录态的 `controlKey` 读控制面。侧栏卡是**可选**的：
+设置 → Open Design → 显示 → 「侧栏额度卡」，默认关闭。开启后显示套餐档位与 7 天窗口（Go 档另有 5 小时
+窗口）；点击进入仪表盘，含两个窗口、重置时间、钱包余额与「先扣 Design Plan 额度、再扣套餐额度、最后扣
+钱包」的计费顺序。数据过期时保留旧值并标注「已过期」。
+
+没有控制密钥时不渲染、也不刷新——设置页会说明「推理可用、额度不可用」。推理永远不被额度门禁阻塞。卡片在
+打开时刷新、最多每 5 分钟一次，仪表盘的「刷新」按钮可手动拉取。
 
 ## 设置页
 
 - **连接**：API Key（经凭据引用写入/清除）、`apiBase`、CLI 登录态状态。
 - **模型与上下文**：可见模型、逐模型上下文覆盖、全局输出上限。
-- **显示**：语言。
+- **显示**：语言、侧栏额度卡（默认关闭）。
 - **高级**：请求超时、流空闲超时、传输重试次数、目录缓存路径、复制脱敏后的当前有效配置诊断。
 
 写入沿用宿主的设置写入语义：一份草稿、一次带版本栅栏的整批 mutate、凭据单独确认；冲突时保留草稿。
 
 ## 已知限制
 
-- **任何地方都不显示美元金额。** 成本只有分档标签；额度功能将来展示 credits 窗口，也不会编造账单。
+- **不编造美元金额。** 成本只有分档标签；额度面板展示 credits 窗口与控制面给的钱包余额，不折算账单。
 - **没有浏览器/设备码登录、账号池、ZDR、联网搜索、套餐过滤。** 这些在上游没有对等能力。
 - **单凭据。** 解析出的最后一把 Key 服务整个 profile，没有轮换。
 - **`gpt-6-luna` 与 `claude-haiku-5.5` 的思考在 Chat 面不可见。**
