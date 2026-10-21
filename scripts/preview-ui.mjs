@@ -3,8 +3,8 @@
  *
  * The browser half has no dev server: `lib/client.js` is a slot plugin the DSH
  * web client loads, so the only way to see the settings page, the Models-page
- * card, the quota card/dashboard or the analytics page is to build, pack,
- * install into a real profile and restart the app. That loop is fine for
+ * card or the quota card/dashboard is to build, pack, install into a real
+ * profile and restart the app. That loop is fine for
  * acceptance and far too slow for iterating on layout, colour or interaction.
  *
  * This script bundles `scripts/preview/app.tsx` with esbuild and writes a thin

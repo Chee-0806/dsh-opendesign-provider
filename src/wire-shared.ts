@@ -1,7 +1,7 @@
 /**
  * Shared boundary-validation and Remote-descriptor plumbing for the plugin's
  * hand-rolled Typert wire contracts (`opendesign/report`, `opendesign/models`,
- * `opendesign/usage`, `opendesign/analytics`).
+ * `opendesign/usage`).
  *
  * Every Remote this plugin serves crosses the Typert Gateway with a strict
  * result schema: the Host half registers a descriptor against a Cordis service
