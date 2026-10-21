@@ -19,7 +19,7 @@ import type {
   ImageRequestTarget,
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import { LlmError, MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { LlmError, MessageId, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 
 import {
   DEFAULT_REQUEST_TIMEOUT_MS,
@@ -69,7 +69,7 @@ function toolResult(callId: string, text: string): Message {
     role: 'tool',
     toolCallId: callId as never,
     content: [{ type: 'text', text }],
-    source: { kind: 'tool', name: 'get_time' },
+    source: { kind: 'tool', callId: callId as never },
   }
 }
 
@@ -136,6 +136,7 @@ function makeAdapter(
     resolveApiKey: overrides.resolveApiKey ?? (async () => 'user_test_key'),
     fetchImpl: overrides.fetchImpl ?? routedFetch(routes, recorded),
     ...(overrides.attachments === undefined ? {} : { attachments: overrides.attachments }),
+    ...(overrides.onTransportFallback === undefined ? {} : { onTransportFallback: overrides.onTransportFallback }),
     ...(overrides.now === undefined ? {} : { now: overrides.now }),
   })
 }
@@ -402,10 +403,12 @@ async function firstCallURL(
   return recorded[0]!.url
 }
 
-test('默认 auto：两个在 Chat 面看不见思考的模型走 Messages，其余继续走 Chat', async () => {
+test('默认 auto：只有「Messages 面能给出可读思考」的 claude-haiku-5.5 走 Messages，其余继续走 Chat', async () => {
   const base = 'https://models.example.test/v1'
-  assert.equal(await firstCallURL(undefined, 'gpt-6-luna'), `${base}/messages`)
-  assert.equal(await firstCallURL('auto', 'claude-haiku-5.5'), `${base}/messages`)
+  assert.equal(await firstCallURL(undefined, 'claude-haiku-5.5'), `${base}/messages`)
+  // gpt-6-luna 在 Messages 面只回 redacted_thinking（加密块），切过去也读不到思考，
+  // 所以它留在 Chat 面——实测见 docs/adr/0001 的 2026-10-21 补记。
+  assert.equal(await firstCallURL('auto', 'gpt-6-luna'), `${base}/chat/completions`)
   assert.equal(await firstCallURL('auto', 'deepseek-v4.1-flash'), `${base}/chat/completions`)
   assert.equal(await firstCallURL('auto', 'glm-5.3-flash'), `${base}/chat/completions`)
 })
@@ -422,6 +425,7 @@ test('显式 chat / messages 覆盖选路：chat 让全部模型走 Chat，messa
 
 test('Messages 不可用（404 HTML）时自动回落 Chat：对话照常完成，同一模型此后直接走 Chat', async () => {
   const recorded: RecordedRequest[] = []
+  const events: Array<{ model: string; from: string; to: string; reason: string }> = []
   let messagesCalls = 0
   const adapter = makeAdapter({
     messages: () => {
@@ -434,9 +438,10 @@ test('Messages 不可用（404 HTML）时自动回落 Chat：对话照常完成�
     chat: () => sseResponse(fixture('stream-text.sse')),
   }, {
     options: () => connection({ protocol: 'auto' }),
+    onTransportFallback: (event) => events.push(event),
   }, recorded)
 
-  const chunks = await collect(oneTurn('gpt-6-luna'), adapter)
+  const chunks = await collect(oneTurn('claude-haiku-5.5'), adapter)
   const text = chunks
     .filter((chunk): chunk is { type: 'text-delta'; text: string } =>
       typeof chunk === 'object' && chunk !== null && (chunk as { type?: unknown }).type === 'text-delta')
@@ -452,14 +457,19 @@ test('Messages 不可用（404 HTML）时自动回落 Chat：对话照常完成�
     'https://models.example.test/v1/chat/completions',
   ])
 
+  // 回落会留一行日志（插件入口把它接到 console.warn）；这里钉住回调拿到的内容。
+  assert.equal(events.length, 1)
+  assert.equal(events[0]?.to, 'chat')
+  assert.match(events[0]?.reason ?? '', /404/u)
+
   const fallbacks = adapter.transportFallbacks()
   assert.equal(fallbacks.length, 1)
-  assert.equal(fallbacks[0]?.model, 'gpt-6-luna')
+  assert.equal(fallbacks[0]?.model, 'claude-haiku-5.5')
   assert.equal(fallbacks[0]?.from, 'messages')
   assert.match(fallbacks[0]?.reason ?? '', /404/u)
 
   // 记住偏好：第二轮不再先撞一次 Messages。
-  const second = await collect(oneTurn('gpt-6-luna'), adapter)
+  const second = await collect(oneTurn('claude-haiku-5.5'), adapter)
   assert.deepEqual(second.at(-1), { type: 'finish', reason: { kind: 'stop' } })
   assert.equal(messagesCalls, 1)
   assert.deepEqual(recorded.slice(2).map((request) => request.url), [
@@ -480,7 +490,7 @@ test('鉴权失败不触发回落：Messages 面的 401 直接作为 AUTH 上抛
   }, recorded)
 
   await assert.rejects(
-    () => collect(oneTurn('gpt-6-luna'), adapter),
+    () => collect(oneTurn('claude-haiku-5.5'), adapter),
     (error: unknown) => error instanceof LlmError && error.code === 'AUTH',
   )
   assert.deepEqual(recorded.map((request) => request.url), ['https://models.example.test/v1/messages'])
@@ -497,7 +507,7 @@ const REQUEST_IMAGE_BASE64 = Buffer.from(REQUEST_IMAGE_BYTES).toString('base64')
 
 function imageRef(): ImageAttachmentRef {
   return {
-    attachmentId: 'sha256:0a1b2c3d4e5f6071',
+    attachmentId: 'sha256:0a1b2c3d4e5f6071' as ImageAttachmentRef['attachmentId'],
     mediaType: 'image/png',
     bytes: 512,
     width: 100,
@@ -510,7 +520,7 @@ function stubEncoder(): OpenDesignImageEncoder {
   return {
     async readImageRequest(ref: ImageAttachmentRef, target: ImageRequestTarget): Promise<RequestImageAttachment> {
       return {
-        variantId: 'variant-test' as RequestImageAttachment['variantId'],
+        variantId: 'variant-test' as unknown as RequestImageAttachment['variantId'],
         attachment: ref,
         data: REQUEST_IMAGE_BYTES,
         mediaType: 'image/png',
@@ -570,7 +580,11 @@ test('Messages 面图片转 base64 source；不支持图片的模型与 file 附
     () => collect(oneTurn('gpt-6-luna', {
       messages: [userMessageWith([{
         type: 'file',
-        attachment: { attachmentId: 'sha256:ffeeddccbbaa9988', mediaType: 'application/pdf', bytes: 10, name: 'a.pdf' },
+        attachment: {
+          attachmentId: 'sha256:ffeeddccbbaa9988' as never,
+          bytes: 10,
+          name: 'a.pdf',
+        },
       }])],
     }), withFile),
     (error: unknown) => error instanceof LlmError && error.code === 'UNSUPPORTED_CONTENT',
@@ -602,5 +616,151 @@ test('Messages 面工具往返：历史里的 tool-call 变 tool_use 块，tool 
       role: 'user',
       content: [{ type: 'tool_result', tool_use_id: 'toolu_abc', content: '12:00' }],
     },
+  ])
+})
+
+// ---------------------------------------------------------------------------
+// 异常边界
+// ---------------------------------------------------------------------------
+
+async function streamError(options: GenerateOptions, adapter: OpenDesignAdapter): Promise<LlmError> {
+  try {
+    for await (const chunk of adapter.stream(options)) void chunk
+  } catch (error) {
+    assert.ok(error instanceof LlmError, `期望 LlmError，实际是 ${String(error)}`)
+    return error
+  }
+  assert.fail('期望失败，但请求成功了')
+}
+
+test('流内 error 事件按类型给出错误码：invalid_request_error 是确定性 BAD_REQUEST，overloaded 是 TRANSIENT', async () => {
+  const invalid = [
+    'data: {"type":"error","error":{"type":"invalid_request_error","message":"messages: text content blocks must be non-empty"}}',
+    '',
+  ].join('\n\n')
+  const rejectAdapter = makeAdapter({ messages: () => sseResponse(invalid) }, {
+    options: () => connection({ protocol: 'messages' }),
+  })
+  const rejected = await streamError(oneTurn('gpt-6-luna'), rejectAdapter)
+  assert.equal(rejected.code, 'BAD_REQUEST')
+  assert.match(rejected.message, /non-empty/u)
+
+  const overloaded = [
+    'data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+    '',
+  ].join('\n\n')
+  const overloadAdapter = makeAdapter({ messages: () => sseResponse(overloaded) }, {
+    options: () => connection({ protocol: 'messages' }),
+  })
+  assert.equal((await streamError(oneTurn('gpt-6-luna'), overloadAdapter)).code, 'TRANSIENT')
+})
+
+test('200 却没有可展示内容：空流报 EMPTY_RESPONSE，HTML 报 PROTOCOL_ERROR', async () => {
+  const pingOnly = [
+    'data: {"type":"message_start","message":{"usage":{"input_tokens":1,"output_tokens":0}}}',
+    'data: {"type":"ping"}',
+    'data: {"type":"message_stop"}',
+    '',
+  ].join('\n\n')
+  const empty = await streamError(
+    oneTurn('gpt-6-luna'),
+    makeAdapter({ messages: () => sseResponse(pingOnly) }, { options: () => connection({ protocol: 'messages' }) }),
+  )
+  assert.equal(empty.code, 'EMPTY_RESPONSE')
+
+  const html = await streamError(
+    oneTurn('gpt-6-luna'),
+    makeAdapter({
+      messages: () => new Response('<html>blocked</html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    }, { options: () => connection({ protocol: 'messages' }) }),
+  )
+  assert.equal(html.code, 'PROTOCOL_ERROR')
+})
+
+test('未知事件按设计忽略，但只吐未知事件的流有上限保护（不会空转到底）', async () => {
+  const noise = Array.from(
+    { length: 5_001 },
+    (_, index) => `data: {"type":"future_event_${index}"}`,
+  ).join('\n\n')
+  const error = await streamError(
+    oneTurn('gpt-6-luna'),
+    makeAdapter({ messages: () => sseResponse(noise) }, { options: () => connection({ protocol: 'messages' }) }),
+  )
+  assert.equal(error.code, 'PROTOCOL_ERROR')
+  assert.match(error.message, /无法识别的事件/u)
+
+  // 少量未知事件不影响正常回复。
+  const withNoise = [
+    'data: {"type":"message_start","message":{"usage":{"input_tokens":2,"output_tokens":0}}}',
+    'data: {"type":"future_event"}',
+    'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"好"}}',
+    'data: {"type":"content_block_stop","index":0}',
+    'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}',
+    'data: {"type":"message_stop"}',
+    '',
+  ].join('\n\n')
+  const chunks = await collect(
+    oneTurn('gpt-6-luna'),
+    makeAdapter({ messages: () => sseResponse(withNoise) }, { options: () => connection({ protocol: 'messages' }) }),
+  )
+  assert.deepEqual(chunks.at(-2), { type: 'usage', usage: { inputTokens: 2, outputTokens: 2, totalTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0 } })
+  assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
+})
+
+test('显式思考档在 Messages 面转成 thinking.budget_tokens：claude 才有可读思考，off 与过小上限都不发', async () => {
+  const recorded: RecordedRequest[] = []
+  const adapter = makeAdapter({ messages: () => sseResponse(fixture('messages-thinking.sse')) }, {
+    options: () => connection({ protocol: 'messages' }),
+  }, recorded)
+
+  // claude + medium（2048），上限 4096：发 thinking 预算。
+  await collect(oneTurn('claude-haiku-5.5', {
+    maxTokens: 4096,
+    reasoningEffort: ReasoningEffortId('medium'),
+  }), adapter)
+  assert.deepEqual(requestBodyOf(recorded[0]!).thinking, { type: 'enabled', budget_tokens: 2048 })
+
+  // 同一模型 off：显式关思考，不发 thinking。
+  await collect(oneTurn('claude-haiku-5.5', {
+    maxTokens: 4096,
+    reasoningEffort: ReasoningEffortId('off'),
+  }), adapter)
+  assert.equal(requestBodyOf(recorded[1]!).thinking, undefined)
+
+  // 上限太小（Anthropic 要求 budget >= 1024 且 < max_tokens）：不发，而不是发一个必然 400 的预算。
+  await collect(oneTurn('claude-haiku-5.5', {
+    maxTokens: 512,
+    reasoningEffort: ReasoningEffortId('high'),
+  }), adapter)
+  assert.equal(requestBodyOf(recorded[2]!).thinking, undefined)
+})
+
+test('redacted_thinking（加密思考块）不产思考块，正文照常；不把它当思考内容误解出来', async () => {
+  const body = [
+    'data: {"type":"message_start","message":{"usage":{"input_tokens":17,"output_tokens":1}}}',
+    'data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","thinking":"","signature":"","data":"EmwKAhgB"}}',
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":""}}',
+    'data: {"type":"content_block_stop","index":0}',
+    'data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}',
+    'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"OK"}}',
+    'data: {"type":"content_block_stop","index":1}',
+    'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":29}}',
+    'data: {"type":"message_stop"}',
+    '',
+  ].join('\n\n')
+  const chunks = await collect(
+    oneTurn('gpt-6-luna'),
+    makeAdapter({ messages: () => sseResponse(body) }, { options: () => connection({ protocol: 'messages' }) }),
+  )
+  assert.deepEqual(chunks, [
+    { type: 'block-start', index: 0, blockType: 'text' },
+    { type: 'text-delta', index: 0, text: 'OK' },
+    { type: 'block-end', index: 0, block: { type: 'text', text: 'OK' } },
+    {
+      type: 'usage',
+      usage: { inputTokens: 17, outputTokens: 29, totalTokens: 46, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    },
+    { type: 'finish', reason: { kind: 'stop' } },
   ])
 })

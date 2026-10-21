@@ -535,6 +535,80 @@ async function case7Image() {
   return `16x16 PNG 已发送，${result.text.trim().length} 字，${colors}：${truncate(result.text.trim(), 60)}`
 }
 
+/**
+ * ticket 13：可选 Messages 传输。
+ *
+ * 用「思考块是否出现」当传输证据：`claude-haiku-5.5` 在 Chat 面从不吐 reasoning，
+ * 只有 Messages 面显式开 `thinking` 才有可读思考（2026-10-21 实测）。再走一轮真实
+ * 工具往返，证明工具调用与工具结果在那一面也成立。
+ *
+ * gpt-6-luna 的实测结论与本票原假设不同：它在 Messages 面只回
+ * `redacted_thinking`（加密块，无可读文本），所以自动选路不把它送过去；本条用它
+ * 跑工具往返（非 Anthropic 模型也能用这一面），并把「思考不可读」记为已知限制。
+ */
+async function case10MessagesTransport() {
+  // 默认 auto：claude-haiku-5.5 自动走 Messages，思考可见。
+  const auto = makeAdapter()
+  const autoTurn = await turn(auto, 'claude-haiku-5.5', {
+    prompt: '先用一句话想想，再只回复 OK。',
+    maxTokens: 2048,
+    reasoningEffort: 'medium',
+  })
+  assert(autoTurn.finishKind !== 'error', 'claude-haiku-5.5 请求以错误收尾')
+  assert(autoTurn.reasoning.trim() !== '', 'claude-haiku-5.5 在 auto 下没有思考块（说明没走 Messages）')
+  assert(autoTurn.text.trim() !== '', 'claude-haiku-5.5 没有正文')
+  const detail = [`auto: claude-haiku-5.5 思考 ${autoTurn.reasoning.trim().length} 字/正文 ${autoTurn.text.trim().length} 字`]
+
+  // 显式 messages：同一模型仍可见思考（传输是用户指定的，不是自动挑的）。
+  const explicit = makeAdapter({ connection: { protocol: 'messages' } })
+  const explicitTurn = await turn(explicit, 'claude-haiku-5.5', {
+    prompt: '先用一句话想想，再只回复 OK。',
+    maxTokens: 2048,
+    reasoningEffort: 'medium',
+  })
+  assert(explicitTurn.reasoning.trim() !== '', '显式 messages 下 claude-haiku-5.5 没有思考块')
+  detail.push(`显式 messages: 思考 ${explicitTurn.reasoning.trim().length} 字`)
+
+  // 工具往返：gpt-6-luna 走 Messages 面（非 Anthropic 模型也支持这一面）。
+  const tools = makeAdapter({ connection: { protocol: 'messages' } })
+  const first = await turn(tools, 'gpt-6-luna', {
+    prompt: '用 bash 工具执行 `echo hi`，然后只回复工具的输出。',
+    tools: [BASH_TOOL],
+    maxTokens: 2048,
+  })
+  assert(first.toolCalls.length >= 1, `Messages 面首轮没有工具调用（finish=${String(first.finishKind)}）`)
+  const call = first.toolCalls[0]
+  assert(call.name === 'bash', `Messages 面工具名是 ${call.name}`)
+  const second = await turn(tools, 'gpt-6-luna', {
+    tools: [BASH_TOOL],
+    maxTokens: 2048,
+    messages: [
+      userMessage('用 bash 工具执行 `echo hi`，然后只回复工具的输出。'),
+      {
+        id: `msg-live-${++messageSeq}`,
+        role: 'assistant',
+        content: [call],
+        source: { kind: 'model', provider: 'open-design', model: 'gpt-6-luna' },
+      },
+      {
+        id: `msg-live-${++messageSeq}`,
+        role: 'tool',
+        content: [{ type: 'text', text: 'hi' }],
+        toolCallId: call.id,
+        source: { kind: 'tool', callId: call.id },
+      },
+    ],
+  })
+  assert(second.text.trim() !== '', 'Messages 面工具回填后的第二轮没有正文')
+  detail.push(`工具往返 ${call.name}(${truncate(call.arguments, 40)}) → 次轮 ${second.text.trim().length} 字`)
+
+  // 已知限制：gpt-6-luna 的思考在这一面是加密块，读不到内容。
+  record('SKIP', 'gpt-6-luna 的思考内容',
+    '实测 Messages 面只回 redacted_thinking（加密块，无可读文本）；它的思考只在 /v1/responses 的 reasoning 项里，'
+    + '本插件不做 Responses，所以自动选路让 gpt-6-luna 留在 Chat 面')
+  return detail.join('；')
+}
+
 function case8Settings() {
   record('SKIP', '设置页（密钥写入/清除、apiBase、可见模型过滤、上下文覆盖）',
     '需在真实 desktop profile 的浏览器里操作；本票由 settings-page/client-boot 单测覆盖装配与写入链路，'
@@ -561,6 +635,7 @@ const CASES = [
   [7, '图片输入', case7Image],
   [8, '设置页', case8Settings],
   [9, '安装与共存', case9Install],
+  [10, '可选 Messages 传输（思考 + 工具往返）', case10MessagesTransport],
 ]
 
 const argv = process.argv.slice(2)

@@ -94,3 +94,21 @@ test('程序化构造越过配置校验时，非法输出预算回落到「未�
   assert.equal(resolveAdapterOptions({ maxOutputTokens: 64_000 }).maxOutputTokens, 64_000)
   assert.equal(resolveAdapterOptions({}).maxOutputTokens, undefined)
 })
+
+test('协议选路是 chat/messages/auto 三态，缺省 auto；非法值在解析时回落 auto', async () => {
+  const { DEFAULT_PROTOCOL, isProtocolSetting } = await import('../src/messages-transport.ts')
+  // 缺省：仍是 Chat 为主、两个思考不可见的模型走 Messages。
+  assert.equal(resolveAdapterOptions({}).protocol, DEFAULT_PROTOCOL)
+  assert.equal(unwrapVolatileConfig(Config({})).protocol, DEFAULT_PROTOCOL)
+
+  assert.equal(resolveAdapterOptions({ protocol: 'messages' }).protocol, 'messages')
+  assert.equal(resolveAdapterOptions({ protocol: 'chat' }).protocol, 'chat')
+  assert.equal(resolveAdapterOptions({ protocol: 'auto' }).protocol, 'auto')
+
+  // 程序化构造（绕过 schemastery）带来的非法值一律回落 auto，不让 JSON 里的一
+  // 个手滑值把整条路由变成「未知协议」。
+  const bogus = { protocol: 'graphql' } as unknown as Parameters<typeof resolveAdapterOptions>[0]
+  assert.equal(resolveAdapterOptions(bogus).protocol, 'auto')
+  assert.equal(isProtocolSetting('graphql'), false)
+  assert.throws(() => Config({ protocol: 'graphql' } as unknown as Parameters<typeof Config>[0]))
+})

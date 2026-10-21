@@ -32,7 +32,7 @@ import {
   type ToolSchema,
 } from '@deepseek-ai/dsh-llm'
 import { emptyResponseFailure, nonSseBodyFailure } from './error-taxonomy.ts'
-import { thinkingVisibleInChat } from './quirks.ts'
+import { messagesThinkingBudget, messagesThinkingVisible } from './quirks.ts'
 import { estimateOutputTokens } from './output-tokens.ts'
 import {
   encodeImage,
@@ -42,6 +42,7 @@ import {
   unsupportedFileFailure,
 } from './request-content.ts'
 import type { ImagePlan } from './request-content.ts'
+import type { ReasoningLevel } from './catalog-snapshot.ts'
 import { isRecord, numberValue, readSsePayloads, type SseObservation, type SsePayload } from './sse-frames.ts'
 import { truncate } from './sse-frames.ts'
 
@@ -72,9 +73,9 @@ export function isProtocolSetting(value: unknown): value is ProtocolSetting {
  * 这一次调用走哪条传输。
  *
  * - 显式 `chat` / `messages` 是用户的决定，优先照办；
- * - `auto`（默认）只把「在 Chat 面看不见思考」的模型送去 Messages——它们的增量
- *   在 Chat 面根本不存在，换传输是多出来的能力，不是换掉既有行为；其余模型继续
- *   走 Chat，所以默认路径与 ticket 04–07 完全一致；
+ * - `auto`（默认）只把「Messages 面能给出可读思考、Chat 面看不到」的模型送去
+ *   Messages——换传输是多出来的能力，不是换掉既有行为；其余模型继续走 Chat，
+ *   所以默认路径与 ticket 04–07 完全一致；
  * - 已经回落过的模型（`remembered`）直接走 Chat，避免每次都要先失败一次。
  */
 export function selectTransport(
@@ -85,7 +86,7 @@ export function selectTransport(
   if (protocol === 'chat') return 'chat'
   if (remembered.has(model)) return 'chat'
   if (protocol === 'messages') return 'messages'
-  return thinkingVisibleInChat(model) ? 'chat' : 'messages'
+  return messagesThinkingVisible(model) ? 'messages' : 'chat'
 }
 
 /**
@@ -104,6 +105,8 @@ export const MAX_UNKNOWN_EVENTS = 5_000
 type MessagesContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; tool_use_id: string; content: string }
 
 /** An Anthropic message, spelled only with fields the gateway understands. */
 interface MessagesWireMessage {
@@ -122,6 +125,7 @@ export async function buildMessagesRequestBody(
   options: GenerateOptions,
   cap: number,
   images: ImagePlan,
+  level: ReasoningLevel | undefined,
 ): Promise<Record<string, unknown>> {
   const system = systemTextOf(options)
   const body: Record<string, unknown> = {
@@ -132,6 +136,10 @@ export async function buildMessagesRequestBody(
   }
   if (system !== '') body.system = system
   if (options.tools !== undefined && options.tools.length > 0) body.tools = options.tools.map(toMessagesTool)
+  // Anthropic 只有在请求里显式开 thinking 时才会吐可读的 thinking_delta（实测
+  // 2026-10-21）；预算必须 >= 1024 且严格小于 max_tokens，给不出就不发。
+  const thinkingBudget = messagesThinkingBudget(level, cap)
+  if (thinkingBudget !== undefined) body.thinking = { type: 'enabled', budget_tokens: thinkingBudget }
   return body
 }
 
@@ -190,12 +198,35 @@ async function toMessagesMessage(
   message: GenerateOptions['messages'][number],
   images: ImagePlan,
 ): Promise<MessagesWireMessage | undefined> {
+  // 工具结果在 Anthropic 里是 **user 消息**里的 `tool_result` 块，不是独立角色；
+  // 换错角色会被上游当成「模型自己在说话」。
+  if (message.role === 'tool') {
+    return {
+      role: 'user',
+      content: [{
+        type: 'tool_result',
+        tool_use_id: message.toolCallId,
+        content: textOfBlocks(message.content),
+      }],
+    }
+  }
   const parts: MessagesContentBlock[] = []
   for (const block of message.content) {
     switch (block.type) {
       case 'text':
         if (block.text !== '') parts.push({ type: 'text', text: block.text })
         break
+      case 'tool-call': {
+        // Anthropic 的 `input` 是对象：把历史里的 JSON 字符串还原成对象；解析不出
+        // 来时给空对象（宁可少传参数，也不把一条坏历史变成整轮失败）。
+        parts.push({
+          type: 'tool_use',
+          id: block.id,
+          name: block.name,
+          input: toolInputOf(block.arguments),
+        })
+        break
+      }
       case 'reasoning':
       case 'tool-addition':
       case 'tool-removal':
@@ -222,6 +253,17 @@ async function toMessagesMessage(
   }
   if (parts.length === 0) return undefined
   return { role: message.role === 'assistant' ? 'assistant' : 'user', content: parts }
+}
+
+/** One historical tool-call's arguments as the object Anthropic's `input` field takes. */
+function toolInputOf(argumentsText: string): Record<string, unknown> {
+  if (argumentsText.trim() === '') return {}
+  try {
+    const parsed: unknown = JSON.parse(argumentsText)
+    return isRecord(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 // ---------------------------------------------------------------------------

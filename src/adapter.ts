@@ -424,15 +424,19 @@ export class OpenDesignAdapter extends LlmAdapter {
       cap,
       fetchImpl: this.deps.fetchImpl ?? fetch,
     }
-    const transport = selectTransport(options.model, connection.protocol ?? DEFAULT_PROTOCOL, this.fallbacks)
+    const protocol = connection.protocol ?? DEFAULT_PROTOCOL
+    const transport = selectTransport(options.model, protocol, this.fallbacks)
     if (transport === 'chat') {
       yield* this.streamChat(plan)
       return
     }
-    // Messages is the optional face (ticket 13): if the gateway does not serve
-    // it, the conversation continues on Chat instead of failing. Only a failure
-    // BEFORE the first chunk is retryable — once the caller has seen output, a
-    // second attempt would duplicate it.
+    // Messages is the optional face (ticket 13): under `auto` the model choice is
+    // this plugin's own, so if the gateway does not serve that face the
+    // conversation continues on Chat instead of failing. An explicit `messages`
+    // setting is the user's decision and surfaces its own error instead of
+    // silently taking the other face. Only a failure BEFORE the first chunk is
+    // retryable — once the caller has seen output, a second attempt would
+    // duplicate it.
     let emitted = false
     try {
       for await (const chunk of this.streamMessages(plan)) {
@@ -441,7 +445,7 @@ export class OpenDesignAdapter extends LlmAdapter {
       }
       return
     } catch (error) {
-      if (emitted || !isRoutingFallback(error)) throw error
+      if (protocol !== 'auto' || emitted || !isRoutingFallback(error)) throw error
       this.rememberFallback(options.model, error)
     }
     yield* this.streamChat(plan)
@@ -538,7 +542,7 @@ export class OpenDesignAdapter extends LlmAdapter {
       declaredModalities: entry?.inputModalities,
       encoder: this.deps.attachments?.(),
       signal: callerSignal,
-    })
+    }, plan.level)
     const signal = requestSignal(callerSignal, connection.requestTimeoutMs)
 
     let response: Response
@@ -817,7 +821,10 @@ function wireContent(parts: readonly WireContentPart[]): string | WireContentPar
 function isRoutingFallback(error: unknown): boolean {
   if (!(error instanceof LlmError)) return false
   if (error.code === 'PROTOCOL_ERROR') return true
-  return error.code === 'BAD_REQUEST' && /not supported|unsupported|anthropic|messages/iu.test(error.message)
+  // A deterministic refusal that names the protocol itself ("anthropic-version
+  // header is required", "not supported") means the face is not served; any
+  // other 400 is about this request and would fail the same way on Chat.
+  return error.code === 'BAD_REQUEST' && /anthropic[- ]version|not supported|unsupported/iu.test(error.message)
 }
 
 /** A thrown fetch (connect failure, timeout, caller cancellation) as an `LlmError`. */
