@@ -53,6 +53,17 @@ export const PAGE_CSS = `
 .od-rows>.od-groupDesc{margin:0;padding:4px 0 0}
 .od-disclosure{width:100%;padding:0 0 4px;border:0;background:0 0;font:inherit;text-align:left;cursor:pointer;border-radius:6px}
 .od-disclosure:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+/* A disclosure row: label grows, badge/summary/chevron hold their size, and the
+   chevron sits flush right (the bare .od-chevron rule reserves 6px for the
+   selector case, which would leave the row visibly ragged here). */
+.od-disclosureRow{align-items:center;gap:8px;display:flex;width:100%}
+.od-disclosureRow .od-chevron{margin-right:0}
+.od-disclosureRow:hover .od-chevron{border-color:var(--dsw-alias-label-secondary)}
+.od-disclosureGroup{padding:0}
+.od-disclosureField{padding:0;color:var(--dsw-alias-label-primary);font-size:13px;font-weight:500;line-height:1.5}
+.od-disclosureLabel{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.od-disclosureSummary{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
+.od-groupTitleToggle{flex:1;min-width:0}
 .od-rows{flex-direction:column;display:flex}
 .od-row{align-items:center;gap:8px;display:flex;padding:12px 0}
 .od-rowFlush{padding:0}

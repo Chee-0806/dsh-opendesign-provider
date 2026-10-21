@@ -10,7 +10,8 @@
  * @module dsh-opendesign-provider/client/section
  */
 
-import { useSyncExternalStore } from 'react'
+import { useState, useSyncExternalStore } from 'react'
+import type { ReactNode } from 'react'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
 import type { SnapshotStore } from './snapshot-store.ts'
@@ -137,6 +138,101 @@ function ContextRow(props: {
   )
 }
 
+/**
+ * One collapsible header row.
+ *
+ * The button carries `aria-expanded`, so the row is a disclosure control for
+ * assistive tech; the chevron is decoration only. `summary` is the one line a
+ * folded block must still show, so folding never hides the fact that something
+ * inside is set.
+ */
+export function DisclosureHeader(props: {
+  label: string
+  badge?: ReactNode
+  summary?: string | undefined
+  open: boolean
+  onToggle(): void
+  scale: 'group' | 'field'
+}) {
+  return (
+    <button
+      className={`od-disclosure od-disclosureRow ${props.scale === 'group' ? 'od-disclosureGroup' : 'od-disclosureField'}`}
+      type="button"
+      aria-expanded={props.open}
+      onClick={props.onToggle}
+    >
+      <span className="od-disclosureLabel">{props.label}</span>
+      {props.badge}
+      {props.summary === undefined ? null : <span className="od-disclosureSummary">{props.summary}</span>}
+      <span className={props.open ? 'od-chevron od-chevronUp' : 'od-chevron'} aria-hidden="true" />
+    </button>
+  )
+}
+
+/**
+ * One collapsible settings group.
+ *
+ * The heading keeps its `h3` and wraps the disclosure button, so the page's
+ * outline survives folding. Drafts live in the controller, so folding can
+ * never drop an edit.
+ */
+export function SettingsGroup(props: {
+  title: string
+  badge?: ReactNode
+  desc?: string
+  defaultOpen?: boolean
+  first?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(props.defaultOpen ?? false)
+  return (
+    <div className={props.first === true ? 'od-group' : 'od-group od-groupDivided'}>
+      <div className="od-groupHead">
+        <h3 className="od-groupTitle od-groupTitleToggle">
+          <DisclosureHeader
+            label={props.title}
+            badge={props.badge}
+            open={open}
+            onToggle={() => setOpen(!open)}
+            scale="group"
+          />
+        </h3>
+      </div>
+      {open ? (
+        <>
+          {props.desc === undefined ? null : <p className="od-groupDesc">{props.desc}</p>}
+          {props.children}
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * One collapsible field inside a group — for lists long enough to bury their
+ * neighbours (the model allowlist, the per-model overrides).
+ */
+export function SettingsField(props: {
+  label: string
+  summary?: string | undefined
+  defaultOpen?: boolean
+  children: ReactNode
+}) {
+  const [open, setOpen] = useState(props.defaultOpen ?? true)
+  return (
+    <div className="od-field">
+      <DisclosureHeader
+        label={props.label}
+        summary={props.summary}
+        open={open}
+        onToggle={() => setOpen(!open)}
+        scale="field"
+      />
+      {open ? props.children : null}
+    </div>
+  )
+}
+
 /** The settings page. */
 export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
   const { t } = props
@@ -164,6 +260,8 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
     const text = props.diagnosticText()
     void navigator.clipboard?.writeText(text)
   }
+  // The folded override block still reports how many models carry one.
+  const overrideCount = state.contextOverrides.filter((row) => row.text.trim() !== '').length
 
   return (
     <section className="od-section" aria-label={t('title')}>
@@ -171,9 +269,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
       <p className="od-intro">{t('intro')}</p>
       {state.writable ? null : <p className="od-readOnly">{t('readOnly')}</p>}
 
-      <div className="od-group">
-        <div className="od-groupHead"><h3 className="od-groupTitle">{t('connection')}</h3></div>
-        <p className="od-groupDesc">{t('connectionDesc')}</p>
+      <SettingsGroup title={t('connection')} desc={t('connectionDesc')} defaultOpen first>
         <div className="od-rows">
           <div className="od-row">
             <div className="od-rowText">
@@ -221,17 +317,19 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
           </div>
           {state.controlKeyWarning ? <p className="od-rowError">{t('controlKeyWarn')}</p> : null}
         </div>
-      </div>
+      </SettingsGroup>
 
-      <div className="od-group od-groupDivided">
-        <div className="od-groupHead">
-          <h3 className="od-groupTitle">{t('modelsSection')}</h3>
-          <span className="od-badgeMuted">{catalogLabel}</span>
-        </div>
-        <p className="od-groupDesc">{t('modelsSectionDesc')}</p>
+      <SettingsGroup
+        title={t('modelsSection')}
+        badge={<span className="od-badgeMuted">{catalogLabel}</span>}
+        desc={t('modelsSectionDesc')}
+        defaultOpen
+      >
         <div className="od-rows">
-          <div className="od-field">
-            <span className="od-fieldHead"><span className="od-label">{t('visibleModels')}</span></span>
+          <SettingsField
+            label={t('visibleModels')}
+            summary={state.models.length === 0 ? undefined : `${state.visibleModels.length}/${state.models.length}`}
+          >
             {state.models.length === 0
               ? <p className="od-hint">{t('modelsSectionDesc')}</p>
               : state.models.map((model) => (
@@ -244,7 +342,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
                 />
               ))}
             <p className="od-hint">{t('visibleModelsHint')}</p>
-          </div>
+          </SettingsField>
           <FieldRow
             t={t}
             label={t('contextWindow')}
@@ -253,8 +351,11 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             disabled={disabled}
             onChange={(text) => props.editContextWindow(text)}
           />
-          <div className="od-field">
-            <span className="od-fieldHead"><span className="od-label">{t('contextOverrides')}</span></span>
+          <SettingsField
+            label={t('contextOverrides')}
+            summary={state.contextOverrides.length === 0 ? undefined : `${overrideCount}/${state.contextOverrides.length}`}
+            defaultOpen={false}
+          >
             {state.contextOverrides.map((row) => (
               <ContextRow
                 key={row.model}
@@ -266,7 +367,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
               />
             ))}
             <p className="od-hint">{t('contextOverridesHint')}</p>
-          </div>
+          </SettingsField>
           <FieldRow
             t={t}
             label={t('maxOutputTokens')}
@@ -276,11 +377,9 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             onChange={(text) => props.edit('maxOutputTokens', text)}
           />
         </div>
-      </div>
+      </SettingsGroup>
 
-      <div className="od-group od-groupDivided">
-        <div className="od-groupHead"><h3 className="od-groupTitle">{t('displaySection')}</h3></div>
-        <p className="od-groupDesc">{t('displaySectionDesc')}</p>
+      <SettingsGroup title={t('displaySection')} desc={t('displaySectionDesc')} defaultOpen>
         <div className="od-rows">
           <label className="od-row">
             <span className="od-rowText"><span className="od-rowTitle">{t('language')}</span></span>
@@ -315,11 +414,9 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             ? <p className="od-rowError">{t('controlKeyWarn')}</p>
             : null}
         </div>
-      </div>
+      </SettingsGroup>
 
-      <div className="od-group od-groupDivided">
-        <div className="od-groupHead"><h3 className="od-groupTitle">{t('advanced')}</h3></div>
-        <p className="od-groupDesc">{t('advancedDesc')}</p>
+      <SettingsGroup title={t('advanced')} desc={t('advancedDesc')}>
         <div className="od-rows">
           <FieldRow
             t={t}
@@ -365,7 +462,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
             </div>
           </div>
         </div>
-      </div>
+      </SettingsGroup>
 
       {state.dirty ? (
         <div className="od-saveBarDock">
