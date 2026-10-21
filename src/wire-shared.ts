@@ -10,9 +10,9 @@
  * bundle can inline it, and it holds the schema helpers and descriptor
  * boilerplate the wire files used to duplicate.
  *
- * Ticket 01 keeps this plumbing even though the P1 quota Remote is not mounted
- * yet: the identity constants below are the single source for the namespace and
- * service names every later wire file must reuse.
+ * The identity constants below are the single source for the namespace and
+ * service names every wire file reuses; the models and quota Remotes each
+ * provide one Cordis service and register one descriptor through this module.
  *
  * @module dsh-opendesign-provider/wire-shared
  */
@@ -102,9 +102,13 @@ export function makeRemoteParameter<Input>(
 
 /**
  * Build one strict invocation descriptor. Every Open Design Remote shares the
- * `opendesign` namespace, the `opendesignUsage` service, and a strict result
- * — only the endpoint, method, parameters, result type symbol and schema
- * differ. A parameterless method (the default) sends an empty `args` object.
+ * `opendesign` namespace and a strict result — only the endpoint, method,
+ * Cordis service key, result type symbol, parameters and schema differ.
+ *
+ * `parameters` defaults to none (a parameterless method sends an empty `args`
+ * object); `service` defaults to {@link REMOTE_SERVICE}. The quota Remote
+ * provides its own key (Cordis allows exactly one service per key) and the
+ * Gateway resolves the receiving service by this field.
  */
 export function makeRemoteDescriptor<Output>(
   endpoint: string,
@@ -112,10 +116,11 @@ export function makeRemoteDescriptor<Output>(
   typeSymbol: string,
   schema: TypertSchema<Output>,
   parameters: readonly InvocationParameterDescriptor[] = [],
+  service: string = REMOTE_SERVICE,
 ): InvocationDescriptor {
   return {
     id: `${REMOTE_PACKAGE}#${endpoint}`,
-    service: REMOTE_SERVICE,
+    service,
     namespace: REMOTE_NAMESPACE,
     method,
     invocation: { kind: 'direct' },

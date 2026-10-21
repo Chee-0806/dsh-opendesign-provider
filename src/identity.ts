@@ -44,7 +44,11 @@ export const AMR_CONFIG_RELATIVE_PATH = '.amr/config.json'
 /** The wire namespace shared by every Remote this plugin serves. */
 export const REMOTE_NAMESPACE = 'opendesign'
 
-/** The Cordis service key the Gateway resolves those Remotes from. */
+/**
+ * The Cordis service key the Gateway resolves the models Remote from. Cordis
+ * allows one service per key, so the quota Remote (ticket 10) provides its own
+ * key — see `QUOTA_SERVICE` in `quota-wire.ts`.
+ */
 export const REMOTE_SERVICE = 'opendesignUsage'
 
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */

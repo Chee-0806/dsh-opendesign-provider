@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "workspaceId": "ws_fixture_personal",
+  "workspaceMemberId": "wm_fixture_owner",
+  "modelId": null,
+  "generatedAt": "2026-10-20T10:31:46.562Z",
+  "balanceUsd": "1.0000",
+  "codingPlan": {
+    "workspaceId": "ws_fixture_personal",
+    "generatedAt": "2026-10-20T10:31:46.560Z",
+    "eligible": true,
+    "tier": "go",
+    "windows": [
+      {
+        "policyId": "model_limit_policy_fixture_five_hour",
+        "durationSeconds": 18000,
+        "resetMode": "anchored_recurring",
+        "usedCredits": "340",
+        "limitCredits": "50000",
+        "remainingCredits": "49660",
+        "windowStart": "2026-10-20T08:18:08.000Z",
+        "resetsAt": "2026-10-20T13:18:08.000Z"
+      },
+      {
+        "policyId": "model_limit_policy_fixture_seven_day",
+        "durationSeconds": 604800,
+        "resetMode": "anchored_recurring",
+        "usedCredits": "14814",
+        "limitCredits": "150000",
+        "remainingCredits": "135186",
+        "windowStart": "2026-10-20T03:18:08.000Z",
+        "resetsAt": "2026-10-27T03:18:08.000Z"
+      }
+    ]
+  },
+  "modelCovered": null,
+  "funding": "wallet"
+}

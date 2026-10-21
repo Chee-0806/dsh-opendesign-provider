@@ -1,7 +1,7 @@
 /**
  * Host assembly seam: `apply()` may register only the configurable-provider
- * directory entry, the adapter for `open-design`, the optional models Remote and
- * the settings bridge.
+ * directory entry, the adapter for `open-design`, the optional models/quota
+ * Remotes, the `/opendesign` command and the settings bridge.
  * The previous provider assembly (login, enrollment, account pool, web search,
  * usage Remote, TUI, commands) must not come back through an optional inject.
  */
@@ -42,11 +42,13 @@ function makeContext(services: { attachments?: unknown; credentials?: unknown } 
   adapters: Array<{ providers: string[]; adapter: OpenDesignAdapter }>
   injected: string[][]
   configured: Array<{ auto?: boolean }>
+  commands: Array<{ name: string; description: string; handler: (invocation: unknown) => Promise<{ kind: string; text?: string }> }>
 } {
   const providers: ProviderEntry[] = []
   const adapters: Array<{ providers: string[]; adapter: OpenDesignAdapter }> = []
   const injected: string[][] = []
   const configured: Array<{ auto?: boolean }> = []
+  const commands: Array<{ name: string; description: string; handler: (invocation: unknown) => Promise<{ kind: string; text?: string }> }> = []
   const effect = (fn?: () => unknown): (() => void) => {
     // Cordis runs the effect body to obtain its disposer, so the fake must too.
     if (typeof fn === 'function') fn()
@@ -74,6 +76,16 @@ function makeContext(services: { attachments?: unknown; credentials?: unknown } 
     effect,
     inject(services: string[], callback: (scope: unknown) => void) {
       injected.push([...services])
+      if (services.includes('commands')) {
+        callback({
+          commands: {
+            register(definition: { name: string; description: string; handler: (invocation: unknown) => Promise<{ kind: string; text?: string }> }) {
+              commands.push(definition)
+              return () => {}
+            },
+          },
+        })
+      }
       if (services.includes('settings')) {
         callback({
           settings: {
@@ -89,7 +101,7 @@ function makeContext(services: { attachments?: unknown; credentials?: unknown } 
     fiber: {},
     logger: { warn() {}, info() {} },
   }
-  return { ctx, providers, adapters, injected, configured }
+  return { ctx, providers, adapters, injected, configured, commands }
 }
 
 test('the plugin entry names llm-opendesign and requires only llm', () => {
@@ -122,7 +134,14 @@ test('apply registers the Open Design provider, adapter, models Remote and setti
     name: 'Open Design',
   })
 
-  assert.deepEqual(injected, [['typert'], ['settings']], 'the models+analytics Remote and the settings bridge remain')
+  // 合并后装配面：models(+analytics) Remote 与 quota Remote 各占一条可选 typert
+  // fiber（各自拥有自己的服务键），`/opendesign` 挂在可选 commands 上，settings
+  // 最后。旧 provider 的 login / enrollment / 账号池 / web search 仍不得回来。
+  assert.deepEqual(
+    injected,
+    [['typert'], ['typert'], ['commands'], ['settings']],
+    'only the two optional Remotes, the quota command and the settings bridge remain',
+  )
   assert.deepEqual(configured, [{ auto: false }], 'the plugin ships its own page, so no auto form')
 })
 
@@ -318,4 +337,19 @@ test('没有凭据时诊断报「未配置」而不是抛错（缺 Key 也能复
   const snapshot = await adapters[0]!.adapter.diagnostics()
   assert.deepEqual(snapshot.credential, { ref: DEFAULT_API_KEY_ENV, present: false })
   assert.match(formatDiagnostics(snapshot), /未配置/u)
+})
+
+test('装配：apply 在 commands 服务上注册 /opendesign，无控制密钥时给原因而不是报错', async () => {
+  const { ctx, commands } = makeContext()
+  apply(ctx as never, Config({ amrConfigPath: '/nonexistent/.amr/config.json' }) as never)
+
+  assert.deepEqual(commands.map((command) => command.name), ['opendesign'])
+  assert.equal(commands[0]!.description, 'Open Design quota and plan')
+
+  const started = Date.now()
+  const result = await commands[0]!.handler({ rawInput: '' })
+  assert.equal(result.kind, 'success', '降级是成功结果 + 原因，不是错误')
+  assert.match(result.text ?? '', /CLI 登录态|controlKey/u)
+  assert.match(result.text ?? '', /vela login/)
+  assert.ok(Date.now() - started < 5_000, '无控制密钥时不得卡在网络上')
 })

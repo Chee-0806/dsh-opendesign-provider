@@ -15,7 +15,7 @@
  * @module dsh-opendesign-provider/analytics-wire
  */
 
-import type { InvocationDescriptor, RemoteResult, TypertRemoteContribution, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
+import type { InvocationDescriptor, TypertRemoteContribution, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
 import {
   makeBoundaryValidator,
   makeRemoteDescriptor,
@@ -289,13 +289,3 @@ export const ANALYTICS_REMOTE_CONTRIBUTION: TypertRemoteContribution = {
   descriptors: [ANALYTICS_DESCRIPTOR],
 }
 
-/**
- * Type-level merge for the generated Remote face. Optional, like
- * `opendesign/models`: a Host older than this bundle mounts no such descriptor
- * and the page shows its "update the Host" state instead of throwing.
- */
-declare module '@deepseek-ai/dsh-typert-protocol' {
-  interface TypertRemoteMap {
-    'opendesign/analytics': (query: AnalyticsQuery) => Promise<RemoteResult<OpenDesignAnalyticsReport>>
-  }
-}

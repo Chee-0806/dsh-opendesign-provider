@@ -20,8 +20,10 @@
  * added streaming, thinking, tools, the output cap, the error taxonomy and
  * images. Ticket 08 completes the credential chain (config key → credential
  * reference → the Open Design CLI login state) and serves the settings page's
- * catalog/credential facts through `opendesign/models`; the quota Remote and
- * `/opendesign` command return in P1.
+ * catalog/credential facts through `opendesign/models`. Ticket 10 adds the P1
+ * quota face: a read-only control-plane client, the `opendesign/usage` Remote
+ * and the `/opendesign` command — all degraded gracefully without a control
+ * key, and none of them on the inference path.
  *
  * @module dsh-opendesign-provider
  */
@@ -55,6 +57,9 @@ import {
 import { applyModelsRemote } from './models-remote.ts'
 import { modelIsVisible } from './model-visibility.ts'
 import type { SessionQueryLike } from './analytics-history.ts'
+import { OpenDesignControlPlane, type QuotaReading } from './control-plane.ts'
+import { applyQuotaRemote } from './quota-remote.ts'
+import { applyCommands, resolveCommandLocale } from './commands.ts'
 import {
   DEFAULT_REQUEST_TIMEOUT_MS,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
@@ -114,6 +119,21 @@ export {
 export type { OpenDesignAdapterDeps, OpenDesignConnectionOptions, OpenDesignCredentialState } from './adapter.ts'
 export { diagnosticsSnapshot, formatDiagnostics } from './diagnostics.ts'
 export type { DiagnosticsFacts, DiagnosticsSnapshot } from './diagnostics.ts'
+export {
+  CONTROL_PLANE_TIMEOUT_MS,
+  DEFAULT_CONTROL_PLANE_API_URL,
+  OpenDesignControlPlane,
+  QUOTA_CACHE_TTL_MS,
+  QUOTA_FIVE_HOUR_SECONDS,
+  QUOTA_SEVEN_DAY_SECONDS,
+  classifyQuotaWindow,
+} from './control-plane.ts'
+export type { QuotaReading, QuotaSnapshot, QuotaWindow, QuotaWindowKind } from './control-plane.ts'
+export { QUOTA_DESCRIPTOR, QUOTA_ENDPOINT, parseQuotaSnapshot } from './quota-wire.ts'
+export { OpenDesignQuotaService, applyQuotaRemote } from './quota-remote.ts'
+export type { OpenDesignQuotaDeps } from './quota-remote.ts'
+export { applyCommands, commandDefinition, renderQuota } from './commands.ts'
+export type { OpendesignCommandDeps } from './commands.ts'
 export { retryableFailureCodes } from './error-taxonomy.ts'
 export type { FailureCode, HttpFailureInput } from './error-taxonomy.ts'
 export type {
@@ -387,6 +407,43 @@ export function apply(ctx: Context, config: Config): void {
         return modelIsVisible(id, connection.visibleModels ?? [], connection.modelVisibility)
       },
     },
+  })
+
+  // P1 quota: ONE read-only control-plane client backs both surfaces — the
+  // `/opendesign` command and the `opendesign/usage` Remote — so they share the
+  // 60-second cache and can never disagree. The control key comes from the CLI
+  // login state only; without it the client degrades to "unavailable" with a
+  // reason, and inference is untouched.
+  const controlPlane = new OpenDesignControlPlane({ loginPath: () => current().amrConfigPath })
+  const readQuota = (model?: string): Promise<QuotaReading> =>
+    controlPlane.read(model === undefined ? {} : { model })
+
+  // The preflight is asked per model. The Host has no session-model accessor a
+  // command can rely on, so it asks the catalog's default entry (the same one
+  // the picker preselects); no catalog means no preflight, and the snapshot
+  // still carries the plan, balance and windows-free funding state.
+  const defaultModel = async (): Promise<string | undefined> => {
+    try {
+      const status = await adapter.catalogStatus()
+      return status.models.find((entry) => entry.default)?.id ?? status.models[0]?.id
+    } catch {
+      return undefined
+    }
+  }
+
+  applyQuotaRemote(ctx, {
+    quota: async () => readQuota(await defaultModel()),
+  })
+
+  // `/opendesign` rides the optional `commands` service: a profile without
+  // dsh-commands simply never activates this fiber, and the plugin keeps
+  // working without a terminal command.
+  ctx.inject(['commands'], (commandCtx) => {
+    applyCommands(commandCtx, {
+      quota: readQuota,
+      model: defaultModel,
+      getLocale: () => resolveCommandLocale(current().lang),
+    })
   })
 
   // Bounded retry for TRANSPORT failures. A connection that cannot be

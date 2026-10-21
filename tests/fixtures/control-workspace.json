@@ -1,0 +1,40 @@
+{
+  "userId": "user_fixture_owner",
+  "appUserId": "app_fixture_owner",
+  "workspaceId": "ws_fixture_personal",
+  "workspaceName": "fixture's workspace",
+  "workspaceIconKey": "person",
+  "workspaceType": "personal",
+  "workspaceMemberId": "wm_fixture_owner",
+  "role": "owner",
+  "memberStatus": "active",
+  "lifecycleState": "active",
+  "billingState": "free",
+  "planId": null,
+  "personalMembershipTier": "go",
+  "providerMode": "platform_credits",
+  "seatSummary": {
+    "seatLimit": 1,
+    "usedSeats": 1,
+    "availableSeats": 0,
+    "isSeatFull": true
+  },
+  "billingRecovery": {
+    "canEnterBillingRecovery": false,
+    "recoveryUrl": null
+  },
+  "permissions": {
+    "canManageMembers": true,
+    "canManageBilling": true,
+    "canViewBillingRecords": true,
+    "canViewUsage": true,
+    "canInviteMembers": true,
+    "canManageAutoRecharge": true,
+    "canShareProjects": true,
+    "canWriteSyncedFiles": true,
+    "canViewWorkspaceSettings": true,
+    "canManageSharedResources": true
+  },
+  "activeWorkspaceId": "ws_fixture_personal",
+  "activeWorkspaceVersion": 1
+}
