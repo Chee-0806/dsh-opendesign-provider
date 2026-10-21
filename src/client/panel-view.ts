@@ -147,7 +147,11 @@ function windowView(
     limit,
     percent: shownPercent,
     remainingPercent,
-    percentText: percent === undefined ? t('unknownPercent') : `${percent}%`,
+    percentText: percent === undefined
+      ? t('unknownPercent')
+      : percent === 0 && used > 0
+        ? '<1%'
+        : `${percent}%`,
     remainingText: percent === undefined ? t('unknownPercent') : t('remainingLine', { percent: remainingPercent }),
     amountText: t('amountLine', { used: String(used), limit: String(limit) }),
     resetText: when === undefined ? t('resetUnknown') : t('resetLine', { when }),

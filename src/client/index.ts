@@ -188,15 +188,19 @@ export function apply(ctx: Context): void {
   // time: a profile whose client has no layout service keeps the card hidden
   // (the registration is gated on it below), and a layout that predates the
   // `selectPanel(null)` form falls back to the reserved conversation key.
+  // The layout's selectPanel is a METHOD: calling a detached reference loses
+  // `this` and throws inside its slot-registry check. Keep the call on the
+  // service object and treat a missing/older `selectPanel` as "no navigation".
   const selectPanel = (panelId: string | null): void => {
-    const layout = ctx.get('layout') as { selectPanel?: (id: string | null) => void } | undefined
-    const select = layout?.selectPanel
-    if (typeof select !== 'function') return
+    const layout = ctx.get('layout') as
+      | { selectPanel?: (id: string | null) => void }
+      | undefined
+    if (typeof layout?.selectPanel !== 'function') return
     try {
-      select(panelId)
+      layout.selectPanel(panelId)
     } catch {
       if (panelId !== null) return
-      try { select('conversation') } catch { /* layout unavailable: no navigation */ }
+      try { layout.selectPanel('conversation') } catch { /* layout unavailable: no navigation */ }
     }
   }
   const panel = new OpenDesignQuotaPanelController({

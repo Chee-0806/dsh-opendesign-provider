@@ -64,7 +64,7 @@ export const PANEL_CSS = `
    own button — so these bars are spans, which makes display:block load-bearing:
    an inline box ignores width outright, so the fill would collapse to 0x0 and
    the bar would show no usage. */
-.odp-footBar{display:block;background:var(--dsw-alias-bg-layer-2);border-radius:999px;height:5px;overflow:hidden}
+.odp-footBar{display:block;background:var(--dsw-alias-bg-module-platform);border-radius:999px;height:5px;overflow:hidden}
 .odp-footFill{display:block;background:var(--dsw-alias-brand-primary);border-radius:999px;height:100%;transition:width .3s ease}
 .odp-footFillWarn{background:var(--dsw-alias-state-error-primary)}
 .odp-footPct{flex:none;width:34px;color:var(--dsw-alias-label-secondary);text-align:right;font-size:12px;line-height:16px;font-variant-numeric:tabular-nums}
@@ -135,7 +135,7 @@ export const PANEL_CSS = `
 .odp-windowValue{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:1.5;font-variant-numeric:tabular-nums;white-space:nowrap}
 .odp-windowPct{color:var(--dsw-alias-label-primary);min-width:38px;text-align:right;font-size:12px;font-weight:600;line-height:1.5;font-variant-numeric:tabular-nums}
 .odp-warnTag{white-space:nowrap;background:var(--dsw-alias-state-warn-tertiary,var(--dsw-alias-bg-module-platform));color:var(--dsw-alias-state-warn-primary,var(--dsw-alias-label-secondary));border-radius:999px;padding:0 8px;font-size:12px;font-weight:600;line-height:17px}
-.odp-bar{overflow:hidden;background:var(--dsw-alias-bg-layer-1);border-radius:999px;height:8px}
+.odp-bar{overflow:hidden;background:var(--dsw-alias-bg-module-platform);border-radius:999px;height:8px}
 .odp-barFill{background:var(--dsw-alias-brand-primary);border-radius:999px;height:100%;transition:width .3s ease}
 .odp-barFillWarn{background:var(--dsw-alias-state-error-primary)}
 .odp-windowReset{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}

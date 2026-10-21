@@ -59,6 +59,28 @@ function input(overrides: Partial<QuotaPanelViewInput> = {}): QuotaPanelViewInpu
   }
 }
 
+test('已用但不足 1% 的窗口显示 <1%，不写成 0%', () => {
+  const view = buildQuotaPanelView(input({
+    snapshot: {
+      ...GO,
+      windows: [
+        {
+          kind: 'seven_day',
+          durationSeconds: 604800,
+          usedCredits: 83,
+          limitCredits: 150000,
+          remainingCredits: 149917,
+          resetsAt: '2026-10-27T03:18:08.000Z',
+          resetMode: 'anchored_recurring',
+        },
+      ],
+    },
+  }))
+  const [window] = view.windows
+  assert.equal(window?.percent, 0)
+  assert.equal(window?.percentText, '<1%')
+})
+
 test('Go 档（zh）：档位、5 小时与 7 天窗口、百分比、重置时间、余额与计费口径', () => {
   const view = buildQuotaPanelView(input())
   assert.equal(view.visible, true)
