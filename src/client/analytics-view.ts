@@ -130,7 +130,7 @@ function viewRow(row: AnalyticsModelRow, t: AnalyticsTranslate): AnalyticsViewRo
       tokens,
       firstToken: milliseconds(row.avgFirstTokenMs, t),
       duration: milliseconds(row.avgDurationMs, t),
-      failureRate: percent(row.failed, row.requests) ?? t('missing'),
+      failureRate: percent(row.failed + row.interrupted, row.requests) ?? t('missing'),
       retries: withGrouping(row.retries),
       cost: t(costKey(row)),
       capability: t(capabilityKey(row)),
@@ -154,7 +154,11 @@ function summary(report: OpenDesignAnalyticsReport, t: AnalyticsTranslate): Anal
     },
     { key: 'firstToken', label: t('summaryFirstToken'), value: milliseconds(totals.avgFirstTokenMs, t) },
     { key: 'duration', label: t('summaryDuration'), value: milliseconds(totals.avgDurationMs, t) },
-    { key: 'failureRate', label: t('summaryFailureRate'), value: percent(totals.failed, totals.requests) ?? t('missing') },
+    {
+      key: 'failureRate',
+      label: t('summaryFailureRate'),
+      value: percent(totals.failed + totals.interrupted, totals.requests) ?? t('missing'),
+    },
     { key: 'retries', label: t('summaryRetries'), value: withGrouping(totals.retries) },
     { key: 'coverage', label: t('summaryCoverage'), value: coverage },
   ]
@@ -187,6 +191,7 @@ export function buildAnalyticsView(input: { state: AnalyticsPageState; t: Analyt
     if (report.history.truncated) notices.push(t('truncated'))
     if (report.totals.requestsWithoutUsage > 0) notices.push(t('partialUsage'))
     if (report.models.some((row) => row.cost === 'unknown')) notices.push(t('unknownModels'))
+    if (report.models.some((row) => !row.visible)) notices.push(t('hiddenModels'))
     if (report.totals.requests === 0) notices.push(t('empty'))
   }
   return {

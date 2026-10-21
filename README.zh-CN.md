@@ -51,7 +51,7 @@ dsh plugin add ./mars-sea-dsh-opendesign-provider-0.1.0.tgz
 | 默认网关 | `https://amr-link.open-design.ai/v1` |
 | 模型目录缓存 | `~/.opendesign/models-cache.json` |
 | CLI 登录态（只读） | `~/.amr/config.json` |
-| Remote 命名空间 | `opendesign`（`models`、`analytics`、`usage`） |
+| Remote 命名空间 | `opendesign`（`models`、`usage`、`analytics`；`report` 预留） |
 | 遥测开关 | `DSH_OPENDESIGN_TIMING`、`DSH_OPENDESIGN_TRACE` |
 
 ## 凭据

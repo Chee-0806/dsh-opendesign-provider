@@ -55,7 +55,7 @@ Command Code plugin.
 | Default API base | `https://amr-link.open-design.ai/v1` |
 | Model catalog cache | `~/.opendesign/models-cache.json` |
 | CLI login state (read-only) | `~/.amr/config.json` |
-| Remote namespace | `opendesign` (`models`, `analytics`, `usage`) |
+| Remote namespace | `opendesign` (`models`, `usage`, `analytics`; `report` reserved) |
 | Telemetry switches | `DSH_OPENDESIGN_TIMING`, `DSH_OPENDESIGN_TRACE` |
 
 ## Credentials
