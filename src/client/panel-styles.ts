@@ -91,6 +91,15 @@ export const PANEL_CSS = `
 /* 关闭图标沿用原语义与按钮尺寸，线性 SVG 随宿主文字颜色变化。 */
 .ccp-close{min-width:28px;justify-content:center;padding-left:0;padding-right:0}
 .ccp-hint{color:var(--dsw-alias-label-tertiary);margin:0;font-size:12px;line-height:1.5}
+/* Dashboard header actions: the refresh control and the panel-closing × both fit
+   the 28px header row, so the dashboard stays escapable without stealing height
+   from the numbers it exists to show. */
+.ccp-dashboardActions{flex:none;align-items:center;gap:8px;display:flex}
+.ccp-action{box-sizing:border-box;min-height:28px;color:var(--dsw-alias-label-secondary);cursor:pointer;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l2);border-radius:8px;justify-content:center;align-items:center;padding:0 10px;font:inherit;font-size:12px;line-height:18px;display:inline-flex}
+.ccp-action:hover:not(:disabled){color:var(--dsw-alias-label-primary)}
+.ccp-action:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
+.ccp-action:disabled{opacity:.5;cursor:progress}
+.ccp-error{margin:0;color:var(--dsw-alias-state-error-primary);font-size:12px;line-height:1.5}
 
 .ccp-notice{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-3);border-radius:12px;padding:12px 14px;flex-direction:column;gap:4px;display:flex}
 .ccp-noticeError{border-color:var(--dsw-alias-state-error-primary)}

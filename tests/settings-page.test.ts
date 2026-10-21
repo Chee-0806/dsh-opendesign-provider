@@ -322,6 +322,33 @@ test('可见模型多选写 visibleModels，上下文覆盖写整表', async () 
   ])
 })
 
+test('额度卡开关读已存值、草稿与已存值分开，保存走同一整批 mutate', async () => {
+  const { controller, settings } = make({
+    value: { apiKeyEnv: 'OPEN_DESIGN_API_KEY', apiBase: 'https://saved.example/v1', showSidebarQuota: true },
+  })
+  await flush()
+  assert.equal(controller.state().showSidebarQuota, true)
+  assert.equal(controller.state().showSidebarQuotaDraft, true)
+
+  controller.setShowSidebarQuota(false)
+  assert.equal(controller.state().showSidebarQuota, true, '已存值仍是额度面板的门禁事实')
+  assert.equal(controller.state().showSidebarQuotaDraft, false)
+  assert.equal(controller.state().dirty, true)
+
+  controller.discard()
+  assert.equal(controller.state().showSidebarQuotaDraft, true, '放弃更改恢复开关')
+
+  controller.setShowSidebarQuota(false)
+  const outcome = await controller.save()
+  assert.deepEqual(outcome, { config: 'confirmed', credential: 'none' })
+  assert.deepEqual(settings.mutations[0]!.ops, [
+    { op: 'set', path: ['showSidebarQuota'], value: false },
+  ])
+  assert.equal(controller.state().showSidebarQuota, false)
+  assert.equal(controller.state().showSidebarQuotaDraft, false)
+  assert.equal(controller.state().dirty, false)
+})
+
 test('非法输入阻止保存并保留草稿', async () => {
   const { controller, settings } = make()
   await flush()

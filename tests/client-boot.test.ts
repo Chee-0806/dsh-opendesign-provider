@@ -76,7 +76,12 @@ async function boot(options: BootOptions = {}) {
     mountCredentials = true,
     mountSettings = true,
     mountModels = true,
-    declaredSlots = new Set(['settings.section', 'settings.models.provider-card']),
+    declaredSlots = new Set([
+      'settings.section',
+      'settings.models.provider-card',
+      'main',
+      'sidebar.footer.action',
+    ]),
     writable = true,
     credentialConfigured = true,
   } = options
@@ -210,6 +215,7 @@ async function boot(options: BootOptions = {}) {
     ],
   })
 
+  ctx.provide('layout', { selectPanel() {} })
   ctx.provide('locale', {
     register(ns: string) { localeNamespaces.push(ns); return () => {} },
     bind: (ns: string) => (key: string) => `${ns}:${key}`,
@@ -256,11 +262,13 @@ const pageFace = (registered: Awaited<ReturnType<typeof boot>>['registered']): F
   return page.inject() as Face
 }
 
-test('apply 只注册自己的两个插槽，并声明设置页 locale 命名空间', async () => {
+test('apply 只注册自己的四个插槽，并分别声明设置页与面板的 locale 命名空间', async () => {
   const { registered, localeNamespaces } = await boot()
   assert.deepEqual(registered.map((entry) => entry.name).sort(), [
+    'main',
     'settings.models.provider-card',
     'settings.section',
+    'sidebar.footer.action',
   ])
   const section = registered.find((entry) => entry.name === 'settings.section')!
   assert.equal(section.id, 'opendesign')
@@ -268,7 +276,13 @@ test('apply 只注册自己的两个插槽，并声明设置页 locale 命名空
   const card = registered.find((entry) => entry.name === 'settings.models.provider-card')!
   assert.equal(card.key, 'llm-opendesign')
   assert.equal(card.locale, 'settings.opendesign')
-  assert.deepEqual(localeNamespaces, ['settings.opendesign'])
+  const panel = registered.find((entry) => entry.name === 'main')!
+  assert.equal(panel.key, 'opendesign-panel')
+  assert.equal(panel.locale, 'panel.opendesign')
+  const footer = registered.find((entry) => entry.name === 'sidebar.footer.action')!
+  assert.equal(footer.id, 'opendesign-panel')
+  assert.equal(footer.locale, 'panel.opendesign')
+  assert.deepEqual(localeNamespaces.sort(), ['panel.opendesign', 'settings.opendesign'])
 })
 
 test('引擎没声明插槽时不注册（不硬造坐席）', async () => {

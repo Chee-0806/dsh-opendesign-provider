@@ -66,6 +66,9 @@ export const MODEL_CARD_KEY = 'llm-opendesign'
 /** The quota panel's `main` / `sidebar.footer.action` id. */
 export const PANEL_ID = 'opendesign-panel'
 
+/** Locale namespace the two quota-panel surfaces declare (distinct from the settings page's). */
+export const PANEL_LOCALE_NS = 'panel.opendesign'
+
 /** Opt-in raw request-timing trace environment variable. */
 export const REQUEST_TIMING_ENV = 'DSH_OPENDESIGN_TIMING'
 

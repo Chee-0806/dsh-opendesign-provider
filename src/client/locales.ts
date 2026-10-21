@@ -62,7 +62,8 @@ export type SettingsOpenDesignKey =
   | 'displaySection'
   | 'displaySectionDesc'
   | 'language'
-  | 'quotaComing'
+  | 'sidebarQuota'
+  | 'sidebarQuotaHint'
   | 'advanced'
   | 'advancedDesc'
   | 'requestTimeout'
@@ -161,7 +162,8 @@ export const zh: Record<SettingsOpenDesignKey, string> = {
   displaySection: '显示',
   displaySectionDesc: '界面语言与额度卡显示。',
   language: '语言',
-  quotaComing: '额度卡开关将在 P1 额度功能中提供。',
+  sidebarQuota: '侧栏额度卡',
+  sidebarQuotaHint: '默认关闭；开启后显示套餐档位与 7 天窗口进度（Go 档另有 5 小时窗口），点击进入额度面板。',
   advanced: '高级',
   advancedDesc: '网络超时、传输重试、目录缓存与诊断。',
   requestTimeout: '请求超时（秒）',
@@ -243,7 +245,8 @@ export const en: Record<SettingsOpenDesignKey, string> = {
   displaySection: 'Display',
   displaySectionDesc: 'Interface language and the quota card.',
   language: 'Language',
-  quotaComing: 'The quota card toggle arrives with the P1 quota feature.',
+  sidebarQuota: 'Sidebar quota card',
+  sidebarQuotaHint: 'Off by default. When on, shows the plan tier and the 7-day window (Go also shows the 5-hour window); click through for the quota panel.',
   advanced: 'Advanced',
   advancedDesc: 'Network timeouts, transport retries, catalog cache and diagnostics.',
   requestTimeout: 'Request timeout (seconds)',

@@ -206,6 +206,12 @@ export interface Config {
    * its own; this knob is for commands and text surfaces.
    */
   lang?: string
+  /**
+   * The opt-in sidebar quota card (default `false`). The panel only reads the
+   * control plane and never touches inference; when the switch is off it renders
+   * nothing and starts no refresh.
+   */
+  showSidebarQuota?: boolean
 }
 
 /**
@@ -238,6 +244,7 @@ export const Config: z<Config> = z.object(markVolatileFields({
   // 两者都不得超过网关的绝对上限 262144。
   maxOutputTokens: z.number().min(OMIT_OUTPUT_TOKENS).max(MAX_OUTPUT_TOKEN_LIMIT).step(1),
   lang: z.string().pattern(/^(zh|en)$/).default('zh' as const),
+  showSidebarQuota: z.boolean().default(false),
 }, ['apiKey']))
 
 /** One resolution's complete request facts: connection plus credential reference. */
