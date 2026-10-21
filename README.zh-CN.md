@@ -17,7 +17,7 @@
 
 ```sh
 # 直接从仓库安装（推荐）
-dsh plugin add git+https://github.com/Chee-0806/dsh-opendesign-provider.git#feat/opendesign
+dsh plugin add git+https://github.com/Chee-0806/dsh-opendesign-provider.git
 
 # 或从本地检出安装
 npm ci

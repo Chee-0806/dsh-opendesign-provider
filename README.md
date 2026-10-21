@@ -18,7 +18,7 @@ cost/capability tiers — never an amount; ADR-0002) are all delivered.
 
 ```sh
 # install straight from the repository (recommended)
-dsh plugin add git+https://github.com/Chee-0806/dsh-opendesign-provider.git#feat/opendesign
+dsh plugin add git+https://github.com/Chee-0806/dsh-opendesign-provider.git
 
 # or from a local checkout
 npm ci
