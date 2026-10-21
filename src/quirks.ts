@@ -6,8 +6,11 @@
  *
  * - `off` 必须发字面量 `"none"`；省略字段上游仍会思考。
  * - 输出上限字段是 `max_completion_tokens`；`max_tokens` 全员不认。
- * - glm 只接受 low/high/max，kimi 没有 off/max —— 逐模型档位域来自目录快照，
- *   本模块只做「域内收敛」与「上线字面量映射」，不另存第二份档位表。
+ * - glm 只接受 low/high/max，kimi 没有 off/max，DeepSeek 的 8 个 wire 值只对应
+ *   三档真实档位（见 `catalog-snapshot.ts` 的 `DEEPSEEK_LEVELS`）—— 逐模型档位域
+ *   来自目录快照，本模块只做「域内收敛」与「上线字面量映射」，不另存第二份档位表。
+ * - 折叠方向按上游公布的映射走：DeepSeek 官方把 medium 映射到 high，glm 按设计件
+ *   折向 low；两者相反，因此各有一张折叠表。
  * - gpt-6-luna 与 claude-haiku-5.5 在 Chat 面完全不吐 `reasoning`（实测），它们的
  *   思考只在 Responses / Messages 面可见；这不是 bug，界面上要标注「思考不可见」。
  * - 上游不认输出上限（glm 实测 16 → 74 tokens）时由客户端硬截断兜底
@@ -67,23 +70,47 @@ const COARSE_LEVEL_FOLDS: Readonly<Record<ReasoningLevel, ReasoningLevel>> = {
   max: 'max',
 }
 
+/**
+ * DeepSeek 官方映射表（[思考模式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)）
+ * 的逐档落点。网关能收 8 个词，真正生效的只有 low / high / max。
+ *
+ * 这张表和 `COARSE_LEVEL_FOLDS` 的方向在 `medium` 上是**相反**的，别合并：
+ * glm 的 medium 折向 `low`（保守、省钱），DeepSeek 官方把 medium 映射到
+ * `high`。凡是上游自己公布了映射的，就照上游的映射走，不要用距离规则猜。
+ */
+const DEEPSEEK_LEVEL_FOLDS: Readonly<Record<ReasoningLevel, ReasoningLevel>> = {
+  off: 'off',
+  minimal: 'low',
+  low: 'low',
+  medium: 'high',
+  high: 'high',
+  xhigh: 'high',
+  max: 'max',
+}
+
 /** Whether the model's domain is glm's coarse low/high/max set. */
 function hasCoarseDomain(levels: readonly ReasoningLevel[]): boolean {
   return levels.length === 3 && levels[0] === 'low' && levels[1] === 'high' && levels[2] === 'max'
 }
 
+/** Whether the model's domain is DeepSeek's real off/low/high/max set. */
+function hasDeepSeekDomain(levels: readonly ReasoningLevel[]): boolean {
+  return levels.length === 4 && levels[0] === 'off' && levels[1] === 'low' && levels[2] === 'high' && levels[3] === 'max'
+}
+
 /**
  * The nearest level this model actually accepts.
  *
- * A legal level passes through untouched. For a contiguous domain (kimi's
- * `minimal..xhigh`) the requested level is clamped into range; for glm's coarse
- * domain the design's explicit fold is applied instead of a distance rule, so
- * `medium` cannot land on `high` and `xhigh` cannot stay on `high`.
+ * A legal level passes through untouched. Domains whose upstream publishes an
+ * explicit mapping use that mapping rather than a distance guess — glm's
+ * design fold and DeepSeek's official alias table. For a contiguous domain
+ * (kimi's `minimal..xhigh`) the requested level is clamped into range.
  */
 export function coerceReasoningLevel(model: string, level: ReasoningLevel): ReasoningLevel {
   const levels = reasoningLevelsFor(model)
   if (levels.includes(level)) return level
   if (hasCoarseDomain(levels)) return COARSE_LEVEL_FOLDS[level]
+  if (hasDeepSeekDomain(levels)) return DEEPSEEK_LEVEL_FOLDS[level]
   const target = REASONING_LEVEL_ORDER.indexOf(level)
   let best = levels[0] ?? level
   let bestDistance = Number.POSITIVE_INFINITY

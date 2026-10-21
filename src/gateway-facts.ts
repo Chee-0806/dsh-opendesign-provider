@@ -6,7 +6,7 @@
  * 响应形状不合法时，才整体回落到 {@link CATALOG_SNAPSHOT} 并标记来源为
  * `static`。字段映射按设计件 §5.1：
  *
- * - 上下文窗口 = `metadata.context_budget`，缺省 `context_limit`，再缺省 128000；
+ * - 上下文窗口 = `metadata.context_limit`，缺省 128000；**不用** `context_budget`（见下）；
  * - 输出上限 = `metadata.output_budget`（缺省 32768）；kimi 仍按实测抬到 65536，
  *   否则 medium/high 档的思考预算会把输出额度吃掉；
  * - 档位 = `metadata.cost` / `metadata.capability`；
@@ -15,6 +15,21 @@
  *
  * 缓存文件含 `apiBase` 与版本号：换网关后旧缓存不得复用。成功缓存 TTL 5 分钟；
  * 失败后 10 秒内不再重试，避免断网时每次打开选择器都卡在超时上。
+ *
+ * **为什么是 `context_limit` 而不是 `context_budget`**（2026-10-21 实测修正）：宿主把
+ * `contextWindow` 定义为「请求 + 响应合计上限」（`LlmModelContext.contextWindow`），
+ * 并要求它等于上游真正会拒绝的那个数。实测 `context_budget` 只是产品侧「建议可用输入
+ * 预算」，网关**根本不执行**它：`deepseek-v4.1-flash`（budget 328k / limit 1048k）在
+ * 802842 prompt tokens 下仍完整召回大海捞针；`claude-haiku-5.5`（228k）在 493393、
+ * `gpt-6-luna`（400k）在 432790、`hy4-preview`/`mimo-v2.6-flash`（232k）在 242k~251k
+ * 全部 200。真正抛 `context_length_exceeded` 的边界贴着 `context_limit`：
+ * `deepseek-v4-flash` 在 1031177 可行、1048383 被拒（limit 1048000）；`kimi-k2.7-code`
+ * 的 limit 与 budget 同为 262000，越过即报 `Range of input length should be [1, 262144]`。
+ * 更关键的是计数口径：输入 1047688 + `max_completion_tokens` 16 → 200，改成 32768 → 400，
+ * 证明 `context_limit` 正是「输入 + 输出」，与宿主语义逐字吻合。
+ *
+ * 若继续上报 budget（只有真实额度的 22%~38%），宿主会在还能再用 2~4 倍上下文时就去
+ * 压缩历史、白扔可用的长上下文；用户「DeepSeek 官方是 1M 上下文」的直觉才是对的。
  *
  * 本模块只被 Host 半侧引用（读取文件系统），浏览器 bundle 不得导入。
  *
@@ -215,7 +230,7 @@ export function mergeGatewayCatalog(facts: readonly GatewayModelFacts[]): readon
     merged.push({
       id: fact.id,
       name: known?.name ?? titleizeModelId(fact.id),
-      contextWindow: fact.contextBudget ?? fact.contextLimit
+      contextWindow: fact.contextLimit
         ?? known?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
       maxTokens: mergedMaxTokens(fact, known),
       cost: fact.cost ?? known?.cost ?? 'medium',

@@ -33,11 +33,12 @@ test('off 上线的字面量是 "none"，其余档位原样，未选档位不发
   assert.equal(wireReasoningEffort(undefined), undefined)
 })
 
-test('逐模型档位域：9 个全档、glm 仅 low/high/max、kimi 无 off 无 max', () => {
-  assert.deepEqual(
-    reasoningLevelsFor('deepseek-v4.1-flash'),
-    ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
-  )
+test('逐模型档位域：DeepSeek 只 4 档、glm 仅 low/high/max、kimi 无 off 无 max', () => {
+  // DeepSeek 的 reasoning_effort 收 8 个 wire 值，但官方映射表只落成三档真实
+  // 档位（外加关闭）；详见 catalog-snapshot.ts 的 DEEPSEEK_LEVELS。
+  for (const model of ['deepseek-v4.1-flash', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', 'deepseek-v4-pro']) {
+    assert.deepEqual(reasoningLevelsFor(model), ['off', 'low', 'high', 'max'])
+  }
   assert.deepEqual(reasoningLevelsFor('claude-haiku-5.5').length, 7)
   assert.deepEqual(reasoningLevelsFor('gpt-6-luna').length, 7)
   assert.deepEqual(reasoningLevelsFor('glm-5.3-flash'), ['low', 'high', 'max'])
@@ -52,6 +53,10 @@ test('supportsReasoningLevel 只认域内档位', () => {
   assert.equal(supportsReasoningLevel('glm-5.3-flash', 'medium'), false)
   assert.equal(supportsReasoningLevel('kimi-k2.7-code', 'off'), false)
   assert.equal(supportsReasoningLevel('kimi-k2.7-code', 'max'), false)
+  // DeepSeek 的 minimal/medium/xhigh 只是 wire 别名，不是可选档位。
+  assert.equal(supportsReasoningLevel('deepseek-v4.1-flash', 'low'), true)
+  assert.equal(supportsReasoningLevel('deepseek-v4.1-flash', 'medium'), false)
+  assert.equal(supportsReasoningLevel('deepseek-v4.1-flash', 'xhigh'), false)
 })
 
 test('非法档位收敛到最近合法档，glm 按设计的折叠规则', () => {
@@ -64,9 +69,38 @@ test('非法档位收敛到最近合法档，glm 按设计的折叠规则', () =
   assert.equal(coerceReasoningLevel('kimi-k2.7-code', 'off'), 'minimal')
   assert.equal(coerceReasoningLevel('kimi-k2.7-code', 'max'), 'xhigh')
   assert.equal(coerceReasoningLevel('kimi-k2.7-code', 'medium'), 'medium')
-  // 全档模型原样通过。
+  // DeepSeek 按官方映射表折叠：medium → high（注意与 glm 的 medium → low 相反）。
   assert.equal(coerceReasoningLevel('deepseek-v4.1-flash', 'off'), 'off')
-  assert.equal(coerceReasoningLevel('deepseek-v4.1-flash', 'xhigh'), 'xhigh')
+  assert.equal(coerceReasoningLevel('deepseek-v4.1-flash', 'low'), 'low')
+  assert.equal(coerceReasoningLevel('deepseek-v4.1-flash', 'minimal'), 'low')
+  assert.equal(coerceReasoningLevel('deepseek-v4.1-flash', 'medium'), 'high')
+  assert.equal(coerceReasoningLevel('deepseek-v4.1-flash', 'xhigh'), 'high')
+  assert.equal(coerceReasoningLevel('deepseek-v4.1-flash', 'max'), 'max')
+  // 同样的折叠对另外三个 DeepSeek 模型成立。
+  assert.equal(coerceReasoningLevel('deepseek-v4-flash', 'medium'), 'high')
+  assert.equal(coerceReasoningLevel('deepseek-v4-pro', 'xhigh'), 'high')
+  assert.equal(coerceReasoningLevel('deepseek-v4-flash-vision-exp', 'minimal'), 'low')
+  // 全档模型原样通过。
+  assert.equal(coerceReasoningLevel('claude-haiku-5.5', 'off'), 'off')
+  assert.equal(coerceReasoningLevel('claude-haiku-5.5', 'xhigh'), 'xhigh')
+})
+
+test('DeepSeek 的 wire 值多于真实档位：8 个词只对应 off/low/high/max', () => {
+  // 依据 DeepSeek 官方「思考模式」映射表与网关 400 文案：
+  // 网关接受 none/minimal/low/medium/high/xhigh/ultra/max 八个词，但
+  // minimal→low、medium→high、xhigh→high、ultra→max，真实档位只有四档。
+  const deepseek = ['deepseek-v4.1-flash', 'deepseek-v4-flash', 'deepseek-v4-flash-vision-exp', 'deepseek-v4-pro']
+  for (const model of deepseek) {
+    assert.deepEqual(reasoningLevelsFor(model), ['off', 'low', 'high', 'max'], model)
+    // 别名不是可选档位：调用方点不到，就不该被当成档位发出去。
+    for (const alias of ['minimal', 'medium', 'xhigh'] as const) {
+      assert.equal(supportsReasoningLevel(model, alias), false, `${model} ${alias}`)
+      assert.notEqual(coerceReasoningLevel(model, alias), alias, `${model} ${alias}`)
+    }
+  }
+  // 折叠方向以官方映射表为准，和 glm 的保守折叠相反。
+  assert.equal(coerceReasoningLevel('deepseek-v4.1-flash', 'medium'), 'high')
+  assert.equal(coerceReasoningLevel('glm-5.3-flash', 'medium'), 'low')
 })
 
 // ---------------------------------------------------------------------------

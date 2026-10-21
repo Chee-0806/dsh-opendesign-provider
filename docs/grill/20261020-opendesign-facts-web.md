@@ -166,8 +166,12 @@
     （pi bridge `fetchLiveListing`）；
   - `metadata.cost ∈ {low, medium, high}`、`metadata.capability ∈ {standard, advanced}`、
     `owned_by: "vela"`：E 的 12 条真实响应；
-  - `context_budget` 是“输入预算”，`output_budget` 是“回答上限”，二者都小于 `context_limit` —— 这点很重要，
-    不要把 `context_limit` 当可用上下文。
+  - ~~`context_budget` 是"输入预算"，`output_budget` 是"回答上限"，二者都小于 `context_limit` —— 这点很重要，
+    不要把 `context_limit` 当可用上下文。~~
+    **⚠️ 2026-10-21 实测推翻本条**：这是从字段名推断的，不是实测。真实情况是网关**只执行
+    `context_limit`**，`context_budget` 只是产品侧建议预算（占 limit 的 22%~38%），发超过它 4 倍的
+    prompt 依然 200 且完整召回。`context_limit` 才是「输入 + 输出合计」的硬上限，正好是宿主
+    `LlmModelContext.contextWindow` 的语义。证据与探针见 `20261020-opendesign-facts-local.md` §5.3。
 - 未鉴权时 `GET /v1/models` 返回 401（D），错误体见 §3.1。
 - **列表是按 Key/账号可见范围裁剪的**（C 明确写 “the endpoint scopes the catalog per key”；E 用 Go 档 Key 实测 12 条）。
 

@@ -48,8 +48,8 @@ const {
   OpenDesignAdapter,
 } = await import('../src/adapter.ts')
 const { resolveCredentialChain } = await import('../src/credentials.ts')
-const { CATALOG_SNAPSHOT, REASONING_LEVEL_ORDER } = await import('../src/catalog-snapshot.ts')
-const { reasoningLevelsFor, thinkingVisibleInChat } = await import('../src/quirks.ts')
+const { CATALOG_SNAPSHOT } = await import('../src/catalog-snapshot.ts')
+const { coerceReasoningLevel, reasoningLevelsFor, thinkingVisibleInChat } = await import('../src/quirks.ts')
 const { estimateOutputTokens } = await import('../src/output-tokens.ts')
 const { LlmError, ReasoningEffortId } = await import('@deepseek-ai/dsh-llm')
 
@@ -369,10 +369,14 @@ async function case3Reasoning() {
   const detail = []
 
   // 逐模型合法域（来自目录/快照，不是硬编码期望）。
+  //
+  // deepseek 的 reasoning_effort 收 8 个 wire 值，但真实档位只有
+  // off/low/high/max：minimal→low、medium/high/xhigh→high、max→max
+  // （DeepSeek 官方映射表；详见 docs/grill/…-facts-local.md §5.2）。
   const deepseekDomain = reasoningLevelsFor('deepseek-v4.1-flash')
   assert(
-    deepseekDomain.length === REASONING_LEVEL_ORDER.length,
-    `deepseek 只有 ${deepseekDomain.join('/')}，期望全档`,
+    deepseekDomain.join('/') === 'off/low/high/max',
+    `deepseek 档位域是 ${deepseekDomain.join('/')}，期望 off/low/high/max`,
   )
   assert(reasoningLevelsFor('glm-5.3-flash').join('/') === 'low/high/max', `glm 档位域是 ${reasoningLevelsFor('glm-5.3-flash').join('/')}`)
   assert(
@@ -380,9 +384,9 @@ async function case3Reasoning() {
     `kimi 档位域是 ${reasoningLevelsFor('kimi-k2.7-code').join('/')}`,
   )
 
-  // deepseek 全档可发（真实请求，不被 400 拒）；off 实测没有 reasoning。
+  // deepseek 的四个真实档位逐个发真实请求，确认都不被 400 拒；off 实测没有 reasoning。
   const accepted = []
-  for (const level of REASONING_LEVEL_ORDER) {
+  for (const level of deepseekDomain) {
     const result = await turn(adapter, 'deepseek-v4.1-flash', {
       prompt: '只回复 OK。',
       maxTokens: 64,
@@ -394,7 +398,24 @@ async function case3Reasoning() {
       assert(result.reasoning === '', `deepseek 选 off 仍收到 ${result.reasoning.length} 字 reasoning`)
     }
   }
-  detail.push(`deepseek 全档 ${accepted.join('/')} 均成功，off 无 reasoning`)
+  // 别名档（host 传 minimal/medium/xhigh）要被折叠到域内，而不是原样发出。
+  for (const [alias, expected] of [
+    ['minimal', 'low'],
+    ['medium', 'high'],
+    ['xhigh', 'high'],
+  ]) {
+    const result = await turn(adapter, 'deepseek-v4.1-flash', {
+      prompt: '只回复 OK。',
+      maxTokens: 64,
+      reasoningEffort: alias,
+    })
+    assert(result.finishKind !== 'error', `deepseek 别名 ${alias} 以错误收尾`)
+    assert(
+      coerceReasoningLevel('deepseek-v4.1-flash', alias) === expected,
+      `deepseek 别名 ${alias} 折叠到 ${coerceReasoningLevel('deepseek-v4.1-flash', alias)}，期望 ${expected}`,
+    )
+  }
+  detail.push(`deepseek 真实档 ${accepted.join('/')} 均成功，off 无 reasoning；别名折叠 minimal→low、medium→high、xhigh→high`)
 
   // glm 与 kimi 各发一轮低档，证明收敛后的档位在线上可用。
   const glm = await turn(adapter, 'glm-5.3-flash', { prompt: '只回复 OK。', maxTokens: 64, reasoningEffort: 'low' })

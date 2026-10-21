@@ -6,14 +6,17 @@
  * the gateway is unreachable, unauthorised or malformed, and it stays the
  * source of display names, reasoning domains and modalities for ids it knows.
  *
- * Two readings in the table are deliberate and must not be "corrected":
+ * One reading in the table is deliberate and must not be "corrected":
  *
- * - `contextWindow` is the gateway's `context_budget` (usable input budget),
- *   NOT the nominal `context_limit` — the difference is the room the gateway
- *   reserves for the reply.
  * - `kimi-k2.7-code` advertises `maxTokens = 65536` even though its
  *   `output_budget` is 32000, because its medium/high thinking levels require
  *   `max_completion_tokens` to exceed the level's thinking budget (32768).
+ *
+ * `contextWindow` is the gateway's `metadata.context_limit`, the only limit the
+ * gateway actually enforces; it counts input + output, which is exactly what
+ * the host's `LlmModelContext.contextWindow` means. The sibling field
+ * `context_budget` is a product-side advisory budget (22%~38% of the limit)
+ * that the gateway never enforces; see `./gateway-facts.ts` for the probes.
  *
  * Data comes from `docs/opendesign/00-改造设计.md` §5.2 and
  * `docs/grill/20261020-opendesign-facts-local.md` §5.
@@ -77,6 +80,21 @@ export const DEFAULT_MAX_OUTPUT_TOKENS = 32_768
 
 const ALL_LEVELS: readonly ReasoningLevel[] = REASONING_LEVEL_ORDER
 
+/**
+ * DeepSeek's four REAL levels.
+ *
+ * 这是本轮唯一一处「网关能收 ≠ 档位存在」的判定，依据是 DeepSeek 官方
+ * [思考模式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/) 的映射表：
+ * `minimal/low → low`、`medium/high/xhigh → high`、`max → max`。也就是说
+ * `reasoning_effort` 收 8 个词，真正生效的只有 low / high / max 三档（外加关闭）。
+ *
+ * 实测佐证（2026-10-21，硬 prompt × 6 次，`usage.completion_tokens_details.reasoning_tokens` 中位数）：
+ * `deepseek-v4-flash` low 240 < high 286；`deepseek-v4-pro` low 275 < high 361。
+ * 与 Command Code 官方 CLI 快照对 `deepseek/deepseek-v4.1-flash` 的
+ * `["off","low","high","max"]` 一致。
+ */
+const DEEPSEEK_LEVELS: readonly ReasoningLevel[] = ['off', 'low', 'high', 'max']
+
 /** glm's gateway accepts only these three; minimal/medium/xhigh are folded. */
 const GLM_LEVELS: readonly ReasoningLevel[] = ['low', 'high', 'max']
 
@@ -88,7 +106,7 @@ export const CATALOG_SNAPSHOT: readonly CatalogModelSnapshot[] = [
   {
     id: 'claude-haiku-5.5',
     name: 'Claude Haiku 5.5',
-    contextWindow: 228_000,
+    contextWindow: 1_000_000,
     maxTokens: 128_000,
     cost: 'low',
     capability: 'standard',
@@ -98,48 +116,48 @@ export const CATALOG_SNAPSHOT: readonly CatalogModelSnapshot[] = [
   {
     id: 'deepseek-v4-flash',
     name: 'DeepSeek V4 Flash',
-    contextWindow: 232_000,
+    contextWindow: 1_048_000,
     maxTokens: 32_000,
     cost: 'medium',
     capability: 'standard',
     inputModalities: ['text'],
-    reasoningLevels: ALL_LEVELS,
+    reasoningLevels: DEEPSEEK_LEVELS,
   },
   {
     id: 'deepseek-v4-flash-vision-exp',
     name: 'DeepSeek V4 Flash Vision Exp',
-    contextWindow: 232_000,
+    contextWindow: 1_048_000,
     maxTokens: 32_000,
     cost: 'medium',
     capability: 'standard',
     inputModalities: ['text', 'image'],
-    reasoningLevels: ALL_LEVELS,
+    reasoningLevels: DEEPSEEK_LEVELS,
   },
   {
     id: 'deepseek-v4-pro',
     name: 'DeepSeek V4 Pro',
-    contextWindow: 328_000,
+    contextWindow: 1_048_000,
     maxTokens: 128_000,
     cost: 'high',
     capability: 'advanced',
     inputModalities: ['text'],
-    reasoningLevels: ALL_LEVELS,
+    reasoningLevels: DEEPSEEK_LEVELS,
   },
   {
     id: DEFAULT_MODEL_ID,
     name: 'DeepSeek V4.1 Flash',
-    contextWindow: 328_000,
+    contextWindow: 1_048_000,
     maxTokens: 128_000,
     cost: 'low',
     capability: 'advanced',
     inputModalities: ['text', 'image'],
-    reasoningLevels: ALL_LEVELS,
+    reasoningLevels: DEEPSEEK_LEVELS,
     default: true,
   },
   {
     id: 'glm-5.3-flash',
     name: 'GLM-5.3 Flash',
-    contextWindow: 232_000,
+    contextWindow: 1_048_000,
     maxTokens: 32_000,
     cost: 'low',
     capability: 'advanced',
@@ -149,7 +167,7 @@ export const CATALOG_SNAPSHOT: readonly CatalogModelSnapshot[] = [
   {
     id: 'glm-5.3-flashx',
     name: 'GLM-5.3 Flash-X',
-    contextWindow: 232_000,
+    contextWindow: 1_000_000,
     maxTokens: 32_000,
     cost: 'medium',
     capability: 'advanced',
@@ -159,7 +177,7 @@ export const CATALOG_SNAPSHOT: readonly CatalogModelSnapshot[] = [
   {
     id: 'gpt-6-luna',
     name: 'GPT-6 Luna',
-    contextWindow: 400_000,
+    contextWindow: 1_050_000,
     maxTokens: 128_000,
     cost: 'low',
     capability: 'standard',
@@ -169,7 +187,7 @@ export const CATALOG_SNAPSHOT: readonly CatalogModelSnapshot[] = [
   {
     id: 'hy4-preview',
     name: 'Hunyuan H4 Preview',
-    contextWindow: 232_000,
+    contextWindow: 1_048_000,
     maxTokens: 32_000,
     cost: 'medium',
     capability: 'advanced',
@@ -189,7 +207,7 @@ export const CATALOG_SNAPSHOT: readonly CatalogModelSnapshot[] = [
   {
     id: 'mimo-v2.6-flash',
     name: 'MiMo V2.6 Flash',
-    contextWindow: 232_000,
+    contextWindow: 1_048_000,
     maxTokens: 32_000,
     cost: 'low',
     capability: 'standard',
@@ -199,7 +217,7 @@ export const CATALOG_SNAPSHOT: readonly CatalogModelSnapshot[] = [
   {
     id: 'mimo-v2.6-pro',
     name: 'MiMo V2.6 Pro',
-    contextWindow: 232_000,
+    contextWindow: 1_048_000,
     maxTokens: 32_000,
     cost: 'medium',
     capability: 'advanced',

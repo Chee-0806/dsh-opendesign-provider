@@ -173,12 +173,14 @@ test('resolveModel 给出上下文窗口、输出上限、档位集合与视觉�
   const resolved = await adapter.resolveModel('open-design', 'deepseek-v4.1-flash')
   assert.equal(resolved.provider, 'open-design')
   assert.equal(resolved.id, 'deepseek-v4.1-flash')
-  assert.equal(resolved.context?.contextWindow, 328_000)
+  // 网关只执行 context_limit（1_048_000），context_budget=328000 从不生效。
+  assert.equal(resolved.context?.contextWindow, 1_048_000)
   assert.equal(resolved.defaultMaxTokens, 128_000)
   assert.deepEqual(resolved.inputModalities, ['text', 'image'])
+  // DeepSeek 的 wire 值有 8 个，但真实档位只有 off/low/high/max 四档。
   assert.deepEqual(
     resolved.reasoning?.efforts.map((effort) => effort.id),
-    ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].map((level) => ReasoningEffortId(level)),
+    ['off', 'low', 'high', 'max'].map((level) => ReasoningEffortId(level)),
   )
 
   const kimi = await adapter.resolveModel('open-design', 'kimi-k2.7-code')
@@ -263,7 +265,8 @@ test('流式请求：URL、鉴权头与请求体字段（模型/消息/流开关
   assert.deepEqual(body.stream_options, { include_usage: true })
   assert.deepEqual(body.messages, [{ role: 'user', content: '你好' }])
   assert.equal(body.max_completion_tokens, 128_000)
-  assert.equal(body.reasoning_effort, 'medium')
+  // DeepSeek 没有 medium 档：官方映射表把 medium 落到 high，所以线上发 high。
+  assert.equal(body.reasoning_effort, 'high')
   // 上游不认的字段一个都不发。
   assert.equal('max_tokens' in body, false)
   assert.equal('store' in body, false)

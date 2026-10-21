@@ -109,9 +109,9 @@ test('真实 /models 夹具解析出 12 条，字段映射为预算/模态/档�
 
     assert.equal(models.length, 12)
     const byId = new Map(models.map((model) => [model.id, model]))
-    // context_budget 是可用输入预算，不是名义 context_limit。
+    // 网关只执行 context_limit；context_budget（328000）是不执行的建议预算。
     const deepseek = await adapter.resolveModel('open-design', 'deepseek-v4.1-flash')
-    assert.equal(deepseek.context?.contextWindow, 328_000)
+    assert.equal(deepseek.context?.contextWindow, 1_048_000)
     assert.equal(deepseek.defaultMaxTokens, 128_000)
     // 已知 id 的模态与档位来自快照：glm 接受图片，deepseek-v4-flash 只接受文本。
     assert.deepEqual(byId.get('glm-5.3-flash')?.inputModalities, ['text', 'image'])
@@ -195,7 +195,7 @@ test('401 回落静态快照并给出 auth 原因', async () => {
     assert.equal(status.source, 'static')
     assert.equal(status.reason, 'auth')
     // 回落不阻塞：静态快照的显示名与上下文都在。
-    assert.equal((await adapter.resolveModel('open-design', 'deepseek-v4.1-flash')).context?.contextWindow, 328_000)
+    assert.equal((await adapter.resolveModel('open-design', 'deepseek-v4.1-flash')).context?.contextWindow, 1_048_000)
   } finally {
     cache.cleanup()
   }
@@ -260,7 +260,7 @@ test('快照外的新模型：可见、标题化、全档、无图片、标未�
         id: 'brand-new-model',
         object: 'model',
         architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] },
-        metadata: { cost: 'low', capability: 'advanced', context_budget: 64_000, output_budget: 16_000 },
+        metadata: { cost: 'low', capability: 'advanced', context_limit: 64_000, context_budget: 9_000, output_budget: 16_000 },
         default: false,
         enabled: true,
       },
@@ -291,8 +291,12 @@ test('快照外的新模型：可见、标题化、全档、无图片、标未�
     assert.equal(brandNew.defaultMaxTokens, 16_000)
     assert.equal(brandNew.reasoning?.efforts.length, 7)
 
-    // context_budget 缺失时回落 context_limit；两者都缺失时回落 128000/32768。
+    // context_limit 缺失时回落快照/默认值；context_budget 一律不参与窗口计算。
     assert.equal((await adapter.resolveModel('open-design', 'legacy-window')).context?.contextWindow, 90_000)
+    // 回归：brand-new-model 同时给了 context_limit=64_000 与更小的 context_budget=9_000，
+    // 窗口必须取前者。2026-10-21 实测网关只执行 context_limit（且它含输出），
+    // 曾把 context_budget 当窗口，导致只剩真实额度的 22%~38%。
+    assert.notEqual(brandNew.context?.contextWindow, 9_000)
     const mystery = await adapter.resolveModel('open-design', 'mystery_model')
     assert.equal(mystery.context?.contextWindow, 128_000)
     assert.equal(mystery.defaultMaxTokens, 32_768)

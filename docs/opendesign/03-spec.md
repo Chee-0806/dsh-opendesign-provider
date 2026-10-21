@@ -130,7 +130,8 @@
 ### 目录、快照与逐模型规则
 
 - 目录请求 `GET {apiBase}/models`，Bearer 鉴权，超时 10 秒；解析 `id/enabled/default`、`architecture.input_modalities`、`metadata.context_limit/context_budget/output_budget/cost/capability`。
-- 上下文窗口取 `context_budget`（**不是** `context_limit`），缺失回落 `context_limit`，再缺失回落 128000；输出上限取 `output_budget`，缺失 32768；kimi 特例 65536。
+- 上下文窗口取 `context_limit`（2026-10-21 实测修正；原写 `context_budget`，但网关只执行 `context_limit` 且它含输出，
+  见 `docs/grill/20261020-opendesign-facts-local.md` §5.3），缺失回落 128000；输出上限取 `output_budget`，缺失 32768；kimi 特例 65536。
 - 目录缓存与 `apiBase` 绑定、带版本号；TTL 5 分钟、失败重试 TTL 10 秒；缓存不可用或网关失败时回落内置 12 模型静态快照，并在目录里标记来源（实时 / 静态）。
 - 静态快照包含：id、官方显示名、上下文窗口、输出上限、成本档、能力档、输入模态、思考域；网关出现快照外的新模型时按「未校准」处理（标题化显示名、全档思考、无图片能力、可见但带标注）。
 - 排序：`default` 置顶，其余能力档 advanced 优先、成本档 low 优先、再按 id 字母序。显示名不带 provider 后缀。

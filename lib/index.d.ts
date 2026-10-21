@@ -14,14 +14,17 @@ import { CommandDefinition } from "@deepseek-ai/dsh-commands";
  * the gateway is unreachable, unauthorised or malformed, and it stays the
  * source of display names, reasoning domains and modalities for ids it knows.
  *
- * Two readings in the table are deliberate and must not be "corrected":
+ * One reading in the table is deliberate and must not be "corrected":
  *
- * - `contextWindow` is the gateway's `context_budget` (usable input budget),
- *   NOT the nominal `context_limit` — the difference is the room the gateway
- *   reserves for the reply.
  * - `kimi-k2.7-code` advertises `maxTokens = 65536` even though its
  *   `output_budget` is 32000, because its medium/high thinking levels require
  *   `max_completion_tokens` to exceed the level's thinking budget (32768).
+ *
+ * `contextWindow` is the gateway's `metadata.context_limit`, the only limit the
+ * gateway actually enforces; it counts input + output, which is exactly what
+ * the host's `LlmModelContext.contextWindow` means. The sibling field
+ * `context_budget` is a product-side advisory budget (22%~38% of the limit)
+ * that the gateway never enforces; see `./gateway-facts.ts` for the probes.
  *
  * Data comes from `docs/opendesign/00-改造设计.md` §5.2 and
  * `docs/grill/20261020-opendesign-facts-local.md` §5.

@@ -125,15 +125,16 @@ Chat Completions 的 wire 细节（实测）：
 `metadata.context_limit`(名义上限) / `metadata.context_budget`(可用输入预算) /
 `metadata.output_budget` / `default` / `enabled`。
 
-插件 catalog 用的是 **`context_budget` 当 `contextWindow`**，`maxTokens` 取 `output_budget`（kimi 例外）：
+插件 catalog ~~用 `context_budget` 当 `contextWindow`~~（**2026-10-21 修正：改用 `context_limit`**，见 §5.3），
+`maxTokens` 取 `output_budget`（kimi 例外）：
 
-| # | id | 输入模态 | context_limit | context_budget（插件 contextWindow） | output_budget | 插件 maxTokens | cost | capability | 思考等级（off/minimal/low/medium/high/xhigh/max） |
+| # | id | 输入模态 | context_limit（**插件 contextWindow**） | context_budget（不执行，仅记录） | output_budget | 插件 maxTokens | cost | capability | 思考等级（off/minimal/low/medium/high/xhigh/max） |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `claude-haiku-5.5` | text,image,file | 1000000 | 228000 | 128000 | 128000 | low | standard | 7 档全开 |
-| 2 | `deepseek-v4-flash` | text | 1048000 | 232000 | 32000 | 32000 | medium | standard | 7 档全开 |
-| 3 | `deepseek-v4-flash-vision-exp` | text,image | 1048000 | 232000 | 32000 | 32000 | medium | standard | 7 档全开 |
-| 4 | `deepseek-v4-pro` | text | 1048000 | 328000 | 128000 | 128000 | high | advanced | 7 档全开 |
-| 5 | `deepseek-v4.1-flash` | text,image | 1048000 | 328000 | 128000 | 128000 | low | advanced | 7 档全开（`default: true`） |
+| 2 | `deepseek-v4-flash` | text | 1048000 | 232000 | 32000 | 32000 | medium | standard | **仅 off / low / high / max**（见 §5.2） |
+| 3 | `deepseek-v4-flash-vision-exp` | text,image | 1048000 | 232000 | 32000 | 32000 | medium | standard | **仅 off / low / high / max**（见 §5.2） |
+| 4 | `deepseek-v4-pro` | text | 1048000 | 328000 | 128000 | 128000 | high | advanced | **仅 off / low / high / max**（见 §5.2） |
+| 5 | `deepseek-v4.1-flash` | text,image | 1048000 | 328000 | 128000 | 128000 | low | advanced | **仅 off / low / high / max**（见 §5.2；`default: true`） |
 | 6 | `glm-5.3-flash` | text,image,video | 1048000 | 232000 | 32000 | 32000 | low | advanced | 仅 low / high / max |
 | 7 | `glm-5.3-flashx` | text,image,file,video | 1000000 | 232000 | 32000 | 32000 | medium | advanced | 仅 low / high / max |
 | 8 | `gpt-6-luna` | text,image,file | 1050000 | 400000 | 128000 | 128000 | low | standard | 7 档全开（`supportsFinishReason:false`） |
@@ -178,6 +179,116 @@ Chat Completions 的 wire 细节（实测）：
 - **`developer` 角色**：只有 `glm-5.3-flash` / `glm-5.3-flashx` 400 `Incorrect role information`；
   插件仍在路由级统一设 `supportsDeveloperRole: false`（`lib/catalog.js:262`），属「保守统一」而非「全模型实测被拒」
   （README 里写成网关整体拒 `developer`，与实测矩阵不完全一致）
+
+### 5.2 DeepSeek 的真实档位只有三档 + 关闭（2026-10-21 修正）
+
+**结论**：`reasoning_effort` 这个字段收 8 个 wire 值，但 4 个 DeepSeek 模型的**真实档位只有
+`off` / `low` / `high` / `max`**。`minimal`、`medium`、`xhigh`、`ultra` 是别名，不产生独立行为。
+原先 §5 表把它们的「思考等级」写成「7 档全开」，依据只是「网关回 200」——**200 不等于档位存在**，
+上游收到别名后自己折叠掉了。这是本轮修正。
+
+**四条独立证据**：
+
+1. **DeepSeek 官方映射表**（[思考模式](https://api-docs.deepseek.com/zh-cn/guides/thinking_mode/)）：
+
+   | 请求传入 | 实际映射 |
+   | --- | --- |
+   | minimal | low |
+   | low | low |
+   | medium | **high** |
+   | high | high |
+   | xhigh | **high** |
+   | max | max |
+   | ultra | max |
+
+   同页还写明「思考模式默认打开，且 effort 默认为 `high`」。
+
+2. **网关自己的 400 文案**（探针 `/tmp/od-legal.mjs`，对每个模型发一个非法值）：
+
+   | 模型 | `use one of …` |
+   | --- | --- |
+   | 4 个 deepseek | `none, minimal, low, medium, high, xhigh, ultra, max` |
+   | glm-5.3-flash / flashx | `low, high, max` |
+   | kimi-k2.7-code | `none, minimal, low, medium, high, xhigh` |
+   | claude-haiku-5.5 / hy4-preview | `max\|xhigh\|high\|medium\|low\|minimal\|none` |
+
+   DeepSeek 那 8 个词**正好是官方映射表的左侧**，说明网关对 DeepSeek 只是原样透传，不做收敛。
+
+3. **Command Code 官方 CLI 快照**（本机 `dsh-commandcode-provider@0.14.2` 的 `KNOWN_EFFORTS`）：
+   `deepseek/deepseek-v4.1-flash → ["off","low","high","max"]`。注意同一份快照给
+   `deepseek-v4-flash` / `deepseek-v4-pro` 只写了 `["off","high","max"]`（无 `low`），
+   但实测它们接受 `low` 且行为更轻（见下条），因此按 4 档处理 —— 这是**快照与实测冲突时以实测为准**的一处。
+
+4. **reasoning_tokens 实测**（`usage.completion_tokens_details.reasoning_tokens`，
+   `/tmp/od-dsdisc.json`、`/tmp/od-v4low.mjs`）：
+
+   | 模型 | low | high | max |
+   | --- | --- | --- | --- |
+   | deepseek-v4.1-flash（硬 prompt ×6，中位） | 1592 | 1910 | 2434 |
+   | deepseek-v4-flash（×6 中位） | 240 | 286 | — |
+   | deepseek-v4-pro（×6 中位） | 275 | 361 | — |
+
+   单调递增，且 `low` 与 `high` 在噪声之外可区分（v4-pro 275 vs 361 最明显）。
+   `none` 在硬 prompt 上 `reasoning_tokens=0`，证明关思考生效。
+   别名组（`minimal` ≡ `low`、`medium` ≡ `high`、`xhigh` ≡ `high`）在短 prompt 上的
+   差异落在同一噪声带内（`/tmp/od-alias.json`），与官方映射表一致。
+
+**实现影响**：`src/catalog-snapshot.ts` 的 `DEEPSEEK_LEVELS = ['off','low','high','max']`；
+`src/quirks.ts` 的 `DEEPSEEK_LEVEL_FOLDS` 按官方映射（`medium → high`）折叠，
+**与 glm 的 `COARSE_LEVEL_FOLDS`（`medium → low`）方向相反**，两张表不可合并。
+界面因此对 DeepSeek 只列 4 个档位，「模型上下文」那张下拉里不会出现 Minimal/Medium/Extra high。
+
+**另一个已知偏差（上游不回显）**：网关在任何响应里都**不回报实际生效的 effort**
+（`/v1/models` 无档位字段；chat 响应的 `extra_fields` 只有 `request_type`、`routing_info`、
+`resolved_model_used`、`latency` 等）。所以「我设了 high；上游到底按 high 跑了吗」只能靠
+`reasoning_tokens` 分布间接判断，无法逐请求核对。
+
+### 5.3 上下文上限是 `context_limit`，`context_budget` 根本不执行（2026-10-21 修正）
+
+**原来的结论是错的。** 设计件 §5.1 与 spec 都写着「上下文窗口取 `context_budget`（**不是**
+`context_limit`）」，依据是 `20261020-opendesign-facts-web.md` §4.1 那句「`context_budget` 是输入预算、
+`output_budget` 是回答上限，二者都小于 `context_limit` —— 不要把 `context_limit` 当可用上下文」。
+那是对字段名的**推断**，没做过实测。实测下来，网关只执行 `context_limit`。
+
+**证据一：`context_budget` 完全不拦。** 用大 prompt 顶到 budget 的 1.15~4.4 倍，全部 200：
+
+| 模型 | context_budget | context_limit | 实际发出 prompt_tokens | 结果 |
+| --- | --- | --- | --- | --- |
+| `deepseek-v4.1-flash` | 328000 | 1048000 | 802842 | 200 ✅ |
+| `claude-haiku-5.5` | 228000 | 1000000 | 493393 | 200 ✅ |
+| `gpt-6-luna` | 400000 | 1050000 | 432790 | 200 ✅ |
+| `hy4-preview` | 232000 | 1048000 | 251039 | 200 ✅ |
+| `mimo-v2.6-flash` | 232000 | 1048000 | 242656 | 200 ✅ |
+| `deepseek-v4-flash` | 232000 | 1048000 | 358409 / 803337 / 955049 | 200 ✅ |
+
+**证据二：不是静默截断，是真读了。** 把唯一验证码 `MAGIC-7391` / `MAGIC-8824` / `K7Q2` 埋在
+prompt **开头**，中间塞几十万 token 填充，末尾提问：
+- `deepseek-v4.1-flash` 200747 tokens → 正确答出 `MAGIC-7391`
+- `deepseek-v4.1-flash` 602155 tokens（budget 的 1.8 倍）→ 正确答出 `MAGIC-8824`
+- `deepseek-v4.1-flash` 802842 tokens（budget 的 2.4 倍）→ 正确答出 `K7Q2`
+
+**证据三：拒绝边界贴着 `context_limit`。** `deepseek-v4-flash`（limit 1048000）二分：
+1031177 可行、1048383 被拒，报 `[code=context_length_exceeded] Input is too long…`。
+`kimi-k2.7-code`（limit = budget = 262000）在 290k 直接报
+`<400> InternalError.Algo.InvalidParameter: Range of input length should be [1, 262144]`，
+`262144` 与它公布的 `context_limit` 精确吻合。
+
+**证据四（决定性）：`context_limit` 的分母是「输入 + 输出」。** 同样 ~1044000 tokens 的输入：
+- `max_completion_tokens=16` → **200**，`prompt_tokens=1047688`（1047688 + 16 = 1047704 ≤ 1048000）
+- `max_completion_tokens=32768` → **400 context_length_exceeded**（1047688 + 32768 越界）
+
+这正好等于宿主 `LlmModelContext.contextWindow` 的定义：「Maximum combined request and response
+context in tokens」。所以 `context_limit` 才是该上报的值。
+
+**影响与修正**：之前上报 budget（只有真实额度的 22%~38%），宿主会在还能再用 2~4 倍上下文时就去
+压缩历史、白扔长上下文。已改 `src/gateway-facts.ts`（`fact.contextLimit`）与 `src/catalog-snapshot.ts`
+的 12 条静态值，并加回归测试锁住「同时给 limit 与更小的 budget 时取 limit」。
+`metadata.context_budget` 仍然解析保留（作为产品侧建议预算的证据），但不再参与窗口计算。
+
+**顺带记录的未决项**：`output_budget` 同样不是硬上限（`v4-flash` 的 32000 仍接受
+`max_completion_tokens=64000`/`128000` 并 200）。本轮未改 `maxTokens` 映射——它只是客户端
+`max_completion_tokens` 的默认值，报小一点不会丢数据，只会让默认回答偏短；是否抬到
+`output_budget` / `context_limit` 需要单独评估（涉及 kimi 的 thinking_budget 门限特例）。
 
 ## 6. 额度 / 用量 / 套餐 / 登录
 
