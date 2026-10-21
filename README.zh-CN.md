@@ -2,6 +2,14 @@
 
 [English](README.md) | 简体中文
 
+**安装（一条命令，不需要构建）：**
+
+```sh
+dsh plugin --profile desktop add git+https://github.com/Chee-0806/dsh-opendesign-provider.git
+```
+
+装完重启 DSH。`lib/` 已随仓库提交，所以 pnpm 从 git 安装时不需要跑构建脚本。
+
 非官方的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) **Open Design** LLM 提供方插件。
 它在 `llm-opendesign` 插件行下注册 `open-design` 路由，因此同一个 profile 里可以和其它提供方并存，
 路由与命名空间都不冲突。

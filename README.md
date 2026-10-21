@@ -2,6 +2,14 @@
 
 English | [简体中文](README.zh-CN.md)
 
+**Install (one command, no build step):**
+
+```sh
+dsh plugin --profile desktop add git+https://github.com/Chee-0806/dsh-opendesign-provider.git
+```
+
+Restart DSH afterwards. `lib/` is committed, so pnpm needs no build script to install from git.
+
 Unofficial [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) LLM provider for **Open
 Design**. It registers the `open-design` provider route under the `llm-opendesign` plugin row, so one profile
 can use Open Design models next to every other provider without route or namespace conflicts.
