@@ -47,7 +47,7 @@ export const REMOTE_NAMESPACE = 'opendesign'
 /**
  * The Cordis service key the Gateway resolves the models Remote from. Cordis
  * allows one service per key, so the quota Remote (ticket 10) provides its own
- * key — see `QUOTA_SERVICE` in `quota-wire.ts`.
+ * key: every `opendesign` endpoint is a method on that one service.
  */
 export const REMOTE_SERVICE = 'opendesignUsage'
 

@@ -32,6 +32,9 @@ export type SettingsOpenDesignKey =
   | 'apiKey'
   | 'apiKeyHint'
   | 'apiKeySet'
+  | 'apiKeySetLiteral'
+  | 'apiKeySetReference'
+  | 'apiKeySetCliLogin'
   | 'apiKeyUnset'
   | 'apiKeyUnknown'
   | 'apiKeyLocked'
@@ -132,6 +135,9 @@ export const zh: Record<SettingsOpenDesignKey, string> = {
   apiKey: 'API Key',
   apiKeyHint: '保存后只显示「已设置 / 未设置」；值写入凭据引用，不进入设置文档。',
   apiKeySet: '已设置',
+  apiKeySetLiteral: '已设置（配置内明文）',
+  apiKeySetReference: '已设置（凭据引用）',
+  apiKeySetCliLogin: '已设置（CLI 登录态）',
   apiKeyUnset: '未设置',
   apiKeyUnknown: '状态未知',
   apiKeyLocked: '凭据服务当前不可写',
@@ -196,7 +202,7 @@ export const zh: Record<SettingsOpenDesignKey, string> = {
   invalidFormat: '格式不正确',
   invalidTooSmall: '小于允许的最小值',
   invalidTooLarge: '超过允许的最大值',
-  cardTitle: 'Open Design',
+  cardTitle: '凭据与目录',
   cardKeyMissing: '未设置 API Key',
   cardPaste: '粘贴 Key 后保存',
   cardSave: '保存 Key',
@@ -215,6 +221,9 @@ export const en: Record<SettingsOpenDesignKey, string> = {
   apiKey: 'API key',
   apiKeyHint: 'After saving, only "set / not set" is shown; the value goes to a credential reference, never the settings document.',
   apiKeySet: 'Set',
+  apiKeySetLiteral: 'Set (literal in config)',
+  apiKeySetReference: 'Set (credential reference)',
+  apiKeySetCliLogin: 'Set (CLI login)',
   apiKeyUnset: 'Not set',
   apiKeyUnknown: 'Unknown',
   apiKeyLocked: 'The credential service is not writable',
@@ -279,7 +288,7 @@ export const en: Record<SettingsOpenDesignKey, string> = {
   invalidFormat: 'Invalid format',
   invalidTooSmall: 'Below the minimum',
   invalidTooLarge: 'Above the maximum',
-  cardTitle: 'Open Design',
+  cardTitle: '凭据与目录',
   cardKeyMissing: 'No API key set',
   cardPaste: 'Paste a key, then save',
   cardSave: 'Save key',

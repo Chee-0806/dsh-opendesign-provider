@@ -27,13 +27,6 @@ import {
 /** Canonical `<namespace>/<method>` endpoint of the quota snapshot. */
 export const QUOTA_ENDPOINT = `${REMOTE_NAMESPACE}/usage`
 
-/**
- * The Cordis service key the quota Remote is provided under. The models Remote
- * owns `opendesignUsage`; Cordis rejects a second service on the same key, so
- * the quota half brings its own.
- */
-export const QUOTA_SERVICE = 'opendesignQuota'
-
 const { reject, record, stringField, numberField, booleanField } = makeBoundaryValidator(
   'opendesign/usage result:',
 )
@@ -99,8 +92,6 @@ export const QUOTA_DESCRIPTOR: InvocationDescriptor = makeRemoteDescriptor<Quota
   'usage',
   `${REMOTE_PACKAGE}#QuotaSnapshot`,
   quotaSchema,
-  [],
-  QUOTA_SERVICE,
 )
 
 /** The Client-face contribution it mounts. */

@@ -139,8 +139,8 @@ test('apply registers the Open Design provider, adapter, models Remote and setti
   // 最后。旧 provider 的 login / enrollment / 账号池 / web search 仍不得回来。
   assert.deepEqual(
     injected,
-    [['typert'], ['typert'], ['commands'], ['settings']],
-    'only the two optional Remotes, the quota command and the settings bridge remain',
+    [['typert'], ['commands'], ['settings']],
+    'one optional Remote service (models + analytics + usage), the quota command and the settings bridge remain',
   )
   assert.deepEqual(configured, [{ auto: false }], 'the plugin ships its own page, so no auto form')
 })

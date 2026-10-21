@@ -1,7 +1,7 @@
 import z from "@deepseek-ai/schemastery";
 import { GenerateOptions, LlmAdapter, LlmError, LlmImageRequestPricing, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from "@deepseek-ai/dsh-llm";
 import { CredentialRef } from "@deepseek-ai/dsh-credentials";
-import { InvocationDescriptor, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
+import { InvocationDescriptor } from "@deepseek-ai/dsh-typert-protocol";
 import { Context } from "@deepseek-ai/cordis";
 import { ImageAttachmentRef, ImageRequestTarget, RequestImageAttachment } from "@deepseek-ai/dsh-attachment";
 import { CommandDefinition } from "@deepseek-ai/dsh-commands";
@@ -461,7 +461,7 @@ declare const REMOTE_NAMESPACE = "opendesign";
 /**
  * The Cordis service key the Gateway resolves the models Remote from. Cordis
  * allows one service per key, so the quota Remote (ticket 10) provides its own
- * key — see `QUOTA_SERVICE` in `quota-wire.ts`.
+ * key: every `opendesign` endpoint is a method on that one service.
  */
 declare const REMOTE_SERVICE = "opendesignUsage";
 /** The endpoint names under {@link REMOTE_NAMESPACE}. */
@@ -601,25 +601,6 @@ declare const QUOTA_ENDPOINT = "opendesign/usage";
 declare function parseQuotaSnapshot(value: unknown): QuotaSnapshot;
 /** The Host descriptor for `opendesign/usage`. */
 declare const QUOTA_DESCRIPTOR: InvocationDescriptor;
-//#endregion
-//#region src/quota-remote.d.ts
-/** Everything the service reads beyond its Cordis context. */
-interface OpenDesignQuotaDeps {
-  /** One quota reading (the Host's 60-second cache lives behind this thunk). */
-  quota: () => Promise<QuotaReading>;
-}
-/** The Cordis service the Typert Gateway resolves by {@link QUOTA_SERVICE}. */
-declare class OpenDesignQuotaService extends TypertRemoteService {
-  private readonly deps;
-  constructor(ctx: Context, deps: OpenDesignQuotaDeps);
-  /** The frozen snapshot, `stale` flag and all — never a raw control-plane page. */
-  usage(): Promise<QuotaSnapshot>;
-}
-/**
- * Provide the service and register its descriptor on an optional Typert
- * registry. A profile without the registry never reaches the callback.
- */
-declare function applyQuotaRemote(ctx: Context, deps: OpenDesignQuotaDeps): void;
 //#endregion
 //#region src/command-locales.d.ts
 /**
@@ -950,5 +931,5 @@ interface ResolvedOpenDesignOptions extends OpenDesignConnectionOptions {
 declare function resolveAdapterOptions(config: Config): ResolvedOpenDesignOptions;
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { ANALYTICS_LOCALE_NS, ANALYTICS_SECTION_ID, type AnalyticsCapabilityTier, type AnalyticsCostTier, type AnalyticsFoldResult, type AnalyticsHistoryCoverage, type AnalyticsModelRow, type AnalyticsModelStats, type AnalyticsQuery, type AnalyticsScope, type AnalyticsTotals, CONTROL_PLANE_TIMEOUT_MS, Config, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, DEFAULT_CONTROL_PLANE_API_URL, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, type DiagnosticsFacts, type DiagnosticsSnapshot, type FailureCode, type GatewayCatalogEntry, type GatewayCatalogFailureReason, type GatewayCatalogSourceKind, type GatewayCatalogStatus, type HttpFailureInput, MODELS_CACHE_RELATIVE_PATH, MODEL_CARD_KEY, NS, OpenDesignAdapter, type OpenDesignAdapterDeps, type OpenDesignAnalyticsReport, type OpenDesignConnectionOptions, OpenDesignControlPlane, type OpenDesignCredentialState, type OpenDesignQuotaDeps, OpenDesignQuotaService, type OpendesignCommandDeps, PACKAGE_NAME, PANEL_ID, PLUGIN_ID, PROVIDER, PROVIDER_DISPLAY_NAME, QUOTA_CACHE_TTL_MS, QUOTA_DESCRIPTOR, QUOTA_ENDPOINT, QUOTA_FIVE_HOUR_SECONDS, QUOTA_SEVEN_DAY_SECONDS, type QuotaReading, type QuotaSnapshot, type QuotaWindow, type QuotaWindowKind, REMOTE_ENDPOINTS, REMOTE_NAMESPACE, REMOTE_SERVICE, REQUEST_TIMING_ENV, ResolvedOpenDesignOptions, SETTINGS_SECTION_ID, STREAM_TRACE_ENV, apply, applyCommands, applyQuotaRemote, classifyQuotaWindow, commandDefinition, diagnosticsSnapshot, foldAnalytics, formatDiagnostics, inject, name, parseAnalyticsQuery, parseAnalyticsReport, parseQuotaSnapshot, renderQuota, resolveAdapterOptions, retryableFailureCodes };
+export { ANALYTICS_LOCALE_NS, ANALYTICS_SECTION_ID, type AnalyticsCapabilityTier, type AnalyticsCostTier, type AnalyticsFoldResult, type AnalyticsHistoryCoverage, type AnalyticsModelRow, type AnalyticsModelStats, type AnalyticsQuery, type AnalyticsScope, type AnalyticsTotals, CONTROL_PLANE_TIMEOUT_MS, Config, DEFAULT_API_BASE, DEFAULT_API_KEY_ENV, DEFAULT_CONTROL_PLANE_API_URL, DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_STREAM_IDLE_TIMEOUT_MS, type DiagnosticsFacts, type DiagnosticsSnapshot, type FailureCode, type GatewayCatalogEntry, type GatewayCatalogFailureReason, type GatewayCatalogSourceKind, type GatewayCatalogStatus, type HttpFailureInput, MODELS_CACHE_RELATIVE_PATH, MODEL_CARD_KEY, NS, OpenDesignAdapter, type OpenDesignAdapterDeps, type OpenDesignAnalyticsReport, type OpenDesignConnectionOptions, OpenDesignControlPlane, type OpenDesignCredentialState, type OpendesignCommandDeps, PACKAGE_NAME, PANEL_ID, PLUGIN_ID, PROVIDER, PROVIDER_DISPLAY_NAME, QUOTA_CACHE_TTL_MS, QUOTA_DESCRIPTOR, QUOTA_ENDPOINT, QUOTA_FIVE_HOUR_SECONDS, QUOTA_SEVEN_DAY_SECONDS, type QuotaReading, type QuotaSnapshot, type QuotaWindow, type QuotaWindowKind, REMOTE_ENDPOINTS, REMOTE_NAMESPACE, REMOTE_SERVICE, REQUEST_TIMING_ENV, ResolvedOpenDesignOptions, SETTINGS_SECTION_ID, STREAM_TRACE_ENV, apply, applyCommands, classifyQuotaWindow, commandDefinition, diagnosticsSnapshot, foldAnalytics, formatDiagnostics, inject, name, parseAnalyticsQuery, parseAnalyticsReport, parseQuotaSnapshot, renderQuota, resolveAdapterOptions, retryableFailureCodes };
 //# sourceMappingURL=index.d.ts.map

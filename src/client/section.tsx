@@ -18,7 +18,7 @@ import {
   noticeText,
   type SettingsOpenDesignKey,
 } from './locales.ts'
-import type { ContextOverrideDraft, FieldDraft, InvalidReason, SettingsField, SettingsModelRow, SettingsPageState, SettingsSaveOutcome } from './settings.ts'
+import { apiKeyBadgeKey, type ContextOverrideDraft, type FieldDraft, type InvalidReason, type SettingsField, type SettingsModelRow, type SettingsPageState, type SettingsSaveOutcome } from './settings.ts'
 
 /** The business face the slot registration injects into the page. */
 export interface SettingsPageInjected {
@@ -180,11 +180,7 @@ export function OpenDesignSettingsPage(props: OpenDesignSettingsPageProps) {
               <span className="od-rowTitleLine">
                 <span className="od-rowTitle">{t('apiKey')}</span>
                 <span className={state.apiKeyConfigured ? 'od-badge' : 'od-badgeMuted'}>
-                  {state.apiKeyConfigured
-                    ? t('apiKeySet')
-                    : state.apiKeyKnown
-                      ? t('apiKeyUnset')
-                      : t('apiKeyUnknown')}
+                  {t(apiKeyBadgeKey(state))}
                 </span>
               </span>
               <span className="od-rowDesc">{t('apiKeyHint')}</span>

@@ -21,6 +21,8 @@ import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type { CredentialChainResult } from './credentials.ts'
 import type { GatewayCatalogStatus } from './gateway-facts.ts'
 import { REMOTE_NAMESPACE, REMOTE_SERVICE } from './identity.ts'
+import type { QuotaSnapshot } from './control-plane.ts'
+import { QUOTA_DESCRIPTOR } from './quota-wire.ts'
 import { analyticsReport, type OpenDesignAnalyticsDeps } from './analytics-remote.ts'
 import {
   ANALYTICS_DESCRIPTOR,
@@ -47,6 +49,12 @@ export interface OpenDesignModelsDeps {
    * `ctx.inject(['typert'])` scopes cannot see each other's services.
    */
   analytics?: OpenDesignAnalyticsDeps | undefined
+  /**
+   * Ticket 10's quota read. Supplying it adds the `usage` method to this one
+   * Service and registers its descriptor — the Typert Gateway resolves one
+   * service per namespace, so a second service could never receive the call.
+   */
+  quota?: (() => Promise<QuotaSnapshot>) | undefined
 }
 
 /** Project one catalog status onto the wire shape. */
@@ -113,12 +121,19 @@ export class OpenDesignModelsService extends TypertRemoteService {
    */
   readonly analytics?: ((query: AnalyticsQuery) => Promise<OpenDesignAnalyticsReport>) | undefined
 
+  /** The ticket 10 quota read, present only when the plugin supplied quota deps. */
+  readonly usage?: (() => Promise<QuotaSnapshot>) | undefined
+
   constructor(ctx: Context, deps: OpenDesignModelsDeps) {
     super(ctx, REMOTE_SERVICE, { namespace: REMOTE_NAMESPACE })
     this.deps = deps
     if (deps.analytics !== undefined) {
       const analyticsDeps = deps.analytics
       this.analytics = (query: AnalyticsQuery) => analyticsReport(analyticsDeps, query)
+    }
+    if (deps.quota !== undefined) {
+      const quota = deps.quota
+      this.usage = () => quota()
     }
   }
 
@@ -156,9 +171,11 @@ function hostContribution(deps: OpenDesignModelsDeps): {
     face: 'host',
     schemas: [],
     model: { services: [], events: [], objects: [] },
-    invocations: deps.analytics === undefined
-      ? [MODELS_DESCRIPTOR]
-      : [MODELS_DESCRIPTOR, ANALYTICS_DESCRIPTOR],
+    invocations: [
+      MODELS_DESCRIPTOR,
+      ...(deps.analytics === undefined ? [] : [ANALYTICS_DESCRIPTOR]),
+      ...(deps.quota === undefined ? [] : [QUOTA_DESCRIPTOR]),
+    ],
   }
 }
 

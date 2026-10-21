@@ -15,7 +15,7 @@ import {
   QUOTA_ENDPOINT,
   parseQuotaSnapshot,
 } from '../src/quota-wire.ts'
-import { OpenDesignQuotaService } from '../src/quota-remote.ts'
+import { OpenDesignModelsService } from '../src/models-remote.ts'
 import { OpenDesignControlPlane } from '../src/control-plane.ts'
 import type { QuotaReading, QuotaSnapshot } from '../src/control-plane.ts'
 import { commandDefinition } from '../src/commands.ts'
@@ -75,9 +75,14 @@ test('strict 边界解析接受冻结快照并拒绝坏形状', () => {
 test('Remote 服务返回冻结快照（Host 侧唯一数据入口）', async () => {
   const ctx = new Context()
   const reading: QuotaReading = { snapshot: SNAPSHOT, creditsPerUsd: 10000 }
-  const service = new OpenDesignQuotaService(ctx, { quota: async () => reading })
+  const service = new OpenDesignModelsService(ctx, {
+    catalogStatus: async () => ({ source: 'live', apiBase: 'https://x', cached: false, models: [] }) as never,
+    credentialStatus: async () => ({}) as never,
+    quota: async () => reading.snapshot,
+  })
   assert.ok(service instanceof Service)
-  assert.deepEqual(await service.usage(), SNAPSHOT)
+  assert.ok(service.usage !== undefined)
+  assert.deepEqual(await service.usage!(), SNAPSHOT)
 })
 
 test('命令与 Remote 共用同一份缓存：连续三次展示只查一轮控制面', async () => {
@@ -119,14 +124,18 @@ test('命令与 Remote 共用同一份缓存：连续三次展示只查一轮控
 
   const control = new OpenDesignControlPlane({ loginPath, fetchImpl, now: () => 1_800_000_000_000 })
   const quota = (): Promise<QuotaReading> => control.read({ model: 'deepseek-v4.1-flash' })
-  const service = new OpenDesignQuotaService(new Context(), { quota })
+  const service = new OpenDesignModelsService(new Context(), {
+    catalogStatus: async () => ({ source: 'live', apiBase: 'https://x', cached: false, models: [] }) as never,
+    credentialStatus: async () => ({}) as never,
+    quota: async () => (await quota()).snapshot,
+  })
   const command = commandDefinition({
     quota,
     model: async () => 'deepseek-v4.1-flash',
     getLocale: () => 'zh',
   })
 
-  const fromRemote = await service.usage()
+  const fromRemote = await service.usage!()
   assert.equal(fromRemote.windows.length, 1)
   await command.handler({ rawInput: '' } as never)
   await command.handler({ rawInput: '' } as never)

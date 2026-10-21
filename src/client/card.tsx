@@ -14,7 +14,7 @@
 import { useState, useSyncExternalStore } from 'react'
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 
-import { cardMode, type SettingsPageState } from './settings.ts'
+import { apiKeyBadgeKey, cardMode, type SettingsPageState } from './settings.ts'
 import { noticeText, type SettingsOpenDesignKey } from './locales.ts'
 import type { SettingsPageInjected } from './section.tsx'
 
@@ -92,7 +92,7 @@ export function OpenDesignProviderCard(props: OpenDesignProviderCardProps) {
         <div className="od-rowText">
           <span className="od-rowTitleLine">
             <span className="od-rowTitle">{t('cardTitle')}</span>
-            <Badge ok={keySet}>{keySet ? t('apiKeySet') : state.apiKeyKnown ? t('apiKeyUnset') : t('apiKeyUnknown')}</Badge>
+            <Badge ok={keySet}>{t(apiKeyBadgeKey(state))}</Badge>
           </span>
           <span className="od-rowDesc">{t('apiKeyHint')}</span>
         </div>

@@ -58,7 +58,6 @@ import { applyModelsRemote } from './models-remote.ts'
 import { modelIsVisible } from './model-visibility.ts'
 import type { SessionQueryLike } from './analytics-history.ts'
 import { OpenDesignControlPlane, type QuotaReading } from './control-plane.ts'
-import { applyQuotaRemote } from './quota-remote.ts'
 import { applyCommands, resolveCommandLocale } from './commands.ts'
 import {
   DEFAULT_REQUEST_TIMEOUT_MS,
@@ -131,8 +130,6 @@ export {
 } from './control-plane.ts'
 export type { QuotaReading, QuotaSnapshot, QuotaWindow, QuotaWindowKind } from './control-plane.ts'
 export { QUOTA_DESCRIPTOR, QUOTA_ENDPOINT, parseQuotaSnapshot } from './quota-wire.ts'
-export { OpenDesignQuotaService, applyQuotaRemote } from './quota-remote.ts'
-export type { OpenDesignQuotaDeps } from './quota-remote.ts'
 export { applyCommands, commandDefinition, renderQuota } from './commands.ts'
 export type { OpendesignCommandDeps } from './commands.ts'
 export { retryableFailureCodes } from './error-taxonomy.ts'
@@ -434,6 +431,7 @@ export function apply(ctx: Context, config: Config): void {
   applyModelsRemote(ctx, {
     catalogStatus: () => adapter.catalogStatus(),
     credentialStatus: resolveChain,
+    quota: async () => (await readQuota(await defaultModel())).snapshot,
     analytics: {
       sessionQuery: () => ctx.get('sessionQuery') as SessionQueryLike | undefined,
       catalogStatus: () => adapter.catalogStatus(),
@@ -465,10 +463,6 @@ export function apply(ctx: Context, config: Config): void {
       return undefined
     }
   }
-
-  applyQuotaRemote(ctx, {
-    quota: async () => readQuota(await defaultModel()),
-  })
 
   // `/opendesign` rides the optional `commands` service: a profile without
   // dsh-commands simply never activates this fiber, and the plugin keeps

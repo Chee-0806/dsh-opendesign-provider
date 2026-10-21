@@ -234,6 +234,23 @@ export function cardMode(state: SettingsPageState): 'unavailable' | 'readonly' |
   return state.writable ? 'ready' : 'readonly'
 }
 
+/**
+ * Which badge copy states where the resolved key comes from. A bare "已设置"
+ * hid the difference between a pasted key, a credential reference and the CLI
+ * login state; the settings page and the card share this decision so they
+ * cannot disagree.
+ */
+export function apiKeyBadgeKey(
+  state: SettingsPageState,
+): 'apiKeySetLiteral' | 'apiKeySetReference' | 'apiKeySetCliLogin' | 'apiKeySet' | 'apiKeyUnset' | 'apiKeyUnknown' {
+  if (!state.apiKeyKnown) return 'apiKeyUnknown'
+  if (!state.apiKeyConfigured) return 'apiKeyUnset'
+  if (state.credentialSource === 'literal') return 'apiKeySetLiteral'
+  if (state.credentialSource === 'reference') return 'apiKeySetReference'
+  if (state.credentialSource === 'cli-login') return 'apiKeySetCliLogin'
+  return 'apiKeySet'
+}
+
 /** Context rows: every catalog model plus any override key the catalog omits. */
 function contextRows(
   models: readonly ModelsReportEntry[],
