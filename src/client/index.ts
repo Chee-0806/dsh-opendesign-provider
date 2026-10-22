@@ -40,6 +40,7 @@ import { OpenDesignSettingsPage, type SettingsPageInjected } from './section.tsx
 import { OpenDesignProviderCard, type OpenDesignProviderCardProps } from './card.tsx'
 import { PAGE_CSS, PAGE_CSS_ID } from './page-styles.ts'
 import { PANEL_CSS, PANEL_CSS_ID } from './panel-styles.ts'
+import { TOKEN_CSS, TOKEN_CSS_ID } from './tokens.ts'
 import { en, zh } from './locales.ts'
 import { EN as PANEL_EN, PANEL_LOCALE_NS, ZH as PANEL_ZH } from './panel-locales.ts'
 import {
@@ -93,6 +94,12 @@ const CLIENT_REMOTE_CONTRIBUTION = {
 
 /** Client plugin body. */
 export function apply(ctx: Context): void {
+  // The token layer goes in FIRST: it defines the `--od-*` metrics both sheets
+  // read, and CSS custom properties resolve regardless of source order, but
+  // injecting it first keeps the style tags in dependency order for anyone
+  // reading the document head.
+  const removeTokens = injectCss(TOKEN_CSS_ID, TOKEN_CSS)
+  ctx.effect(() => removeTokens, 'dsh-opendesign-provider: design tokens')
   const removeCss = injectCss(PAGE_CSS_ID, PAGE_CSS)
   ctx.effect(() => removeCss, 'dsh-opendesign-provider: page styles')
   ctx.effect(

@@ -33,6 +33,7 @@ import { cardMode, OpenDesignSettingsController } from '../../src/client/setting
 import { OpenDesignQuotaPanelController } from '../../src/client/panel.ts'
 import { PAGE_CSS } from '../../src/client/page-styles.ts'
 import { PANEL_CSS } from '../../src/client/panel-styles.ts'
+import { TOKEN_CSS } from '../../src/client/tokens.ts'
 import { zh as zhSettings } from '../../src/client/locales.ts'
 import { panelTranslate } from '../../src/client/panel-locales.ts'
 
@@ -330,73 +331,96 @@ function panelFace(controller: OpenDesignQuotaPanelController) {
 // ------------------------------------------------------------------ page shell
 
 /**
- * Neutral samples for the `--dsw-*` aliases the stylesheets read.
+ * The harness's real `--dsw-*` alias values, transcribed from
+ * `dsh-client-ui-theme`'s runtime token blocks (light: `body{…}`, dark:
+ * `body[data-ds-dark-theme]{…}`), resolved through the `--dsw-static-*` palette.
  *
- * Most references carry NO fallback, so an undefined alias renders as plain
- * `inherit`/transparent — without these blocks the preview would show the
- * right layout in the wrong colours. These are placeholders, not the harness
- * palette: never read a real theme decision out of them.
+ * These used to be invented placeholders, and one of them was lying: the
+ * preview painted `--dsw-alias-brand-primary` blue, while the harness resolves
+ * that alias to a MONOCHROME (#0f1115 light / #f9fafb dark, the same value as
+ * `label-primary`). Every progress bar and checked switch therefore looked
+ * correctly blue here and washed out in the real app. The accent the stylesheets
+ * actually need is `--dsw-alias-state-business-primary` (#4176e6 / #7aaaff).
+ *
+ * So these ARE the harness palette now, not a stand-in. If the harness renames
+ * or re-values an alias, update this table with it — a preview that disagrees
+ * with the host cannot catch a host-integration bug, which is the only reason
+ * this file exists.
  */
 const THEME_TOKENS = `
   --dsw-alias-bg-layer-1: #ffffff;
-  --dsw-alias-bg-layer-2: #f7f8fa;
+  --dsw-alias-bg-layer-2: #ffffff;
   --dsw-alias-bg-layer-3: #ffffff;
-  --dsw-alias-bg-module-platform: #ffffff;
-  --dsw-alias-border-l2: #e5e7eb;
-  --dsw-alias-border-l3: #d1d5db;
-  --dsw-alias-border-l4: #9ca3af;
-  --dsw-alias-brand-primary: #3b82f6;
-  --dsw-alias-button-primary-fill: #2563eb;
-  --dsw-alias-button-primary-hover: #1d4ed8;
-  --dsw-alias-interactive-bg-hover: rgba(17, 24, 39, 0.06);
-  --dsw-alias-interactive-bg-hover-danger: rgba(220, 38, 38, 0.08);
-  --dsw-alias-label-primary: #111827;
+  --dsw-alias-bg-module-platform: #f9fafb;
+  --dsw-alias-border-l2: #0000001a;
+  --dsw-alias-border-l3: #0000001f;
+  --dsw-alias-border-l4: #00000029;
+  --dsw-alias-brand-primary: #0f1115;
+  --dsw-alias-state-business-primary: #4176e6;
+  --dsw-alias-button-primary-fill: #0f1115;
+  --dsw-alias-button-primary-hover: #43454a;
+  --dsw-alias-interactive-bg-hover: #2631480f;
+  --dsw-alias-interactive-bg-hover-danger: #ec13130d;
+  --dsw-alias-label-primary: #0f1115;
   --dsw-alias-label-primary-foreground: #ffffff;
-  --dsw-alias-label-secondary: #4b5563;
-  --dsw-alias-label-tertiary: #6b7280;
-  --dsw-alias-label-dimmed: #9ca3af;
-  --dsw-alias-link: #2563eb;
-  --dsw-alias-state-error-primary: #dc2626;
-  --dsw-alias-state-success-primary: #16a34a;
-  --dsw-alias-state-warn-label: #b45309;
+  --dsw-alias-label-secondary: #61666b;
+  --dsw-alias-label-tertiary: #81858c;
+  --dsw-alias-label-dimmed: #e1e5ee;
+  --dsw-alias-link: #4176e6;
+  --dsw-alias-state-error-primary: #ec1313;
+  --dsw-alias-state-success-primary: #22c55e;
+  --dsw-alias-state-warn-label: #dd8629;
   --dsw-alias-state-warn-primary: #f59e0b;
-  --dsw-alias-state-warn-tertiary: #fde68a;
-  --dsw-elevation-prominent: 0 12px 32px -8px rgba(15, 23, 42, 0.24);
-  --dsw-elevation-soft: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --dsw-static-neutral-bluish-400: #94a3b8;
-  --dsw-radius-md: 8px;
-  --dsw-radius-sm: 6px;
+  --dsw-alias-state-warn-tertiary: #fef5e7;
+  --dsw-elevation-stroke-color: #00000029;
+  --dsw-elevation-stroke: 0 0 0 .5px var(--dsw-elevation-stroke-color);
+  --dsw-elevation-prominent: var(--dsw-elevation-stroke), 0 3px 8px 0 #0000000a, 0 0 20px 0 #0000000d;
+  --dsw-elevation-soft: var(--dsw-elevation-stroke), 0 4px 16px 0 #00000008, 0 0 24px 0 #00000008;
+  --dsw-static-neutral-bluish-400: #adb2b8;
+  --dsw-radius-xs: 4px;
+  --dsw-radius-sm: 8px;
+  --dsw-radius-md: 12px;
+  --dsw-radius-lg: 16px;
+  --dsw-focus-ring-width: 2px;
+  --dsw-focus-ring-color: #4176e6;
 `
 
 const THEME_DARK = `
-  --dsw-alias-bg-layer-1: #16181d;
-  --dsw-alias-bg-layer-2: #1c1f26;
-  --dsw-alias-bg-layer-3: #22262e;
-  --dsw-alias-bg-module-platform: #1c1f26;
-  --dsw-alias-border-l2: #2b3039;
-  --dsw-alias-border-l3: #383e49;
-  --dsw-alias-border-l4: #4b525e;
-  --dsw-alias-brand-primary: #60a5fa;
-  --dsw-alias-button-primary-fill: #3b82f6;
-  --dsw-alias-button-primary-hover: #2563eb;
-  --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
-  --dsw-alias-interactive-bg-hover-danger: rgba(248, 113, 113, 0.12);
-  --dsw-alias-label-primary: #f3f4f6;
-  --dsw-alias-label-primary-foreground: #0b0d11;
-  --dsw-alias-label-secondary: #b8bec9;
-  --dsw-alias-label-tertiary: #8d95a3;
-  --dsw-alias-label-dimmed: #6b7380;
-  --dsw-alias-link: #7ab0ff;
-  --dsw-alias-state-error-primary: #f87171;
-  --dsw-alias-state-success-primary: #4ade80;
-  --dsw-alias-state-warn-label: #fbbf24;
+  --dsw-alias-bg-layer-1: #232324;
+  --dsw-alias-bg-layer-2: #2c2c2e;
+  --dsw-alias-bg-layer-3: #353638;
+  --dsw-alias-bg-module-platform: #353638;
+  --dsw-alias-border-l2: #ffffff1f;
+  --dsw-alias-border-l3: #ffffff29;
+  --dsw-alias-border-l4: #ffffff33;
+  --dsw-alias-brand-primary: #f9fafb;
+  --dsw-alias-state-business-primary: #7aaaff;
+  --dsw-alias-button-primary-fill: #f9fafb;
+  --dsw-alias-button-primary-hover: #ebeef2;
+  --dsw-alias-interactive-bg-hover: #ffffff14;
+  --dsw-alias-interactive-bg-hover-danger: #f25a5a26;
+  --dsw-alias-label-primary: #f9fafb;
+  --dsw-alias-label-primary-foreground: #0f1115;
+  --dsw-alias-label-secondary: #cfd3d6;
+  --dsw-alias-label-tertiary: #adb2b8;
+  --dsw-alias-label-dimmed: #43454a;
+  --dsw-alias-link: #7aaaff;
+  --dsw-alias-state-error-primary: #f25a5a;
+  --dsw-alias-state-success-primary: #22c55e;
+  --dsw-alias-state-warn-label: #dd8629;
   --dsw-alias-state-warn-primary: #f59e0b;
-  --dsw-alias-state-warn-tertiary: #453312;
-  --dsw-elevation-prominent: 0 12px 32px -8px rgba(0, 0, 0, 0.6);
-  --dsw-elevation-soft: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --dsw-static-neutral-bluish-400: #7d8794;
-  --dsw-radius-md: 8px;
-  --dsw-radius-sm: 6px;
+  --dsw-alias-state-warn-tertiary: #27241f;
+  --dsw-elevation-stroke-color: #ffffff33;
+  --dsw-elevation-stroke: 0 0 0 .5px var(--dsw-elevation-stroke-color);
+  --dsw-elevation-prominent: var(--dsw-elevation-stroke), 0 3px 8px 0 #0000000a, 0 0 20px 0 #0000000d;
+  --dsw-elevation-soft: var(--dsw-elevation-stroke), 0 4px 16px 0 #00000008, 0 0 24px 0 #00000008;
+  --dsw-static-neutral-bluish-400: #adb2b8;
+  --dsw-radius-xs: 4px;
+  --dsw-radius-sm: 8px;
+  --dsw-radius-md: 12px;
+  --dsw-radius-lg: 16px;
+  --dsw-focus-ring-width: 2px;
+  --dsw-focus-ring-color: #7aaaff;
 `
 
 /** Chrome for this preview only — never part of either shipped stylesheet. */
@@ -604,6 +628,7 @@ function PreviewPage(props: { cases: Case[] }) {
     <>
       <style>{`:root {${THEME_TOKENS}} [data-theme="dark"] {${THEME_DARK}}`}</style>
       <style>{SHELL_CSS}</style>
+      <style data-plugin-css="tokens">{TOKEN_CSS}</style>
       <style data-plugin-css="page">{PAGE_CSS}</style>
       <style data-plugin-css="panel">{PANEL_CSS}</style>
       <header className="pv-bar">
