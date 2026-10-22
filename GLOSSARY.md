@@ -66,3 +66,16 @@
 17. **计费口径（Funding mode）**：当前请求先扣哪份额度——Design Plan 额度还是钱包余额；控制面 `funding` 字段如实转述。
 18. **额度当量（Quota equivalent）**：把控制面报出的 credits 按其 `creditsPerUsd` 换算出的展示用美元数，只用于额度窗口与余额，
 不得用于重建模型价格（见 ADR-0002 范围澄清）。
+
+## 八、界面与设计令牌
+
+1. **设计令牌层（Design token layer）**：插件自有的 `--od-*` 度量变量集合（间距、圆角、控件高、字阶、动效、
+   焦点偏移），定义在 `src/client/tokens.ts`，锚在插件自有界面根类上而非 `:root`。只承载度量，不承载颜色。
+2. **宿主别名（Host alias）**：宿主运行时注入的 `--dsw-alias-*` 语义颜色变量（101 个，亮暗各一套，由
+   `body[data-ds-dark-theme]` 整体切换）。是本插件**唯一**的颜色真源。
+3. **强调色（Accent）**：需要颜色识别的强调位置所用的蓝，取宿主 `--dsw-alias-state-business-primary`
+   （`#4176e6` / `#7aaaff`）。**不是** `--dsw-alias-brand-primary` —— 后者在本宿主里是单色（近黑/近白）。
+4. **密度档（Density）**：控件高度的取用档位。插件取设计体系的 compact 档并与宿主原生对齐：
+   输入 32px、主操作 36px、次级 28px；保存条容器高 44px 属浮层高度，不是控件档。
+5. **死规则 / 死令牌（Dead rule / dead token）**：规则里所有 `od-`/`odp-` 类都没有任何组件渲染，或令牌从未被
+   任何规则引用。两者由 `tests/css-hygiene.test.ts` 双向拦截。
