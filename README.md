@@ -10,6 +10,9 @@ dsh plugin --profile desktop add git+https://github.com/Chee-0806/dsh-opendesign
 
 Restart DSH afterwards. `lib/` is committed, so pnpm needs no build script to install from git.
 
+**Supported DSH engines:** `0.2.1-rc.2` (npm `latest`) and `0.2.1-rc.3` (npm `next`). `engines.dsh` is
+authoritative — DSH's admission preflight disables this bundle on any other engine version.
+
 Unofficial [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) LLM provider for **Open
 Design**. It registers the `open-design` provider route under the `llm-opendesign` plugin row, so one profile
 can use Open Design models next to every other provider without route or namespace conflicts.

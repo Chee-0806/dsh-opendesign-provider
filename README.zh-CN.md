@@ -10,6 +10,9 @@ dsh plugin --profile desktop add git+https://github.com/Chee-0806/dsh-opendesign
 
 装完重启 DSH。`lib/` 已随仓库提交，所以 pnpm 从 git 安装时不需要跑构建脚本。
 
+**支持的 DSH 引擎：** `0.2.1-rc.2`（npm `latest`）与 `0.2.1-rc.3`（npm `next`）。以 `engines.dsh` 为准——
+宿主准入预检会在其它引擎版本上禁用本 bundle。
+
 非官方的 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) **Open Design** LLM 提供方插件。
 它在 `llm-opendesign` 插件行下注册 `open-design` 路由，因此同一个 profile 里可以和其它提供方并存，
 路由与命名空间都不冲突。

@@ -73,7 +73,7 @@ test('package metadata names the Open Design package, not the old provider', () 
     homepage?: string
   }
   assert.equal(pkg.name, PACKAGE_NAME)
-  assert.equal(pkg.version, '0.1.0')
+  assert.equal(pkg.version, '0.1.1')
   assert.match(pkg.description, /Open Design/)
   assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml')
   assert.equal(pkg.dsh?.client?.platform, 'web')

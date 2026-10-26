@@ -113,7 +113,7 @@
 ### 身份与装配
 
 - 新建一个「身份」模块集中全部身份串：provider id `open-design`、显示名 `Open Design`、设置命名空间 `llm-opendesign`、默认凭据环境变量 `OPEN_DESIGN_API_KEY`、目录缓存路径、Remote 命名空间 `opendesign`、Remote 服务名、设置页/模型卡/额度面板的插槽 id。其余模块只引用该模块，不再写字面量。
-- 插件包名改为 `@mars-sea/dsh-opendesign-provider`，版本从 `0.1.0` 重新起算；bundle 补丁只 insert 自己一行（`llm-opendesign`），不改动 profile 的其他路由；保留 DSH 引擎兼容声明（`0.2.0-rc.2 || 0.2.1-rc.2`）与全部 Harness peer 声明。
+- 插件包名改为 `@mars-sea/dsh-opendesign-provider`，版本从 `0.1.0` 重新起算；bundle 补丁只 insert 自己一行（`llm-opendesign`），不改动 profile 的其他路由；保留 DSH 引擎兼容声明（当前矩阵 `0.2.1-rc.2 || 0.2.1-rc.3`，2026-10-26 随 rc.3 前移）与全部 Harness peer 声明。
 - Host 半的装配收敛为：注册「可配置 provider」+ 注册 adapter + 设置 describe/mutate 桥 +（P1）命令与额度 Remote 注入；删除登录、账号开通、联网搜索、TUI 的 optional inject。
 - 客户端半只注册两个插槽（设置页、Models 页卡片），（P1）再加额度面板的两个插槽；不注册会话费用 dock（无金额可显示）。
 

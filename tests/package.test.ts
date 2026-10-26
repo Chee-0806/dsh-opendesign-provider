@@ -75,10 +75,11 @@ test('per-release DSH compatibility lists only verified releases', () => {
 })
 
 test('DSH compatibility keeps both verified engine releases of the RC channel', () => {
-  // 用户 2026-10-18 拍板的向下兼容策略：同时保留 npm `latest` 仍指向的
-  // `0.2.0-rc.2` 与最新的 `0.2.1-rc.2`。这与上一轮「同通道只留最新一版」的
-  // 单引擎收敛相反 —— 按官方默认方式安装的用户拿到的正是 `latest`，只声明
-  // rc.2 会把这一整批用户挡在准入之外（issue #77／#78 的复现面）。
+  // 用户 2026-10-18 拍板的准入下限继续成立：官方默认安装方式（npm `latest`）
+  // 跑的那一版必须可用，另加通道最新且已验证的一版。2026-10-26 复核时
+  // `latest` 已前移到 `0.2.1-rc.2`、`next` 为 `0.2.1-rc.3`，因此矩阵由
+  // `{0.2.0-rc.2, 0.2.1-rc.2}` 替换为 `{0.2.1-rc.2, 0.2.1-rc.3}`：
+  // `0.2.0-rc.2` 不再是默认安装版本，同通道不累加历史分支。
   // 代价照旧：新增分支必须先在完整真实引擎矩阵下跑通（`npm run test:engine`
   // 与 `npm run test:install` 逐版本结算），声明面不允许出现没有验证记录的引擎。
   // 离线测试只约束数量、版本与形态，不请求网络。
@@ -86,7 +87,7 @@ test('DSH compatibility keeps both verified engine releases of the RC channel', 
   assert.equal(declared.length, 2, 'keep exactly two declared engine releases')
   assert.deepEqual(
     [...declared].sort(),
-    ['0.2.0-rc.2', '0.2.1-rc.2'],
+    ['0.2.1-rc.2', '0.2.1-rc.3'],
     'the RC channel keeps the npm-latest engine alongside the newest verified one',
   )
 })
